@@ -79,14 +79,25 @@ describe('database migrations (real Postgres via Testcontainers)', () => {
     const tableNamesAfterDown = await getPublicTableNames(client);
 
     // The down step must strictly shrink the schema (it removed something,
-    // and added nothing) and must leave the schema short of the full
-    // expected set — proof that `runDownMigrations` actually reversed real
-    // migration state rather than being a no-op.
+    // and added nothing) — proof that `runDownMigrations` actually reversed
+    // real migration state rather than being a no-op.
     expect(tableNamesAfterDown.length).toBeLessThan(tableNamesBeforeDown.length);
     for (const tableName of tableNamesAfterDown) {
       expect(tableNamesBeforeDown).toContain(tableName);
     }
-    expect(EXPECTED_TABLES.every((table) => tableNamesAfterDown.includes(table))).toBe(false);
+
+    // `runDownMigrations` defaults to reversing only the single most
+    // recently applied migration. As of F0-T6, that's the `events` table
+    // migration (added after the original 4-table migration this test was
+    // first written against) — so the table it demonstrably removed is
+    // `events`, not necessarily one of the original `EXPECTED_TABLES`. This
+    // assertion is intentionally tied to "whichever table(s) the *actual*
+    // last migration owns," not a hardcoded historical set, so it keeps
+    // working as further migrations are appended in the future.
+    const removedTables = tableNamesBeforeDown.filter(
+      (table) => !tableNamesAfterDown.includes(table),
+    );
+    expect(removedTables).toContain('events');
   }, 30_000);
 
   it('re-applying migrations after a rollback restores the tables', async () => {

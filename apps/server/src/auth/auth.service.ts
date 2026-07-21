@@ -5,6 +5,7 @@ import { ConflictError, UnauthorizedError } from '@luminaos/shared';
 
 import { hashPassword, verifyPassword } from './password.js';
 import { SessionService } from './session.service.js';
+import { hasPostgresErrorCode } from '../common/postgres-error.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
 import { users } from '../db/schema/users.js';
 
@@ -32,15 +33,6 @@ export interface AuthResult {
 // failed" reply).
 const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=3,p=4$2Y3ntsyOOMe6HGqRcvSSfw$m0/CzTPjs2SFhhKtWv7uAmWtIhpnr56TeLtDDBOu6vc';
-
-/**
- * Narrow, structural check for the shape `pg`/`node-postgres` errors have
- * (a `code` string property) without importing `pg`'s error class directly
- * or resorting to `any`.
- */
-function hasPostgresErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
-}
 
 @Injectable()
 export class AuthService {
