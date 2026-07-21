@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "node -e \"process.exit(0)\""
+    "lint": "eslint ."
   },
   "dependencies": {
     "@luminaos/shared": "workspace:*",
