@@ -3,16 +3,19 @@
 Bağlam-öncelikli, ajan-destekli Work OS. Monorepo: pnpm workspaces + Turborepo.
 
 ## Gereksinimler
+
 - Node 24.x (bkz. `.nvmrc`)
 - Corepack (Node ile birlikte gelir)
 
 ## Kurulum
+
 ```bash
 corepack enable
 pnpm install
 ```
 
 ## Komutlar
+
 - `pnpm build` — tüm paketleri derler (`turbo run build`)
 - `pnpm test` — tüm paketlerde Vitest koşar
 - `pnpm typecheck` — `tsc --noEmit`, tüm paketlerde
@@ -21,6 +24,7 @@ pnpm install
 - `pnpm --filter @luminaos/core-objects build` — tek paketi derler
 
 ## Yapı
+
 - `apps/server` — NestJS API (`/health`)
 - `apps/web` — Vite + React istemci
 - `packages/*` — saf TypeScript domain paketleri

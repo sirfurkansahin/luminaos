@@ -3,6 +3,7 @@
 Elindeki her şeyin ne işe yaradığını ve sırayla ne yapacağını en basit haliyle anlatıyorum.
 
 ## Benzetme: İnşaat
+
 - **docs/PLAN.md** → İnşaatın mimari projesi. Sen (patron) ve Claude Code (usta) için yol haritası. Kod değil, plan.
 - **CLAUDE.md** → Şantiye kuralları panosu. Claude Code bu dosyayı **her açılışta otomatik okur** ve kurallara uyar. Senin bir şey yapmana gerek yok; sadece doğru yerde (proje klasörünün kökünde) durması yeterli.
 - **docs/specs/ içindeki dosyalar** → İş emri fişleri. Her dosya = Claude Code'a vereceğin **tek bir görev**. Sen bunları teker teker "yap" diye vereceksin.
@@ -47,12 +48,15 @@ Claude Code sana bir plan gösterecek → sen "onaylıyorum" diyeceksin → o ko
 F0-T4 bittiğinde sistem tam kurulmuş olur; ondan sonra PLAN.md'nin 6. bölümündeki Faz 1 görevlerine geçilir (o görevlerin spec dosyalarını sırası geldikçe yine benimle yazabilirsin).
 
 ## Senin Rolün Ne?
+
 Kod yazmayacaksın. Üç şey yapacaksın:
+
 1. **Görev vermek** (yukarıdaki kalıpla, sırayla).
 2. **Planı onaylamak/reddetmek** (Claude plan gösterdiğinde okuyup "evet" veya "şunu değiştir" demek).
 3. **Sonucu kontrol etmek** (görev sonunda "kabul kriterlerinin hepsini kanıtla" diye sormak — Claude test çıktılarını gösterir).
 
 ## Sık Sorulanlar
+
 - **"CLAUDE.md'yi Claude'a vermem gerekiyor mu?"** Hayır. Klasörde durduğu sürece otomatik okunur.
 - **"PLAN.md'yi vermem gerekiyor mu?"** Gerekmez ama ilk oturumda "docs/PLAN.md'yi oku, projeyi tanı" demek iyi bir başlangıçtır.
 - **"Bir şey ters giderse?"** Claude Code'a "bu hatayı düzelt" de; ya da bu sohbete dön, birlikte çözelim.

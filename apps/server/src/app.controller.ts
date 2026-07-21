@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+
 import { buildHealthCheckPayload, type HealthCheckPayload } from '@luminaos/shared';
 
 @Controller()

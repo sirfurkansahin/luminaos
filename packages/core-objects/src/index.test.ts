@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { corePlaceholder } from './index.js';
 
 describe('corePlaceholder', () => {
