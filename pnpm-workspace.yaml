@@ -4,6 +4,7 @@ packages:
   - 'tooling/*'
 allowBuilds:
   '@swc/core': true
+  argon2: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@testing-library/jest-dom@7.0.0'
