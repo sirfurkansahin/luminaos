@@ -1,4 +1,10 @@
 {
   "extends": "../../tooling/tsconfig/node.json",
-  "include": ["src", "vitest.config.ts", "vitest.setup.ts"]
+  "include": [
+    "src",
+    "vitest.config.ts",
+    "vitest.integration.config.ts",
+    "vitest.setup.ts",
+    "drizzle.config.ts"
+  ]
 }

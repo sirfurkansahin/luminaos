@@ -10,7 +10,7 @@ LuminaOS: bağlam-öncelikli, ajan-destekli bir Work OS. Monorepo: `apps/` (desk
 
 - Kurulum: `pnpm install`
 - Derleme: `pnpm build` · Tek paket: `pnpm --filter <paket> build`
-- Test: `pnpm test` · Değişenler: `pnpm test --changed` · İzle: `pnpm --filter <paket> test:watch`
+- Test: `pnpm test` · Değişenler: `pnpm test:changed` · İzle: `pnpm --filter <paket> test:watch`
 - Tip kontrolü: `pnpm typecheck` · Lint: `pnpm lint`
 - Yerel ortam: `pnpm dev` (server + web), `pnpm dev:desktop`
 
@@ -43,7 +43,7 @@ LuminaOS: bağlam-öncelikli, ajan-destekli bir Work OS. Monorepo: `apps/` (desk
 ## Tanım of Done
 
 - [ ] Kabul kriterlerinin tamamı testle kanıtlı (birim + gerekiyorsa entegrasyon)
-- [ ] `pnpm typecheck && pnpm lint && pnpm test --changed` yeşil
+- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil
 - [ ] security-reviewer bulguları kapatıldı
 - [ ] Public API değiştiyse `docs-writer` ile doküman güncellendi
 - [ ] Spec dosyasına Done + PR linki işlendi

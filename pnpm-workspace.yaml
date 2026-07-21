@@ -4,7 +4,12 @@ packages:
   - 'tooling/*'
 allowBuilds:
   '@swc/core': true
+  argon2: true
   unrs-resolver: true
+  cpu-features: true
+  esbuild: true
+  protobufjs: true
+  ssh2: true
 minimumReleaseAgeExclude:
   - '@testing-library/jest-dom@7.0.0'
   - '@typescript-eslint/eslint-plugin@8.65.0'

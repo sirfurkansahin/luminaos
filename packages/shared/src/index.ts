@@ -1,3 +1,5 @@
+export * from './errors/index.js';
+
 export interface HealthCheckPayload {
   status: 'ok';
 }

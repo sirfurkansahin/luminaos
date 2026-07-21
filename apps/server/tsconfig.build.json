@@ -4,5 +4,13 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "vitest.config.ts", "vitest.setup.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts",
+    "vitest.setup.ts",
+    "drizzle.config.ts"
+  ]
 }

@@ -10,9 +10,14 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:changed": "turbo run test --filter=...[HEAD]",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "dev": "turbo run dev",
+    "db:generate": "turbo run db:generate --filter=@luminaos/server",
+    "db:migrate": "turbo run db:migrate --filter=@luminaos/server",
+    "db:migrate:down": "turbo run db:migrate:down --filter=@luminaos/server",
+    "test:integration": "turbo run test:integration",
     "format": "prettier --write .",
     "prepare": "husky"
   },
