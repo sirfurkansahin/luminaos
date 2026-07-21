@@ -1,6 +1,6 @@
 # F0-T4 — Claude Code Yönlendirme Yığınının Kurulumu
 
-**Epik:** F0-E1 · **Durum:** Yapılacak
+**Epik:** F0-E1 · **Durum:** Tamamlandı
 **Bağımlılık:** F0-T1 (repo mevcut olmalı); F0-T2 hook komutları için tercihen tamam
 
 ## Amaç
@@ -30,12 +30,20 @@ Claude Code'un bu projede disiplinli çalışmasını sağlayan `.claude/` yapı
 
 ## Kabul Kriterleri
 
-- [ ] 6 subagent tanımlı; her biri kendi araç kısıtına uyar (yasak eylem denemesi reddedilir — test edilir).
-- [ ] Hook'lar çalışır: bilerek biçimsiz yazılan dosya otomatik düzelir; `rm -rf` denemesi bloklanır.
-- [ ] Stop hook'u kırık testle oturumu kapatmayı engeller (test edilip düzeltilir).
-- [ ] Prova görevi ritüelin 7 adımını da geçerek PR ile tamamlanır.
+- [x] 6 subagent tanımlı; her biri kendi araç kısıtına uyar (yasak eylem denemesi reddedilir — test edilir).
+- [x] Hook'lar çalışır: bilerek biçimsiz yazılan dosya otomatik düzelir; `rm -rf` denemesi bloklanır.
+- [x] Stop hook'u kırık testle oturumu kapatmayı engeller (test edilip düzeltilir).
+- [x] Prova görevi ritüelin 7 adımını da geçerek PR ile tamamlanır. Ritüelin 7 adımı (spec/plan → keşif → onay → TDD → uygulama → güvenlik incelemesi → tam kapı kontrolü + commit) uçtan uca yapıldı, iki commit ile kanıtlandı ve branch onay alınarak `origin`'e push edildi. `gh` CLI bu ortamda kurulu olmadığından GitHub PR'ı otomatik açılamadı; PR'ı açmak için: https://github.com/sirfurkansahin/luminaos/pull/new/feature/f0-t4-claude-code-yonlendirme
 
 ## Notlar
 
 - Subagent/skill dosyaları İngilizce yazılabilir (modelin en güçlü olduğu dil); insan yüzü Türkçe kalır.
 - Bu görev tamamlandığında `CLAUDE.md`'nin "Subagent ve Skill Rehberi" bölümüyle birebir tutarlılık doğrulanır.
+
+## Tamamlanma Notu
+
+- Doğrulama kaydı: `docs/runbooks/claude-code-ritueli.md` — hook doğrulama (PreToolUse tehlikeli komut engelleme, PostToolUse hata geri besleme, Stop hook kırık test engeli), 6 subagent'ın sınır doğrulaması (her biri kapsam dışı bir eylem denendi ve reddedildi) ve `slugify` prova görevinin 7 adımı orada ayrıntılı olarak kayıtlıdır.
+- Prova görevi commit'leri (branch `feature/f0-t4-claude-code-yonlendirme`):
+  - `3ec0cdf` test: slugify icin basarisiz testler ekle (TDD kirmizi adim)
+  - `1894398` feat: packages/shared'a slugify fonksiyonu ekle
+- Branch `feature/f0-t4-claude-code-yonlendirme` insan onayıyla `origin`'e push edildi. Açık kalan adım: `gh` CLI kurulu olmadığından PR GitHub web arayüzünden elle açılmalı: https://github.com/sirfurkansahin/luminaos/pull/new/feature/f0-t4-claude-code-yonlendirme
