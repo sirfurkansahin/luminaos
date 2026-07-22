@@ -192,6 +192,28 @@ export class EventStoreService {
     return rows.map(toStoredEvent);
   }
 
+  /**
+   * Cross-workspace, `globalPosition`-ordered read, with an exclusive cursor
+   * like `readByWorkspace`. Internal helper for `ProjectionRunner`'s catch-up
+   * loop: a projection whose `handles` includes `'*'` (e.g. the example
+   * `workspace-event-counter` projection) is deliberately workspace-agnostic
+   * and must replay the *entire* log, not one workspace's slice of it. Not
+   * part of the three public read/write methods the F0-T6 plan names for the
+   * store itself (`append`/`readStream`/`readByWorkspace`) — this exists
+   * purely to support the projection runner.
+   */
+  async readAllFrom(fromPosition: number, limit?: number): Promise<StoredEvent[]> {
+    const query = this.db
+      .select()
+      .from(events)
+      .where(gt(events.globalPosition, fromPosition))
+      .orderBy(asc(events.globalPosition));
+
+    const rows = limit === undefined ? await query : await query.limit(limit);
+
+    return rows.map(toStoredEvent);
+  }
+
   private async loadByIds(tx: DbTransaction, streamId: string, ids: string[]): Promise<EventRow[]> {
     return tx
       .select()
