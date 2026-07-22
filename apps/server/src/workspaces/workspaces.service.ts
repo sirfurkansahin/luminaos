@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 
 import { ConflictError, slugify } from '@luminaos/shared';
 
+import { hasPostgresErrorCode } from '../common/postgres-error.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
 import { memberships } from '../db/schema/memberships.js';
 import { workspaces } from '../db/schema/workspaces.js';
@@ -17,16 +18,6 @@ export interface WorkspaceResult {
   name: string;
   slug: string;
   createdAt: Date;
-}
-
-/**
- * Narrow, structural check for the shape `pg`/`node-postgres` errors have
- * (a `code` string property) without importing `pg`'s error class directly
- * or resorting to `any`. Mirrors `auth/auth.service.ts`'s helper of the same
- * name/shape.
- */
-function hasPostgresErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
 @Injectable()

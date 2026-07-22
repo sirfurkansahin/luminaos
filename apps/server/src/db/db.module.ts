@@ -1,11 +1,12 @@
 import { Inject, Module } from '@nestjs/common';
 
 import { createDatabaseClient, type Database } from './client.js';
+import { DATABASE_CONNECTION } from './database-connection.token.js';
 import { env } from '../config/env.js';
 
 import type { OnModuleDestroy } from '@nestjs/common';
 
-export const DATABASE_CONNECTION = 'DATABASE_CONNECTION';
+export { DATABASE_CONNECTION };
 
 @Module({
   providers: [

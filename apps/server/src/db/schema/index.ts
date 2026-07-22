@@ -2,3 +2,6 @@ export * from './users.js';
 export * from './sessions.js';
 export * from './workspaces.js';
 export * from './memberships.js';
+export * from './events.js';
+export * from './projection-checkpoints.js';
+export * from './projection-workspace-event-counts.js';
