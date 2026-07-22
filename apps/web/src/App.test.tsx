@@ -1,11 +1,109 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ThemeProvider } from '@luminaos/ui';
 
 import { App } from './App';
 
+/**
+ * Theme-toggle contract for `implementer` (F0-T7 PR-C, not yet built):
+ *
+ * `App.tsx` must render a control that lets the user switch between the
+ * 'light' and 'dark' themes via `useTheme()` from `@luminaos/ui`. That
+ * control MUST be discoverable in tests via:
+ *
+ *   screen.getByTestId('theme-toggle')
+ *
+ * ...and MUST be a real `<button>` element (e.g. `@luminaos/ui`'s `Button`,
+ * which renders a native `<button>` under the hood) carrying an accessible
+ * name (visible text and/or `aria-label` — exact copy/i18n is up to
+ * implementer, these tests do not pin the label string).
+ *
+ * Clicking it must call `toggleTheme()` (or an equivalent `setTheme(...)`
+ * call) from `useTheme()`, which updates
+ * `document.documentElement.dataset.theme` between 'light' and 'dark'.
+ *
+ * `ThemeProvider` itself is NOT expected to be rendered inside `App.tsx` —
+ * per the F0-T7 plan, `main.tsx` owns that wrapping in production
+ * (`ThemeProvider` + `TooltipProvider` + `ToastProvider` around `<App />`).
+ * These tests replicate that `ThemeProvider` wrapping locally (mirroring
+ * `main.tsx`) so `useTheme()` resolves during render — `App.tsx` itself
+ * should NOT import/render `ThemeProvider`.
+ *
+ * `@luminaos/ui` must also be added as a runtime dependency of
+ * `apps/web/package.json` for this import to resolve — it is not there yet.
+ */
+
+const THEME_STORAGE_KEY = 'luminaos-theme';
+
+// Mirrors packages/ui/src/theme/ThemeProvider.test.tsx's mock helper — jsdom
+// has no matchMedia implementation, and ThemeProvider's initial-theme
+// resolution depends on it when nothing is persisted to localStorage.
+function mockMatchMedia(matches: boolean): void {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+function renderApp() {
+  return render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>,
+  );
+}
+
+beforeEach(() => {
+  mockMatchMedia(false); // system preference: light, nothing persisted yet
+  window.localStorage.clear();
+  document.documentElement.removeAttribute('data-theme');
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('App', () => {
   it('renders the LuminaOS heading', () => {
-    render(<App />);
+    // Wrapped in ThemeProvider (as main.tsx will in production) so that any
+    // useTheme() call inside App's future theme-toggle control resolves
+    // instead of throwing. The assertion itself is unchanged from before.
+    renderApp();
     expect(screen.getByRole('heading', { name: 'LuminaOS' })).toBeInTheDocument();
+  });
+
+  it('renders a theme-toggle control as an accessible button (data-testid="theme-toggle")', () => {
+    renderApp();
+
+    const toggle = screen.getByTestId('theme-toggle');
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).toHaveAccessibleName();
+  });
+
+  it('clicking the theme-toggle control flips document.documentElement.dataset.theme', async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    // Default resolves to 'light' (mocked system preference, no persisted value).
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    await user.click(screen.getByTestId('theme-toggle'));
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+
+    await user.click(screen.getByTestId('theme-toggle'));
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
   });
 });
