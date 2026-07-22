@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildHealthCheckPayload, slugify } from './index.js';
-
-describe('buildHealthCheckPayload', () => {
-  it('returns an ok status payload', () => {
-    expect(buildHealthCheckPayload()).toEqual({ status: 'ok' });
-  });
-});
+import { slugify } from './index.js';
 
 describe('slugify', () => {
   it('lowercases the input', () => {

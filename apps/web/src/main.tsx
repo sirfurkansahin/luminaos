@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { ThemeProvider, ToastProvider, TooltipProvider } from '@luminaos/ui';
 
 import { App } from './App';
+import { ErrorBoundary } from './ErrorBoundary';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -24,7 +25,9 @@ createRoot(container).render(
     <ThemeProvider>
       <TooltipProvider>
         <ToastProvider>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </ToastProvider>
       </TooltipProvider>
     </ThemeProvider>

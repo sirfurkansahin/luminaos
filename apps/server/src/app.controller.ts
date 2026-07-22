@@ -1,11 +1,15 @@
 import { Controller, Get } from '@nestjs/common';
 
-import { buildHealthCheckPayload, type HealthCheckPayload } from '@luminaos/shared';
+import type { HealthCheckPayload } from '@luminaos/shared';
+
+import { HealthService } from './health/health.service.js';
 
 @Controller()
 export class AppController {
+  constructor(private readonly healthService: HealthService) {}
+
   @Get('health')
-  getHealth(): HealthCheckPayload {
-    return buildHealthCheckPayload();
+  async getHealth(): Promise<HealthCheckPayload> {
+    return this.healthService.check();
   }
 }
