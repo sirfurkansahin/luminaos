@@ -6,9 +6,11 @@ import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { DbModule } from './db/db.module.js';
+import { HealthModule } from './health/health.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
 import { LoggingModule } from './observability/logging.module.js';
 import { TracingModule } from './observability/tracing.module.js';
+import { RedisModule } from './redis/redis.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -23,7 +25,15 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
  * overridable from a testing module built directly off `AppModule`.
  */
 @Module({
-  imports: [LoggingModule, TracingModule, DbModule, AuthModule, WorkspacesModule],
+  imports: [
+    LoggingModule,
+    TracingModule,
+    DbModule,
+    RedisModule,
+    HealthModule,
+    AuthModule,
+    WorkspacesModule,
+  ],
   controllers: [AppController],
   providers: [
     { provide: APP_FILTER, useClass: AppErrorFilter },

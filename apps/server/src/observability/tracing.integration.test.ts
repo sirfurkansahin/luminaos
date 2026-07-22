@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -149,6 +150,7 @@ function isLikelyDbSpan(span: ReadableSpan): boolean {
 
 describe('OpenTelemetry tracing (real Postgres + real HTTP, via Testcontainers + supertest + InMemorySpanExporter)', () => {
   let container: StartedPostgreSqlContainer;
+  let redisContainer: StartedRedisContainer;
   let app: INestApplication;
   let exporter: InMemorySpanExporter;
   let testProvider: NodeTracerProvider;
@@ -156,6 +158,13 @@ describe('OpenTelemetry tracing (real Postgres + real HTTP, via Testcontainers +
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
     process.env.DATABASE_URL = container.getConnectionUri();
+
+    // F0-T8 PR-C ADDITION: AppModule now also imports a RedisModule, whose
+    // REDIS_URL is validated fail-fast alongside DATABASE_URL (config/env.ts)
+    // — started here purely so AppModule can boot; this file's own
+    // assertions never touch Redis.
+    redisContainer = await new RedisContainer('redis:7').start();
+    process.env.REDIS_URL = redisContainer.getConnectionUrl();
 
     await runMigrations(container.getConnectionUri());
 
@@ -192,6 +201,7 @@ describe('OpenTelemetry tracing (real Postgres + real HTTP, via Testcontainers +
     await app.close();
     await testProvider.shutdown();
     await container.stop();
+    await redisContainer.stop();
   }, 60_000);
 
   it('a GET /health request produces at least one span with HTTP-shaped attributes (method/route/status)', async () => {

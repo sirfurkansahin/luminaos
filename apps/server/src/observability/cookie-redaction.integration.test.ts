@@ -2,6 +2,7 @@ import { Writable } from 'node:stream';
 
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -109,12 +110,20 @@ function extractSessionCookiePair(setCookie: string[] | undefined): string {
 
 describe('session cookie redaction in pino-http access logs (real Postgres + real HTTP, via Testcontainers + supertest)', () => {
   let container: StartedPostgreSqlContainer;
+  let redisContainer: StartedRedisContainer;
   let app: INestApplication;
   let stream: CollectingStream;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
     process.env.DATABASE_URL = container.getConnectionUri();
+
+    // F0-T8 PR-C ADDITION: AppModule now also imports a RedisModule, whose
+    // REDIS_URL is validated fail-fast alongside DATABASE_URL (config/env.ts)
+    // — started here purely so AppModule can boot; this file's own
+    // assertions never touch Redis.
+    redisContainer = await new RedisContainer('redis:7').start();
+    process.env.REDIS_URL = redisContainer.getConnectionUrl();
 
     await runMigrations(container.getConnectionUri());
 
@@ -149,6 +158,7 @@ describe('session cookie redaction in pino-http access logs (real Postgres + rea
   afterAll(async () => {
     await app.close();
     await container.stop();
+    await redisContainer.stop();
   }, 60_000);
 
   it('the raw session-id issued by POST /auth/register never appears in captured log output, while the response status code still does', async () => {

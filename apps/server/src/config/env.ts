@@ -12,6 +12,7 @@ export type LogLevel = z.infer<typeof LOG_LEVEL_SCHEMA>;
 export interface Env {
   databaseUrl: string;
   logLevel: LogLevel;
+  redisUrl: string;
 }
 
 /**
@@ -37,7 +38,14 @@ function readEnv(): Env {
     process.exit(1);
   }
 
-  return { databaseUrl, logLevel: readLogLevel() };
+  const redisUrl = process.env['REDIS_URL'];
+
+  if (redisUrl === undefined || redisUrl.trim() === '') {
+    process.stderr.write('FATAL: REDIS_URL environment variable is not set.\n');
+    process.exit(1);
+  }
+
+  return { databaseUrl, logLevel: readLogLevel(), redisUrl };
 }
 
 function readLogLevel(): LogLevel {

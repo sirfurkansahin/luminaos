@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -25,6 +26,13 @@ import type { Server } from 'node:http';
  * `apps/server/src/config/env.ts`). We set that env var to the container's
  * connection URI *before* building the testing module below. If the real
  * env var name differs, update this test to match rather than guessing.
+ *
+ * F0-T8 PR-C ADDITION: `AppModule` now also imports a `RedisModule`, whose
+ * `env.ts`-backed `REDIS_URL` is validated fail-fast at process boot
+ * alongside `DATABASE_URL` (same `readEnv()` function, per
+ * `config/env.ts`) — a throwaway Redis 7 Testcontainer is started here too,
+ * even though this file's own assertions never touch Redis, purely so
+ * `AppModule` can boot at all.
  */
 
 const USER_A = { email: 'user-a@example.com', password: 'correct-horse-battery' };
@@ -69,11 +77,15 @@ function toCookieHeader(setCookie: string[] | undefined): string {
 
 describe('tenant isolation (real Postgres + real HTTP, via Testcontainers + supertest)', () => {
   let container: StartedPostgreSqlContainer;
+  let redisContainer: StartedRedisContainer;
   let app: INestApplication;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
     process.env.DATABASE_URL = container.getConnectionUri();
+
+    redisContainer = await new RedisContainer('redis:7').start();
+    process.env.REDIS_URL = redisContainer.getConnectionUrl();
 
     await runMigrations(container.getConnectionUri());
 
@@ -93,6 +105,7 @@ describe('tenant isolation (real Postgres + real HTTP, via Testcontainers + supe
   afterAll(async () => {
     await app.close();
     await container.stop();
+    await redisContainer.stop();
   }, 60_000);
 
   it('full flow: register -> /me -> create workspace -> cross-tenant 403 -> login -> logout', async () => {
