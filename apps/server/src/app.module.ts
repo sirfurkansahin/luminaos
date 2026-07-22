@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { DbModule } from './db/db.module.js';
+import { LoggingModule } from './observability/logging.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -15,10 +16,13 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
  * `main.ts`) so any host that builds `AppModule` directly — including
  * `Test.createTestingModule` in integration tests — gets the same request
  * pipeline as the real server. Registering them only in `main.ts`'s
- * `bootstrap()` silently skips them for any other entry point.
+ * `bootstrap()` silently skips them for any other entry point. `LoggingModule`
+ * follows the same reasoning: it must be importable/overridable
+ * (`.overrideModule(LoggingModule)`) from a testing module built directly off
+ * `AppModule`.
  */
 @Module({
-  imports: [DbModule, AuthModule, WorkspacesModule],
+  imports: [LoggingModule, DbModule, AuthModule, WorkspacesModule],
   controllers: [AppController],
   providers: [{ provide: APP_FILTER, useClass: AppErrorFilter }],
 })
