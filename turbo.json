@@ -28,6 +28,10 @@
       "cache": false,
       "persistent": true
     },
+    "ui:preview": {
+      "cache": false,
+      "persistent": true
+    },
     "db:generate": {
       "cache": false,
       "outputs": []

@@ -18,6 +18,7 @@
     "db:migrate": "turbo run db:migrate --filter=@luminaos/server",
     "db:migrate:down": "turbo run db:migrate:down --filter=@luminaos/server",
     "test:integration": "turbo run test:integration",
+    "ui:preview": "turbo run ui:preview --filter=@luminaos/ui",
     "format": "prettier --write .",
     "prepare": "husky"
   },
