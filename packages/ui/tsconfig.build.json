@@ -4,5 +4,13 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "vitest.config.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.stories.tsx",
+    "vitest.config.ts",
+    "vitest.setup.ts"
+  ]
 }
