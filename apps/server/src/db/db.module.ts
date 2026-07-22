@@ -3,16 +3,20 @@ import { Inject, Module } from '@nestjs/common';
 import { createDatabaseClient, type Database } from './client.js';
 import { DATABASE_CONNECTION } from './database-connection.token.js';
 import { env } from '../config/env.js';
+import { TRACER, TracingModule } from '../observability/tracing.module.js';
 
 import type { OnModuleDestroy } from '@nestjs/common';
+import type { Tracer } from '@opentelemetry/api';
 
 export { DATABASE_CONNECTION };
 
 @Module({
+  imports: [TracingModule],
   providers: [
     {
       provide: DATABASE_CONNECTION,
-      useFactory: (): Database => createDatabaseClient(env.databaseUrl),
+      useFactory: (tracer: Tracer): Database => createDatabaseClient(env.databaseUrl, tracer),
+      inject: [TRACER],
     },
   ],
   exports: [DATABASE_CONNECTION],
