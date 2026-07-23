@@ -4,6 +4,6 @@ import { coverageConfig } from '../../tooling/vitest/coverage.js';
 
 export default defineConfig({
   test: {
-    coverage: coverageConfig(),
+    coverage: coverageConfig(95),
   },
 });
