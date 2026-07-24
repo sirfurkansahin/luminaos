@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 
 import {
   createRelation,
@@ -28,6 +28,18 @@ export interface CreateRelationCommandInput {
   fromId: string;
   toId: string;
   kind: RelationKind;
+}
+
+/**
+ * The response shape of `RelationsService.getRelated` — every `Relation`
+ * returned here is implicitly `status: 'active'` (see `toRelation`'s own doc
+ * comment: a `RelationRemoved` hard-deletes its `relations_view` row, so
+ * there is no "removed but visible" row to filter out at this layer).
+ */
+export interface RelatedSummary {
+  parentChild: { parent: Relation | null; children: Relation[]; childrenCount: number };
+  dependency: { blocks: Relation[]; blockedBy: Relation[] };
+  reference: Relation[];
 }
 
 /**
@@ -95,6 +107,118 @@ export class RelationsService {
     await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
+  }
+
+  /**
+   * Groups every relation touching `objectId` (either as `fromId` or
+   * `toId`) by kind, per this PR's pinned HTTP contract. `objectId`'s OWN
+   * lifecycle is intentionally not checked here (mirrors `ObjectsService.
+   * get`'s behavior — only `list` filters by lifecycle); `assertObjectExists`
+   * still 404s for an id that never existed or belongs to a different
+   * workspace.
+   *
+   * A relation is SUSPENDED (excluded) when its COUNTERPART object (the
+   * other end, not `objectId` itself) currently has `lifecycle: 'deleted'` —
+   * enforced by the `ne(objectsView.lifecycle, 'deleted')` join filter below,
+   * re-evaluated fresh on every call (no stored/cached suspension state, so a
+   * later restore of the counterpart makes the relation reappear
+   * automatically).
+   */
+  async getRelated(workspaceId: string, objectId: string): Promise<RelatedSummary> {
+    await this.assertObjectExists(workspaceId, objectId);
+
+    const forwardRows = await this.getRelationsWithActiveCounterpart(
+      workspaceId,
+      relationsView.fromId,
+      objectId,
+      relationsView.toId,
+    );
+    const backwardRows = await this.getRelationsWithActiveCounterpart(
+      workspaceId,
+      relationsView.toId,
+      objectId,
+      relationsView.fromId,
+    );
+
+    const forward = forwardRows.map((row) => this.toRelation(row));
+    const backward = backwardRows.map((row) => this.toRelation(row));
+
+    const children = forward.filter((relation) => relation.kind === 'parentChild');
+    const parentCandidates = backward.filter((relation) => relation.kind === 'parentChild');
+
+    const blocks = forward.filter((relation) => relation.kind === 'dependency');
+    const blockedBy = backward.filter((relation) => relation.kind === 'dependency');
+
+    const forwardReferences = forward.filter((relation) => relation.kind === 'reference');
+    const backwardReferences = backward.filter((relation) => relation.kind === 'reference');
+    const reference = this.dedupeById([...forwardReferences, ...backwardReferences]);
+
+    return {
+      parentChild: {
+        parent: parentCandidates[0] ?? null,
+        children,
+        childrenCount: children.length,
+      },
+      dependency: { blocks, blockedBy },
+      reference,
+    };
+  }
+
+  /**
+   * Selects `relations_view` rows where `matchedColumn = objectId`, INNER
+   * JOINed against `objects_view` on `objects_view.id = counterpartColumn`
+   * (the OTHER endpoint of the relation) so that a relation whose
+   * counterpart is currently soft-deleted is excluded entirely (spec §3
+   * suspension). `relations_view` columns are selected explicitly (rather
+   * than `select()`'s default `select *`) since the join would otherwise
+   * collide with `objects_view`'s own `id` column.
+   */
+  private async getRelationsWithActiveCounterpart(
+    workspaceId: string,
+    matchedColumn: typeof relationsView.fromId | typeof relationsView.toId,
+    objectId: string,
+    counterpartColumn: typeof relationsView.fromId | typeof relationsView.toId,
+  ): Promise<(typeof relationsView.$inferSelect)[]> {
+    return this.db
+      .select({
+        id: relationsView.id,
+        streamId: relationsView.streamId,
+        workspaceId: relationsView.workspaceId,
+        fromId: relationsView.fromId,
+        toId: relationsView.toId,
+        kind: relationsView.kind,
+        createdAt: relationsView.createdAt,
+      })
+      .from(relationsView)
+      .innerJoin(objectsView, eq(objectsView.id, counterpartColumn))
+      .where(
+        and(
+          eq(relationsView.workspaceId, workspaceId),
+          eq(matchedColumn, objectId),
+          ne(objectsView.lifecycle, 'deleted'),
+        ),
+      );
+  }
+
+  /**
+   * De-duplicates by `id` — a defensive guard for `reference`'s symmetric
+   * union (see `getRelated`'s doc comment): in practice a reference relation
+   * only ever produces one row across the forward/backward queries, but this
+   * keeps the contract precise without relying on that invariant silently.
+   */
+  private dedupeById(relations: Relation[]): Relation[] {
+    const seen = new Set<string>();
+    const result: Relation[] = [];
+
+    for (const relation of relations) {
+      if (seen.has(relation.id)) {
+        continue;
+      }
+      seen.add(relation.id);
+      result.push(relation);
+    }
+
+    return result;
   }
 
   /**

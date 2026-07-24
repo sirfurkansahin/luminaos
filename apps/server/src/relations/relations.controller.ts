@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -22,6 +23,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
 import type { CreateRelationInput } from './dto/create-relation.schema.js';
+import type { RelatedSummary } from './relations.service.js';
 import type { Request } from 'express';
 
 /**
@@ -64,6 +66,21 @@ export class RelationsController {
     const actor = this.requireActor(req);
 
     await this.relationsService.remove(workspaceId, relationId, actor);
+  }
+
+  /**
+   * Read-only, grouped-by-kind view of every relation touching `objectId` —
+   * no actor/role needed (any workspace member, same guard stack already on
+   * the class; no permission filtering per the approved plan).
+   */
+  @Get('object/:objectId')
+  async getRelated(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+  ): Promise<{ related: RelatedSummary }> {
+    const related = await this.relationsService.getRelated(workspaceId, objectId);
+
+    return { related };
   }
 
   /**
