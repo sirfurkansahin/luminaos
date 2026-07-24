@@ -10,7 +10,7 @@ import {
   replayRelation,
 } from '@luminaos/core-objects';
 import type { Relation, RelationEventDraft, RelationKind } from '@luminaos/core-objects';
-import { NotFoundError } from '@luminaos/shared';
+import { ConflictError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { RelationsViewProjection } from './relations.projection.js';
@@ -94,6 +94,28 @@ export class RelationsService {
 
     await this.projectionRunner.catchUp(this.projection);
 
+    // The projection's `RelationCreated` handler uses `onConflictDoNothing`
+    // on the partial unique index for `kind === 'parentChild'`, so a
+    // concurrent `create()` for a different parentChild relation targeting
+    // the identical `toId` never crashes the projection — but it means THIS
+    // call's insert may have silently lost that race. Verify our own row
+    // actually landed before reporting success; if not, this caller
+    // genuinely lost the "at most one active parent" race and must see a
+    // conflict, not a false 201. Only `parentChild` has this DB-level
+    // invariant — `dependency`/`reference` relations have no equivalent
+    // uniqueness rule, so no check is needed for them.
+    if (input.kind === 'parentChild') {
+      const [ownRow] = await this.db
+        .select({ id: relationsView.id })
+        .from(relationsView)
+        .where(eq(relationsView.id, relationId))
+        .limit(1);
+
+      if (!ownRow) {
+        throw new ConflictError('this object already has an active parent');
+      }
+    }
+
     return replayRelation(appended);
   }
 
@@ -172,6 +194,13 @@ export class RelationsService {
    * suspension). `relations_view` columns are selected explicitly (rather
    * than `select()`'s default `select *`) since the join would otherwise
    * collide with `objects_view`'s own `id` column.
+   *
+   * The join condition also ANDs `objects_view.workspace_id = workspaceId`
+   * (security review finding, defense-in-depth): this relies on the
+   * invariant enforced at `create()` time that a relation's `fromId`/`toId`
+   * can never reference an object from a different workspace, but scoping
+   * the join independently means a bug or data-integrity slip elsewhere
+   * can't leak a cross-workspace counterpart into this result.
    */
   private async getRelationsWithActiveCounterpart(
     workspaceId: string,
@@ -190,7 +219,10 @@ export class RelationsService {
         createdAt: relationsView.createdAt,
       })
       .from(relationsView)
-      .innerJoin(objectsView, eq(objectsView.id, counterpartColumn))
+      .innerJoin(
+        objectsView,
+        and(eq(objectsView.id, counterpartColumn), eq(objectsView.workspaceId, workspaceId)),
+      )
       .where(
         and(
           eq(relationsView.workspaceId, workspaceId),

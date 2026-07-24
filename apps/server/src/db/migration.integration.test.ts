@@ -41,12 +41,15 @@ import { runMigrations, runDownMigrations } from './migrate.js';
  * A migration doesn't necessarily `CREATE TABLE` at all — F1-T2 PR-C's
  * migration is a plain `ALTER TABLE ... ADD COLUMN` on an existing table
  * (`objects_view`), the first migration in this codebase to be column-only.
- * `getLastMigrationEffect` therefore parses BOTH `CREATE TABLE` and
- * `ALTER TABLE ... ADD COLUMN` statements out of the last migration's SQL,
- * and the rollback test branches its assertions on whichever the last
- * migration actually did (table-count shrinkage for the former,
- * column-disappearance-on-an-unchanged table set for the latter) rather than
- * assuming every migration creates a table.
+ * F1-T3's security-review follow-up migration is index-only (a partial
+ * `CREATE UNIQUE INDEX` on `relations_view` backstopping the "at most one
+ * active parent" rule at the DB level — no table or column change at all).
+ * `getLastMigrationEffect` therefore parses `CREATE TABLE`,
+ * `ALTER TABLE ... ADD COLUMN`, AND `CREATE [UNIQUE] INDEX` statements out of
+ * the last migration's SQL, and the rollback test branches its assertions on
+ * whichever the last migration actually did (table-count shrinkage,
+ * column-disappearance, or index-disappearance, each on an otherwise
+ * unchanged table set) rather than assuming every migration creates a table.
  */
 
 const TABLES_QUERY = `
@@ -78,18 +81,21 @@ interface AddedColumn {
 interface LastMigrationEffect {
   createdTables: string[];
   addedColumns: AddedColumn[];
+  addedIndexes: string[];
 }
 
 /**
  * Reads `meta/_journal.json` and the `.sql` file of the most recently
  * generated migration (the last entry in the journal), then extracts every
  * table that migration's `CREATE TABLE "tablename" (...)` statements
- * created AND every `(table, column)` pair its
- * `ALTER TABLE "tablename" ADD COLUMN "columnname" ...` statements added.
- * This is how the test learns, without any hardcoded table/column name, what
- * `runDownMigrations`'s single default rollback step is expected to undo —
- * whether that's whole tables, columns on an existing table, or (in
- * principle) both in the same migration.
+ * created, every `(table, column)` pair its
+ * `ALTER TABLE "tablename" ADD COLUMN "columnname" ...` statements added, AND
+ * every index name its `CREATE [UNIQUE] INDEX "indexname" ...` statements
+ * created. This is how the test learns, without any hardcoded table/column/
+ * index name, what `runDownMigrations`'s single default rollback step is
+ * expected to undo — whether that's whole tables, columns on an existing
+ * table, indexes on an existing table, or (in principle) any combination in
+ * the same migration.
  */
 function getLastMigrationEffect(): LastMigrationEffect {
   const journal = JSON.parse(readFileSync(JOURNAL_PATH, 'utf-8')) as MigrationJournal;
@@ -110,13 +116,17 @@ function getLastMigrationEffect(): LastMigrationEffect {
     .map((match) => (match[1] && match[2] ? { table: match[1], column: match[2] } : undefined))
     .filter((entry): entry is AddedColumn => entry !== undefined);
 
-  if (createdTables.length === 0 && addedColumns.length === 0) {
+  const addedIndexes = [...sql.matchAll(/CREATE (?:UNIQUE )?INDEX "(\w+)"/g)]
+    .map((match) => match[1])
+    .filter((indexName): indexName is string => indexName !== undefined);
+
+  if (createdTables.length === 0 && addedColumns.length === 0 && addedIndexes.length === 0) {
     throw new Error(
-      `Neither a "CREATE TABLE" nor an "ALTER TABLE ... ADD COLUMN" statement was found in ${sqlFilePath}; the extraction regexes may no longer match the generated SQL format.`,
+      `Neither a "CREATE TABLE", an "ALTER TABLE ... ADD COLUMN", nor a "CREATE [UNIQUE] INDEX" statement was found in ${sqlFilePath}; the extraction regexes may no longer match the generated SQL format.`,
     );
   }
 
-  return { createdTables, addedColumns };
+  return { createdTables, addedColumns, addedIndexes };
 }
 
 async function getPublicTableNames(client: Client): Promise<string[]> {
@@ -130,6 +140,13 @@ async function getColumnNames(client: Client, tableName: string): Promise<string
     [tableName],
   );
   return result.rows.map((row) => row.column_name);
+}
+
+async function getIndexNames(client: Client): Promise<string[]> {
+  const result = await client.query<{ indexname: string }>(
+    `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`,
+  );
+  return result.rows.map((row) => row.indexname);
 }
 
 describe('database migrations (real Postgres via Testcontainers)', () => {
@@ -181,6 +198,8 @@ describe('database migrations (real Postgres via Testcontainers)', () => {
       ),
     );
 
+    const indexNamesBeforeDown = effect.addedIndexes.length > 0 ? await getIndexNames(client) : [];
+
     await runDownMigrations(connectionString);
     const tableNamesAfterDown = await getPublicTableNames(client);
 
@@ -216,6 +235,20 @@ describe('database migrations (real Postgres via Testcontainers)', () => {
 
         expect(columnsBeforeDown).toContain(column);
         expect(columnsAfterDown).not.toContain(column);
+      }
+    }
+
+    if (effect.addedIndexes.length > 0) {
+      // The last migration only added index(es) on (an) already-existing
+      // table(s) — the table set itself is unchanged, but each added index
+      // must be gone afterward.
+      expect(tableNamesAfterDown).toEqual(tableNamesBeforeDown);
+
+      const indexNamesAfterDown = await getIndexNames(client);
+
+      for (const indexName of effect.addedIndexes) {
+        expect(indexNamesBeforeDown).toContain(indexName);
+        expect(indexNamesAfterDown).not.toContain(indexName);
       }
     }
   }, 30_000);

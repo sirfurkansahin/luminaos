@@ -121,6 +121,21 @@ interface RelationEnvelope {
   relation: RelationBody;
 }
 
+/** Shape of `GET /workspaces/:workspaceId/relations/object/:objectId`'s
+ * response body, mirroring `./relations-related.integration.test.ts`'s own
+ * copy of these types (that route is PR-C, already green, and reused here
+ * only as a read-side probe for the security regression test below — it is
+ * not otherwise exercised by this file). */
+interface RelatedSummaryBody {
+  parentChild: { parent: RelationBody | null; children: RelationBody[]; childrenCount: number };
+  dependency: { blocks: RelationBody[]; blockedBy: RelationBody[] };
+  reference: RelationBody[];
+}
+
+interface RelatedEnvelope {
+  related: RelatedSummaryBody;
+}
+
 interface WorkspaceEnvelope {
   workspace: { id: string };
 }
@@ -227,6 +242,13 @@ describe('Relations (real Postgres + real HTTP, via Testcontainers + supertest)'
 
   function relationsUrl(workspaceId: string): string {
     return `/workspaces/${workspaceId}/relations`;
+  }
+
+  /** `GET /workspaces/:workspaceId/relations/object/:objectId`, mirroring
+   * `./relations-related.integration.test.ts`'s own copy of this helper —
+   * used only as a read-side probe by the security regression test below. */
+  function relatedUrl(workspaceId: string, objectId: string): string {
+    return `/workspaces/${workspaceId}/relations/object/${objectId}`;
   }
 
   it('POST creates a parentChild relation: 201, pinned response shape, status "active"', async () => {
@@ -378,6 +400,71 @@ describe('Relations (real Postgres + real HTTP, via Testcontainers + supertest)'
       .send({ fromId: parent2, toId: child, kind: 'parentChild' });
 
     expect(secondResponse.status).toBe(409);
+  });
+
+  /**
+   * Security regression (F1-T3 security review, Medium): unlike the analogous
+   * "key must be unique" business rule in `FieldDefinitionsService.define`
+   * (see `../fields/field-definitions-security.integration.test.ts`'s
+   * "Finding 1", the exact precedent this test mirrors), `RelationsService.
+   * create`'s "a child object has at most one active parent" rule for
+   * `parentChild` relations is enforced ONLY via an in-memory
+   * check-then-act: it reads the child's current relations, validates there
+   * is no existing active parent, and only THEN appends the new relation's
+   * event — with no database-level unique constraint backing the rule (no
+   * `onConflictDoNothing` + post-catchUp existence re-check, unlike
+   * `field-definitions.projection.ts`/`field-definitions.service.ts`'s fixed
+   * equivalent). Two concurrent `create` calls for the same child can both
+   * pass the pre-check before either's event lands, so both may resolve
+   * 201 — this is the bug being pinned red here.
+   */
+  it('Finding: concurrent create() of two parentChild relations for the same child resolves to exactly one 201 and one 409, never two successes', async () => {
+    const { cookie, workspaceId } = await registerUserWithWorkspace();
+    const parent1 = await createObject(cookie, workspaceId, 'Concurrent Parent 1');
+    const parent2 = await createObject(cookie, workspaceId, 'Concurrent Parent 2');
+    const child = await createObject(cookie, workspaceId, 'Concurrent Child');
+
+    const [responseA, responseB] = await Promise.all([
+      request(server)
+        .post(relationsUrl(workspaceId))
+        .set('Cookie', cookie)
+        .send({ fromId: parent1, toId: child, kind: 'parentChild' }),
+      request(server)
+        .post(relationsUrl(workspaceId))
+        .set('Cookie', cookie)
+        .send({ fromId: parent2, toId: child, kind: 'parentChild' }),
+    ]);
+
+    // RED (expected, today): with only an in-memory pre-check guarding the
+    // "at most one active parent" rule, both concurrent requests can observe
+    // "no existing parent yet" before either's event is appended, so both
+    // may return 201 here instead of exactly one 201 + one 409.
+    const statuses = [responseA.status, responseB.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    // The relations projection must not be left in a broken, double-parent
+    // state afterward: exactly one of parent1/parent2 has "won" as the
+    // child's current parent, never both.
+    const relatedResponse = await request(server)
+      .get(relatedUrl(workspaceId, child))
+      .set('Cookie', cookie);
+    expect(relatedResponse.status).toBe(200);
+
+    const related = (relatedResponse.body as RelatedEnvelope).related;
+    expect(related.parentChild.parent).not.toBeNull();
+    expect([parent1, parent2]).toContain(related.parentChild.parent?.fromId);
+
+    // The projection/checkpoint must not be poisoned by the race: a
+    // completely unrelated relation create afterward still succeeds,
+    // mirroring the field-definitions precedent's "unrelated write still
+    // works" check.
+    const unrelatedA = await createObject(cookie, workspaceId, 'Unrelated A (after race)');
+    const unrelatedB = await createObject(cookie, workspaceId, 'Unrelated B (after race)');
+    const unrelatedResponse = await request(server)
+      .post(relationsUrl(workspaceId))
+      .set('Cookie', cookie)
+      .send({ fromId: unrelatedA, toId: unrelatedB, kind: 'reference' });
+    expect(unrelatedResponse.status).toBe(201);
   });
 
   it('parentChild: a self-parent cycle (A is its own parent) returns 400 (ValidationError)', async () => {

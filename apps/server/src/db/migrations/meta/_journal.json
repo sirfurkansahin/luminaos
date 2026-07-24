@@ -50,6 +50,13 @@
       "when": 1784884714912,
       "tag": "0006_jazzy_tiger_shark",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784886611795,
+      "tag": "0007_ordinary_thor",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
-import { index, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { index, pgTable, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
 import { objectsView } from './objects-view.js';
 import { workspaces } from './workspaces.js';
@@ -35,5 +36,19 @@ export const relationsView = pgTable(
     index('relations_view_workspace_id_kind_idx').on(table.workspaceId, table.kind),
     index('relations_view_workspace_id_from_id_idx').on(table.workspaceId, table.fromId),
     index('relations_view_workspace_id_to_id_idx').on(table.workspaceId, table.toId),
+    // DB-level backstop for the "at most one active parentChild relation per
+    // child" business rule (security review finding): the in-memory
+    // pre-check in `RelationsService.create` alone cannot prevent two
+    // concurrent creates for the same child from both passing before either
+    // commits, since each relation lives in its own independent event
+    // stream. This PARTIAL unique index (only applies where
+    // `kind = 'parentChild'`) makes the losing concurrent insert fail at the
+    // database level instead. See `RelationsViewProjection`'s
+    // `RelationCreated` case (`onConflictDoNothing` targeting this index) and
+    // `RelationsService.create`'s post-catchUp existence check for how the
+    // "loser" is turned into a `ConflictError` rather than a false success.
+    uniqueIndex('relations_view_active_parent_key')
+      .on(table.workspaceId, table.toId)
+      .where(sql`kind = 'parentChild'`),
   ],
 );
