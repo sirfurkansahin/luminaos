@@ -23,6 +23,7 @@ const FIELD_TYPES = [
   'email',
   'people',
   'currency',
+  'formula',
 ] as const satisfies readonly FieldType[];
 
 const fieldPermissionLevelSchema = z.enum(['view', 'edit', 'hidden']);

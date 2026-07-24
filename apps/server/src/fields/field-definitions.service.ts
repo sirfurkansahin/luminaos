@@ -83,17 +83,25 @@ export class FieldDefinitionsService {
     const fieldDefinitionId = newObjectId();
     const streamId = randomUUID();
 
-    const drafts = defineField({
-      fieldDefinitionId,
+    const existingFieldDefinitions = await this.getActiveFieldDefinitionsForType(
       workspaceId,
       objectType,
-      key: input.key,
-      label: input.label,
-      fieldType: input.fieldType,
-      config: input.config,
-      defaultValue: input.defaultValue,
-      permissions: input.permissions,
-    });
+    );
+
+    const drafts = defineField(
+      {
+        fieldDefinitionId,
+        workspaceId,
+        objectType,
+        key: input.key,
+        label: input.label,
+        fieldType: input.fieldType,
+        config: input.config,
+        defaultValue: input.defaultValue,
+        permissions: input.permissions,
+      },
+      existingFieldDefinitions,
+    );
 
     const newEvents = this.wrapDrafts(drafts, workspaceId, actor);
     const appended = await this.eventStore.append(streamId, 0, newEvents);
@@ -128,8 +136,13 @@ export class FieldDefinitionsService {
     actor: Actor,
     input: UpdateFieldDefinitionInput,
   ): Promise<FieldDefinition> {
+    const existingFieldDefinitions = await this.getActiveFieldDefinitionsForType(
+      workspaceId,
+      objectType,
+    );
+
     return this.applyCommand(workspaceId, objectType, fieldDefinitionId, actor, (state) =>
-      updateField(state, input),
+      updateField(state, input, existingFieldDefinitions),
     );
   }
 
@@ -169,6 +182,30 @@ export class FieldDefinitionsService {
     return rows
       .map((row) => this.toFieldDefinition(row))
       .filter((definition) => canViewField(definition.permissions, callerRole));
+  }
+
+  /**
+   * Same query shape as `list()`, minus its `canViewField` role filter —
+   * formula schema/cycle validation (`assertFormulaFieldRules`) is not
+   * role-scoped, it needs the FULL set of this workspace+objectType's active
+   * field definitions regardless of who is calling.
+   */
+  private async getActiveFieldDefinitionsForType(
+    workspaceId: string,
+    objectType: ObjectType,
+  ): Promise<FieldDefinition[]> {
+    const rows = await this.db
+      .select()
+      .from(fieldDefinitions)
+      .where(
+        and(
+          eq(fieldDefinitions.workspaceId, workspaceId),
+          eq(fieldDefinitions.objectType, objectType),
+          eq(fieldDefinitions.lifecycle, 'active'),
+        ),
+      );
+
+    return rows.map((row) => this.toFieldDefinition(row));
   }
 
   /**

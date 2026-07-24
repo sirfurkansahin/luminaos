@@ -65,17 +65,27 @@ export class ObjectsViewProjection implements Projection {
           );
         }
 
-        await dbTx.insert(objectsView).values({
-          id: objectId,
-          streamId: event.streamId,
-          type: objectType,
-          workspaceId: event.workspaceId,
-          title,
-          createdBy: event.actor.id,
-          createdAt: event.occurredAt,
-          updatedAt: event.occurredAt,
-          lifecycle: 'active',
-        });
+        // `onConflictDoNothing` on the primary key: an idempotent replay of
+        // an `ObjectCreated` event whose row is already present (e.g. a test
+        // seeding a fully-consistent `events` + `objects_view` pair directly,
+        // ahead of this projection's own checkpoint) is a no-op rather than a
+        // raw Postgres unique-violation that would abort the whole catch-up
+        // batch and permanently wedge this projection — mirrors
+        // `FieldDefinitionsViewProjection`'s own `FieldDefined` handling.
+        await dbTx
+          .insert(objectsView)
+          .values({
+            id: objectId,
+            streamId: event.streamId,
+            type: objectType,
+            workspaceId: event.workspaceId,
+            title,
+            createdBy: event.actor.id,
+            createdAt: event.occurredAt,
+            updatedAt: event.occurredAt,
+            lifecycle: 'active',
+          })
+          .onConflictDoNothing({ target: objectsView.id });
         return;
       }
       case 'ObjectRenamed': {
