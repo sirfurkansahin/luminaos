@@ -102,6 +102,13 @@ describe('defineField', () => {
     expect(() => defineField({ ...validInput, defaultValue: 'todo' })).not.toThrow();
   });
 
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'throws ValidationError for a reserved field key %s (prototype-pollution guard, security review)',
+    (reservedKey) => {
+      expect(() => defineField({ ...validInput, key: reservedKey })).toThrow(ValidationError);
+    },
+  );
+
   it('throws ValidationError for an unknown objectType', () => {
     expect(() => defineField({ ...validInput, objectType: 'project' as ObjectType })).toThrow(
       ValidationError,

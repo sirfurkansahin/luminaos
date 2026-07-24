@@ -9,11 +9,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { newObjectId } from '@luminaos/core-objects';
 
+import { ObjectsViewProjection } from './objects-view.projection.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { events } from '../db/schema/events.js';
 import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
+import { EventStoreService } from '../event-store/event-store.service.js';
+import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 
 import type { Database } from '../db/client.js';
 import type { INestApplication } from '@nestjs/common';
@@ -654,18 +657,21 @@ describe('Formula field RECOMPUTE on Lumina Objects (real Postgres + real HTTP, 
         },
       ]);
 
-      await rawDb.insert(objectsView).values({
-        id: targetObjectId,
-        streamId: targetStreamId,
-        type: 'task',
-        workspaceId,
-        title: 'Scale target task',
-        createdBy: userId,
-        createdAt: now,
-        updatedAt: now,
-        lifecycle: 'active',
-        fieldValues: { price: seedPrice, qty: seedQty, subtotal: seedSubtotal },
-      });
+      // Let the REAL projection turn these seeded events into the
+      // `objects_view` row (rather than also hand-inserting that row
+      // directly) — this stream's events get caught up for real later too
+      // (via `ObjectsService.setFieldValues`'s own `catchUp` call after the
+      // HTTP PATCH below), so pre-populating `objects_view` out-of-band would
+      // make `ObjectCreated` get inserted twice for the same primary key.
+      // Advancing the checkpoint here, through the same real
+      // `ObjectsViewProjection`/`ProjectionRunner` the running app uses
+      // (checkpoints are keyed by projection name in the DB, not JS instance
+      // identity — see `projection-rebuild.integration.test.ts` for the same
+      // established pattern), means the later in-app `catchUp` call only
+      // ever processes events appended AFTER this point.
+      const seedEventStore = new EventStoreService(rawDb);
+      const seedProjectionRunner = new ProjectionRunner(rawDb, seedEventStore);
+      await seedProjectionRunner.catchUp(new ObjectsViewProjection());
 
       // --- 3. 9,999 decoy objects: `objects_view` rows only (nothing ever
       // reads/appends to their event streams in this test, so no matching

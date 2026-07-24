@@ -54,6 +54,22 @@ function assertValidPermissions(permissions: unknown): asserts permissions is Fi
 }
 
 /**
+ * A field's `key` ends up used as a plain-object property name throughout
+ * this codebase (field-value maps in `apps/server`, formula `{fieldKey}`
+ * lookups in the expression evaluator) — reject the handful of names that
+ * would let a `key:value` assignment reinterpret an object's own prototype
+ * chain rather than set an ordinary own property (security review finding,
+ * F1-T4).
+ */
+const RESERVED_FIELD_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
+function assertSafeFieldKey(key: string): void {
+  if (RESERVED_FIELD_KEYS.has(key)) {
+    throw new ValidationError('field key is reserved and cannot be used', { key });
+  }
+}
+
+/**
  * Per F1-T4 plan: a formula field's value is always computed, never
  * directly editable/defaultable. Also validates (when `config` is being
  * set) that every field the expression references is known, and that
@@ -129,6 +145,8 @@ export function defineField(
   if (!isKnownFieldType(fieldType)) {
     throw new ValidationError('unknown field type', { fieldType });
   }
+
+  assertSafeFieldKey(input.key);
 
   validateFieldConfig(input.fieldType, input.config);
 
