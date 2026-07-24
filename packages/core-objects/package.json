@@ -21,8 +21,13 @@
     "lint": "eslint ."
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
+    "fast-check": "^4.9.0",
     "typescript": "6.0.3",
-    "vitest": "^4.1.10",
-    "@vitest/coverage-v8": "^4.1.10"
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@luminaos/shared": "workspace:*",
+    "ulid": "^3.0.2"
   }
 }

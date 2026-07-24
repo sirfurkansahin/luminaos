@@ -1,6 +1,6 @@
 # F1-T1 — Lumina Object: Varlık Çekirdeği
 
-**Epik:** F1-E1 (Lumina Object Modeli) · **Durum:** Yapılacak
+**Epik:** F1-E1 (Lumina Object Modeli) · **Durum:** Tamamlandı
 **Bağımlılık:** F0-T6 (event store)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu, tüm ürünün üzerine kurulacağı çekirdek domain modelidir. Plan aşamasında en güçlü model kullanılmalı; ADR yazılıp insan onayı alınmadan koda geçilmemeli.
@@ -25,8 +25,32 @@
 
 ## Kabul Kriterleri
 
-- [ ] ADR-0003 yazıldı ve insan onayı alındı (koddan ÖNCE).
-- [ ] `replayObject`: rastgele geçerli komut dizileri için property-based test (fast-check) — hiçbir dizi geçersiz duruma ulaşamaz.
-- [ ] Deleted nesneye komut → tanımlı hata; restore sonrası komutlar tekrar çalışır (testli).
-- [ ] API akışı entegrasyon testli: create → rename → archive → restore → list (yalnız kendi workspace'i).
-- [ ] packages/core-objects kapsam ≥ %95; framework import lint'i yeşil.
+- [x] ADR-0003 yazıldı ve insan onayı alındı (koddan ÖNCE).
+- [x] `replayObject`: rastgele geçerli komut dizileri için property-based test (fast-check) — hiçbir dizi geçersiz duruma ulaşamaz.
+- [x] Deleted nesneye komut → tanımlı hata; restore sonrası komutlar tekrar çalışır (testli).
+- [x] API akışı entegrasyon testli: create → rename → archive → restore → list (yalnız kendi workspace'i).
+- [x] packages/core-objects kapsam ≥ %95; framework import lint'i yeşil.
+
+## Tamamlanma Notu
+
+İki PR halinde uygulandı:
+
+- **PR-A** (`packages/core-objects`, saf domain): `LuminaObject` tipleri, tip kayıt
+  defteri, yaşam döngüsü durum makinesi, saf komut fonksiyonları
+  (`create/rename/archive/restore/softDelete` + arayüz-only `purge`),
+  `replayObject` fold'u, `newObjectId()` (ULID). `packages/shared`'a
+  `InvalidObjectStateError` (409) eklendi. fast-check model-based property testi
+  (AC #2) dahil 89 test, kapsam %100 (eşik %95). security-reviewer'ın 3 bulgusu
+  (title için runtime tip koruması, replay'de bozuk payload'a açık red, hata
+  mesajında ham objectType sızıntısı) TDD ile kapatıldı.
+- **PR-B** (apps/server entegrasyonu): `EventStoreModule` (F0-T6 event store'un
+  ilk Nest DI bağlantısı), `objects_view` şeması + migration (down script dahil),
+  `ObjectsViewProjection`, `ObjectsService`/`ObjectsController`/`ObjectsModule`
+  (`/workspaces/:workspaceId/objects` altında create/list/get/rename/archive/
+  restore/soft-delete). 37 entegrasyon testi (Testcontainers, gerçek Postgres +
+  Redis + HTTP) yeşil; cross-tenant izolasyon ve deleted-nesne 409/restore akışı
+  dahil. security-reviewer: bulgu yok.
+
+Kimlik stratejisi kararı (ULID iş kimliği + ayrı UUID streamId, `objects_view`
+projeksiyonunda eşlenir) ADR-0003'te belgelendi ve insan onayından sonra
+uygulandı.
