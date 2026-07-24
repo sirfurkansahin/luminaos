@@ -15,6 +15,8 @@ export * from './fields/field-commands.js';
 export * from './fields/field-replay.js';
 export * from './fields/field-value-commands.js';
 export * from './fields/field-value-replay.js';
+export * from './fields/formula/formula-graph.js';
+export * from './fields/formula/field-aggregations.js';
 export * from './relations/relation.js';
 export * from './relations/relation-graph.js';
 export * from './relations/relation-commands.js';

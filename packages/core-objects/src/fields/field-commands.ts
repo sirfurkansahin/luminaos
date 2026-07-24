@@ -3,10 +3,13 @@ import { InvalidObjectStateError, ValidationError } from '@luminaos/shared';
 import { isKnownObjectType } from '../object-type-registry.js';
 import { isValidFieldPermissions } from './field-permissions.js';
 import {
+  formulaConfigSchema,
   isKnownFieldType,
   validateFieldConfig,
   validateFieldValue,
 } from './field-type-registry.js';
+import { findFormulaCycle } from './formula/formula-graph.js';
+import { parseFormula } from './formula/parser.js';
 
 import type { FieldDefinition } from './field-definition.js';
 import type { FieldPermissions } from './field-permissions.js';
@@ -50,7 +53,71 @@ function assertValidPermissions(permissions: unknown): asserts permissions is Fi
   }
 }
 
-export function defineField(input: DefineFieldInput): FieldEventDraft[] {
+/**
+ * Per F1-T4 plan: a formula field's value is always computed, never
+ * directly editable/defaultable. Also validates (when `config` is being
+ * set) that every field the expression references is known, and that
+ * accepting it would not close a formula-to-formula dependency cycle.
+ */
+function assertFormulaFieldRules(options: {
+  candidateKey: string;
+  objectType: ObjectType;
+  config: unknown;
+  configProvided: boolean;
+  defaultValueProvided: boolean;
+  permissions: FieldPermissions | undefined;
+  permissionsProvided: boolean;
+  existingFieldDefinitions: FieldDefinition[];
+}): void {
+  if (options.defaultValueProvided) {
+    throw new ValidationError('formula fields cannot have a defaultValue');
+  }
+
+  if (options.permissionsProvided && options.permissions !== undefined) {
+    const grantsEdit = Object.values(options.permissions).some((level) => level === 'edit');
+
+    if (grantsEdit) {
+      throw new ValidationError('formula fields cannot be directly edited');
+    }
+  }
+
+  if (!options.configProvided) {
+    return;
+  }
+
+  const sameObjectType = options.existingFieldDefinitions.filter(
+    (field) => field.objectType === options.objectType,
+  );
+
+  const { expression } = formulaConfigSchema.parse(options.config);
+  const { dependsOn } = parseFormula(expression);
+
+  const knownKeys = new Set(sameObjectType.map((field) => field.key));
+
+  for (const dependencyKey of dependsOn) {
+    if (!knownKeys.has(dependencyKey)) {
+      throw new ValidationError('formula references an unknown field', { key: dependencyKey });
+    }
+  }
+
+  const existingFormulaFields = sameObjectType
+    .filter((field) => field.fieldType === 'formula')
+    .map((field) => {
+      const { expression: existingExpression } = formulaConfigSchema.parse(field.config);
+      return { key: field.key, dependsOn: parseFormula(existingExpression).dependsOn };
+    });
+
+  const cycle = findFormulaCycle(existingFormulaFields, options.candidateKey, dependsOn);
+
+  if (cycle) {
+    throw new ValidationError('formula field would create a dependency cycle', { cycle });
+  }
+}
+
+export function defineField(
+  input: DefineFieldInput,
+  existingFieldDefinitions: FieldDefinition[] = [],
+): FieldEventDraft[] {
   const objectType: string = input.objectType;
 
   if (!isKnownObjectType(objectType)) {
@@ -71,6 +138,19 @@ export function defineField(input: DefineFieldInput): FieldEventDraft[] {
 
   assertValidPermissions(input.permissions);
 
+  if (input.fieldType === 'formula') {
+    assertFormulaFieldRules({
+      candidateKey: input.key,
+      objectType: input.objectType,
+      config: input.config,
+      configProvided: true,
+      defaultValueProvided: input.defaultValue !== undefined,
+      permissions: input.permissions,
+      permissionsProvided: true,
+      existingFieldDefinitions,
+    });
+  }
+
   return [
     {
       type: 'FieldDefined',
@@ -89,7 +169,11 @@ export function defineField(input: DefineFieldInput): FieldEventDraft[] {
   ];
 }
 
-export function updateField(state: FieldDefinition, input: UpdateFieldInput): FieldEventDraft[] {
+export function updateField(
+  state: FieldDefinition,
+  input: UpdateFieldInput,
+  existingFieldDefinitions: FieldDefinition[] = [],
+): FieldEventDraft[] {
   if (state.lifecycle === 'archived') {
     throw new InvalidObjectStateError('cannot update an archived field definition', {
       fieldDefinitionId: state.id,
@@ -110,6 +194,19 @@ export function updateField(state: FieldDefinition, input: UpdateFieldInput): Fi
 
   if (input.permissions !== undefined) {
     assertValidPermissions(input.permissions);
+  }
+
+  if (state.fieldType === 'formula') {
+    assertFormulaFieldRules({
+      candidateKey: state.key,
+      objectType: state.objectType,
+      config: effectiveConfig,
+      configProvided: input.config !== undefined,
+      defaultValueProvided: input.defaultValue !== undefined,
+      permissions: input.permissions,
+      permissionsProvided: input.permissions !== undefined,
+      existingFieldDefinitions,
+    });
   }
 
   const payload: Record<string, unknown> = { fieldDefinitionId: state.id };
