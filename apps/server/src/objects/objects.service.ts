@@ -8,8 +8,12 @@ import {
   archiveObject,
   canEditField,
   canViewField,
+  computeAggregate,
   createObject,
+  evaluateFormula,
+  getAffectedFormulaKeysInOrder,
   newObjectId,
+  parseFormula,
   renameObject,
   replayFieldValues,
   replayObject,
@@ -18,13 +22,15 @@ import {
   softDeleteObject,
 } from '@luminaos/core-objects';
 import type {
+  AggregateFn,
   FieldDefinition,
+  FormulaFieldDependency,
   LuminaObject,
   ObjectEventDraft,
   ObjectType,
   Role,
 } from '@luminaos/core-objects';
-import { ForbiddenError, NotFoundError } from '@luminaos/shared';
+import { ForbiddenError, NotFoundError, ValidationError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ObjectsViewProjection } from './objects-view.projection.js';
@@ -37,6 +43,11 @@ import { ProjectionRunner } from '../event-store/projections/projection-runner.s
 import type { Database } from '../db/client.js';
 
 const STREAM_TYPE = 'lumina-object';
+
+/** The always-and-only actor recorded for a formula field's own recomputed
+ * `FieldValueChanged` events -- never the caller's own actor, since the
+ * caller never directly wrote these values (F1-T4 plan). */
+const FORMULA_ENGINE_ACTOR: Actor = { type: 'system', id: 'formula-engine' };
 
 /**
  * The server-side, over-the-wire shape of a Lumina Object (F1-T2 PR-C): the
@@ -93,8 +104,34 @@ export class ObjectsService {
     const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, input.objectType);
     const defaultDrafts = applyDefaultFieldValues(objectId, definitions);
 
-    const newEvents = this.wrapDrafts([...createDrafts, ...defaultDrafts], workspaceId, actor);
-    const appended = await this.eventStore.append(streamId, 0, newEvents);
+    // Default values just applied become the base for formula recompute:
+    // a formula referencing a defaulted field must see that default on this
+    // very first write, not only on a later `setFieldValues` call.
+    const now = new Date();
+    const fieldValuesAfterDefaults: Record<string, unknown> = {};
+    const changedKeys: string[] = [];
+
+    for (const draft of defaultDrafts) {
+      const { fieldKey, value } = draft.payload as { fieldKey: string; value: unknown };
+      fieldValuesAfterDefaults[fieldKey] = value;
+      changedKeys.push(fieldKey);
+    }
+
+    const recomputeDrafts = this.recomputeFormulaFields(
+      objectId,
+      fieldValuesAfterDefaults,
+      definitions,
+      changedKeys,
+      now,
+    );
+
+    // Two `wrapDrafts` calls -- the user's own actor for `create`+defaults,
+    // the system actor for anything the formula engine itself computed --
+    // concatenated into ONE `append` call (single atomic write, per this
+    // task's constraint).
+    const userEvents = this.wrapDrafts([...createDrafts, ...defaultDrafts], workspaceId, actor);
+    const systemEvents = this.wrapDrafts(recomputeDrafts, workspaceId, FORMULA_ENGINE_ACTOR);
+    const appended = await this.eventStore.append(streamId, 0, [...userEvents, ...systemEvents]);
 
     await this.projectionRunner.catchUp(this.projection);
 
@@ -151,7 +188,11 @@ export class ObjectsService {
     return this.toObjectWithFieldValues(row, definitions, callerRole);
   }
 
-  async list(workspaceId: string, callerRole: Role): Promise<ObjectWithFieldValues[]> {
+  async list(
+    workspaceId: string,
+    callerRole: Role,
+    aggregateSpecs?: { fieldKey: string; fn: AggregateFn }[],
+  ): Promise<{ objects: ObjectWithFieldValues[]; aggregates?: Record<string, number | null> }> {
     const rows = await this.db
       .select()
       .from(objectsView)
@@ -159,11 +200,24 @@ export class ObjectsService {
 
     const definitionsByType = await this.getActiveFieldDefinitionsGroupedByType(workspaceId);
 
-    return rows
+    const objects = rows
       .map((row) =>
         this.toObjectWithFieldValues(row, definitionsByType.get(row.type) ?? [], callerRole),
       )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    if (!aggregateSpecs || aggregateSpecs.length === 0) {
+      return { objects };
+    }
+
+    const aggregates: Record<string, number | null> = {};
+
+    for (const { fieldKey, fn } of aggregateSpecs) {
+      const values = objects.map((object) => object.fieldValues[fieldKey]);
+      aggregates[`${fieldKey}:${fn}`] = computeAggregate(fn, values);
+    }
+
+    return { objects, aggregates };
   }
 
   /**
@@ -206,6 +260,17 @@ export class ObjectsService {
         );
       }
 
+      // A formula field's value is always computed by the formula engine,
+      // never directly writable — regardless of role/permission level (the
+      // field genuinely exists and its type is discoverable via `GET`, so
+      // this is a structural-validation 400, not a `ForbiddenError` 403 or
+      // the existence-oracle-avoiding 404 above).
+      if (definition.fieldType === 'formula') {
+        throw new ValidationError('cannot directly set a value for a computed formula field', {
+          fieldKey: entry.fieldKey,
+        });
+      }
+
       if (!canEditField(definition.permissions, callerRole)) {
         throw new ForbiddenError();
       }
@@ -216,7 +281,34 @@ export class ObjectsService {
     const drafts = setFieldValuesCommand(objectId, resolvedEntries);
 
     const priorEvents = await this.eventStore.readStream(streamId);
-    const newEvents = this.wrapDrafts(drafts, workspaceId, actor);
+
+    // The current field-value map, with this write's own entries applied on
+    // top — the base formula recompute reasons over (upstream dependency
+    // changes must be visible to recompute even though they haven't been
+    // appended yet).
+    const workingFieldValues = replayFieldValues(priorEvents);
+    const changedKeys: string[] = [];
+
+    for (const draft of drafts) {
+      const { fieldKey, value } = draft.payload as { fieldKey: string; value: unknown };
+      workingFieldValues[fieldKey] = value;
+      changedKeys.push(fieldKey);
+    }
+
+    const recomputeDrafts = this.recomputeFormulaFields(
+      objectId,
+      workingFieldValues,
+      definitions,
+      changedKeys,
+      new Date(),
+    );
+
+    // Two `wrapDrafts` calls (real actor, then the system formula-engine
+    // actor), concatenated into ONE `append` call -- same atomicity pattern
+    // as `create`.
+    const userEvents = this.wrapDrafts(drafts, workspaceId, actor);
+    const systemEvents = this.wrapDrafts(recomputeDrafts, workspaceId, FORMULA_ENGINE_ACTOR);
+    const newEvents = [...userEvents, ...systemEvents];
     const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
@@ -228,6 +320,85 @@ export class ObjectsService {
       ...object,
       fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
     };
+  }
+
+  /**
+   * Given the full ACTIVE field-definition set for an object type and the
+   * keys that just changed (default values applied on `create`, or a
+   * `setFieldValues` write), recomputes every `formula` field transitively
+   * affected, IN DEPENDENCY ORDER, against `fieldValues` (a working copy;
+   * this function mutates its own local copy as it goes so a later formula
+   * in the order sees an earlier one's freshly recomputed value). Returns
+   * one `FieldValueChanged` draft per formula field whose computed value
+   * actually changed (empty array if none did).
+   */
+  private recomputeFormulaFields(
+    objectId: string,
+    fieldValues: Record<string, unknown>,
+    definitions: FieldDefinition[],
+    changedKeys: string[],
+    now: Date,
+  ): ObjectEventDraft[] {
+    const formulaDefinitions = definitions.filter(
+      (definition) => definition.fieldType === 'formula',
+    );
+
+    if (formulaDefinitions.length === 0) {
+      return [];
+    }
+
+    const formulaFieldDependencies: FormulaFieldDependency[] = formulaDefinitions.map(
+      (definition) => ({
+        key: definition.key,
+        dependsOn: parseFormula(this.formulaExpression(definition)).dependsOn,
+      }),
+    );
+
+    const affectedKeys = getAffectedFormulaKeysInOrder(formulaFieldDependencies, changedKeys);
+
+    if (affectedKeys.length === 0) {
+      return [];
+    }
+
+    const definitionsByKey = new Map(
+      formulaDefinitions.map((definition) => [definition.key, definition]),
+    );
+    const workingFieldValues = { ...fieldValues };
+    const drafts: ObjectEventDraft[] = [];
+
+    for (const key of affectedKeys) {
+      const definition = definitionsByKey.get(key);
+
+      if (!definition) {
+        continue;
+      }
+
+      const { ast } = parseFormula(this.formulaExpression(definition));
+      const computedValue = evaluateFormula(ast, { fieldValues: workingFieldValues, now });
+      const previousValue = workingFieldValues[key];
+
+      if (JSON.stringify(computedValue) !== JSON.stringify(previousValue)) {
+        drafts.push({
+          type: 'FieldValueChanged',
+          payload: { objectId, fieldKey: key, value: computedValue },
+        });
+      }
+
+      workingFieldValues[key] = computedValue;
+    }
+
+    return drafts;
+  }
+
+  /**
+   * A `formula`-typed `FieldDefinition`'s `config` is `unknown` on the type
+   * itself, but is guaranteed (by `defineField`/`updateField`'s own
+   * validation, PR-A2) to always carry a valid `{ expression: string }` shape
+   * by construction once it reaches here -- this is the single place that
+   * assumption is documented and asserted.
+   */
+  private formulaExpression(definition: FieldDefinition): string {
+    return (definition.config as { expression: string }).expression;
   }
 
   /**

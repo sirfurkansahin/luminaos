@@ -2,9 +2,12 @@ import { z } from 'zod';
 
 import { ValidationError } from '@luminaos/shared';
 
+import { formulaValueSchema } from './formula/formula-value.js';
+import { MAX_EXPRESSION_LENGTH } from './formula/tokenizer.js';
+
 /**
- * Per F1-T2 plan (PR-A): 12 built-in field types. `formula`/`ai` types are
- * explicitly out of scope (deferred to F1-T4/T5).
+ * Per F1-T2 plan (PR-A) + F1-T4 plan (PR-A2): 13 built-in field types.
+ * `ai` is explicitly out of scope (deferred to F1-T5).
  */
 export type FieldType =
   | 'text'
@@ -18,7 +21,8 @@ export type FieldType =
   | 'url'
   | 'email'
   | 'people'
-  | 'currency';
+  | 'currency'
+  | 'formula';
 
 const FIELD_TYPES: readonly FieldType[] = [
   'text',
@@ -33,6 +37,7 @@ const FIELD_TYPES: readonly FieldType[] = [
   'email',
   'people',
   'currency',
+  'formula',
 ];
 
 const FIELD_TYPE_SET: ReadonlySet<string> = new Set(FIELD_TYPES);
@@ -88,6 +93,19 @@ const currencyConfigSchema = z
   .strict();
 
 /**
+ * Per F1-T4 plan: `formula`'s config carries a single non-empty expression
+ * string, capped at the formula expression engine's own
+ * `MAX_EXPRESSION_LENGTH` (imported, not re-hardcoded). This schema does NOT
+ * itself check the expression is syntactically valid formula grammar — that
+ * is `defineField`/`updateField`'s job via `parseFormula`, one layer up.
+ */
+export const formulaConfigSchema = z
+  .object({
+    expression: z.string().min(1).max(MAX_EXPRESSION_LENGTH),
+  })
+  .strict();
+
+/**
  * Parses `config` against `schema`; throws `ValidationError` (zod issues in
  * `details`, never a raw value interpolated into the message string — per
  * F1-T1 PR-A's security-review "unknown object type" fix) on failure,
@@ -121,6 +139,8 @@ function parseConfigForType(fieldType: FieldType, config: unknown): unknown {
       return parseConfig(optionsConfigSchema, fieldType, config);
     case 'currency':
       return parseConfig(currencyConfigSchema, fieldType, config);
+    case 'formula':
+      return parseConfig(formulaConfigSchema, fieldType, config);
   }
 }
 
@@ -186,6 +206,10 @@ function buildValueSchema(fieldType: FieldType, config: unknown): z.ZodType {
     case 'currency': {
       parseConfig(currencyConfigSchema, fieldType, config);
       return z.number();
+    }
+    case 'formula': {
+      parseConfig(formulaConfigSchema, fieldType, config);
+      return formulaValueSchema;
     }
   }
 }
