@@ -4,5 +4,6 @@ export * from './workspaces.js';
 export * from './memberships.js';
 export * from './events.js';
 export * from './objects-view.js';
+export * from './field-definitions.js';
 export * from './projection-checkpoints.js';
 export * from './projection-workspace-event-counts.js';
