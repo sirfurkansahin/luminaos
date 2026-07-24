@@ -13,6 +13,7 @@ import { HttpTracingInterceptor } from './observability/http-tracing.interceptor
 import { LoggingModule } from './observability/logging.module.js';
 import { TracingModule } from './observability/tracing.module.js';
 import { RedisModule } from './redis/redis.module.js';
+import { RelationsModule } from './relations/relations.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -37,6 +38,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     WorkspacesModule,
     ObjectsModule,
     FieldsModule,
+    RelationsModule,
   ],
   controllers: [AppController],
   providers: [

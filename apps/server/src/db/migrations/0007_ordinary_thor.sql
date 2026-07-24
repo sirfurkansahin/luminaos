@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "relations_view_active_parent_key" ON "relations_view" USING btree ("workspace_id","to_id") WHERE kind = 'parentChild';
