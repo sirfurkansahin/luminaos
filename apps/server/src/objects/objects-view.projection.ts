@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { InvalidObjectStateError } from '@luminaos/shared';
 import type { DomainEvent, Projection, ProjectionTx } from '@luminaos/shared';
@@ -47,6 +47,7 @@ export class ObjectsViewProjection implements Projection {
     'ObjectArchived',
     'ObjectRestored',
     'ObjectSoftDeleted',
+    'FieldValueChanged',
   ];
 
   async apply(event: DomainEvent, tx: ProjectionTx): Promise<void> {
@@ -117,6 +118,29 @@ export class ObjectsViewProjection implements Projection {
         await dbTx
           .update(objectsView)
           .set({ lifecycle: 'deleted', updatedAt: event.occurredAt })
+          .where(eq(objectsView.id, objectId));
+        return;
+      }
+      case 'FieldValueChanged': {
+        const objectId = requireStringPayloadField(event, 'objectId');
+        const fieldKey = requireStringPayloadField(event, 'fieldKey');
+        const value = event.payload['value'];
+
+        // SECURITY: `fieldKey`/`value` are untrusted event payload content —
+        // both are passed as BOUND `sql` template parameters (drizzle-orm
+        // parameterizes every `${...}` interpolation into this tagged
+        // template as a real query parameter), never string-concatenated
+        // into the SQL text itself. `jsonb_set`'s path argument requires a
+        // `text[]`, hence the explicit `ARRAY[...]::text[]` cast around the
+        // bound `fieldKey`; `value` is bound as a JSON-serialized string and
+        // cast to `jsonb` server-side, so it always lands as valid JSON
+        // rather than a raw string when `value` is itself a string.
+        await dbTx
+          .update(objectsView)
+          .set({
+            fieldValues: sql`jsonb_set(${objectsView.fieldValues}, ARRAY[${fieldKey}]::text[], ${JSON.stringify(value)}::jsonb, true)`,
+            updatedAt: event.occurredAt,
+          })
           .where(eq(objectsView.id, objectId));
         return;
       }

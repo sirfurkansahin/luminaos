@@ -1,0 +1,1 @@
+ALTER TABLE "objects_view" ADD COLUMN "field_values" jsonb DEFAULT '{}'::jsonb NOT NULL;

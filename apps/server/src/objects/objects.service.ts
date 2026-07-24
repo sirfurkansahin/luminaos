@@ -4,20 +4,32 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, ne } from 'drizzle-orm';
 
 import {
+  applyDefaultFieldValues,
   archiveObject,
+  canEditField,
+  canViewField,
   createObject,
   newObjectId,
   renameObject,
+  replayFieldValues,
   replayObject,
   restoreObject,
+  setFieldValues as setFieldValuesCommand,
   softDeleteObject,
 } from '@luminaos/core-objects';
-import type { LuminaObject, ObjectEventDraft, ObjectType } from '@luminaos/core-objects';
-import { NotFoundError } from '@luminaos/shared';
+import type {
+  FieldDefinition,
+  LuminaObject,
+  ObjectEventDraft,
+  ObjectType,
+  Role,
+} from '@luminaos/core-objects';
+import { ForbiddenError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ObjectsViewProjection } from './objects-view.projection.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
@@ -25,6 +37,20 @@ import { ProjectionRunner } from '../event-store/projections/projection-runner.s
 import type { Database } from '../db/client.js';
 
 const STREAM_TYPE = 'lumina-object';
+
+/**
+ * The server-side, over-the-wire shape of a Lumina Object (F1-T2 PR-C): the
+ * pure `LuminaObject` domain type plus a `fieldValues` map. This is
+ * deliberately NOT added to `packages/core-objects`'s own `LuminaObject`
+ * type (frozen, PR-A) — it's a server-layer read-model concern (role-based
+ * filtering happens here, not in the domain).
+ */
+export type ObjectWithFieldValues = LuminaObject & { fieldValues: Record<string, unknown> };
+
+export interface SetFieldValueEntry {
+  fieldKey: string;
+  value: unknown;
+}
 
 @Injectable()
 export class ObjectsService {
@@ -47,11 +73,12 @@ export class ObjectsService {
     workspaceId: string,
     actor: Actor,
     input: { objectType: ObjectType; title: string },
-  ): Promise<LuminaObject> {
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
     const objectId = newObjectId();
     const streamId = randomUUID();
 
-    const drafts = createObject({
+    const createDrafts = createObject({
       objectId,
       workspaceId,
       objectType: input.objectType,
@@ -59,12 +86,25 @@ export class ObjectsService {
       actor,
     });
 
-    const newEvents = this.wrapDrafts(drafts, workspaceId, actor);
+    // Active field definitions for this object type, gathered BEFORE the
+    // append so their `defaultValue`s can ride in the SAME `append` call as
+    // `ObjectCreated` (F1-T2 plan's central architecture decision:
+    // create+defaults are atomic, one stream, one append).
+    const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, input.objectType);
+    const defaultDrafts = applyDefaultFieldValues(objectId, definitions);
+
+    const newEvents = this.wrapDrafts([...createDrafts, ...defaultDrafts], workspaceId, actor);
     const appended = await this.eventStore.append(streamId, 0, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
 
-    return replayObject(appended);
+    const object = replayObject(appended);
+    const fieldValues = replayFieldValues(appended);
+
+    return {
+      ...object,
+      fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
+    };
   }
 
   async rename(
@@ -88,7 +128,11 @@ export class ObjectsService {
     return this.applyCommand(workspaceId, objectId, actor, (state) => softDeleteObject(state));
   }
 
-  async get(workspaceId: string, objectId: string): Promise<LuminaObject> {
+  async get(
+    workspaceId: string,
+    objectId: string,
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
     const [row] = await this.db
       .select()
       .from(objectsView)
@@ -99,18 +143,91 @@ export class ObjectsService {
       throw new NotFoundError('Lumina Object not found');
     }
 
-    return this.toLuminaObject(row);
+    const definitions = await this.getActiveFieldDefinitionsForType(
+      workspaceId,
+      row.type as ObjectType,
+    );
+
+    return this.toObjectWithFieldValues(row, definitions, callerRole);
   }
 
-  async list(workspaceId: string): Promise<LuminaObject[]> {
+  async list(workspaceId: string, callerRole: Role): Promise<ObjectWithFieldValues[]> {
     const rows = await this.db
       .select()
       .from(objectsView)
       .where(and(eq(objectsView.workspaceId, workspaceId), ne(objectsView.lifecycle, 'deleted')));
 
+    const definitionsByType = await this.getActiveFieldDefinitionsGroupedByType(workspaceId);
+
     return rows
-      .map((row) => this.toLuminaObject(row))
+      .map((row) =>
+        this.toObjectWithFieldValues(row, definitionsByType.get(row.type) ?? [], callerRole),
+      )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  /**
+   * Batch, all-or-nothing custom-field write. For every submitted
+   * `fieldKey`: looks up its ACTIVE field definition (workspace + this
+   * object's own `objectType`, resolved via `objects_view`) — `NotFoundError`
+   * if none matches; `ForbiddenError` if `callerRole` does not have `'edit'`
+   * on it (`'view'`/`'hidden'` both count as "no edit"). Only once every
+   * entry has passed both checks does the domain command
+   * (`setFieldValuesCommand`) run — it re-validates each value against its
+   * field's type/config and throws before returning any drafts if any entry
+   * is invalid, so a single `append` call either writes every entry or
+   * writes none.
+   */
+  async setFieldValues(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    entries: SetFieldValueEntry[],
+  ): Promise<ObjectWithFieldValues> {
+    const { streamId, objectType } = await this.lookupStreamIdAndType(workspaceId, objectId);
+
+    const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, objectType);
+    const definitionsByKey = new Map(definitions.map((definition) => [definition.key, definition]));
+
+    const resolvedEntries = entries.map((entry) => {
+      const definition = definitionsByKey.get(entry.fieldKey);
+
+      // A field the caller cannot even VIEW ("hidden") must be
+      // indistinguishable from one that was never defined at all — a
+      // distinguishable 403 here would let a caller enumerate hidden field
+      // keys via brute-force PATCH attempts, something they cannot do via
+      // GET/list (security review finding). Only a "view"-but-not-"edit"
+      // field (whose existence the caller already legitimately knows,
+      // having seen it via GET) gets 403.
+      if (!definition || !canViewField(definition.permissions, callerRole)) {
+        throw new NotFoundError(
+          'No active field definition found for this key on this object type.',
+        );
+      }
+
+      if (!canEditField(definition.permissions, callerRole)) {
+        throw new ForbiddenError();
+      }
+
+      return { fieldDefinition: definition, value: entry.value };
+    });
+
+    const drafts = setFieldValuesCommand(objectId, resolvedEntries);
+
+    const priorEvents = await this.eventStore.readStream(streamId);
+    const newEvents = this.wrapDrafts(drafts, workspaceId, actor);
+    const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
+
+    await this.projectionRunner.catchUp(this.projection);
+
+    const object = replayObject([...priorEvents, ...appended]);
+    const fieldValues = replayFieldValues([...priorEvents, ...appended]);
+
+    return {
+      ...object,
+      fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
+    };
   }
 
   /**
@@ -154,6 +271,23 @@ export class ObjectsService {
     return row.streamId;
   }
 
+  private async lookupStreamIdAndType(
+    workspaceId: string,
+    objectId: string,
+  ): Promise<{ streamId: string; objectType: ObjectType }> {
+    const [row] = await this.db
+      .select({ streamId: objectsView.streamId, type: objectsView.type })
+      .from(objectsView)
+      .where(and(eq(objectsView.id, objectId), eq(objectsView.workspaceId, workspaceId)))
+      .limit(1);
+
+    if (!row) {
+      throw new NotFoundError('Lumina Object not found');
+    }
+
+    return { streamId: row.streamId, objectType: row.type as ObjectType };
+  }
+
   private wrapDrafts(
     drafts: ObjectEventDraft[],
     workspaceId: string,
@@ -182,6 +316,126 @@ export class ObjectsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       lifecycle: row.lifecycle as LuminaObject['lifecycle'],
+    };
+  }
+
+  private toObjectWithFieldValues(
+    row: typeof objectsView.$inferSelect,
+    definitions: FieldDefinition[],
+    callerRole: Role,
+  ): ObjectWithFieldValues {
+    const rawFieldValues = (row.fieldValues ?? {}) as Record<string, unknown>;
+
+    return {
+      ...this.toLuminaObject(row),
+      fieldValues: this.filterFieldValuesForRole(rawFieldValues, definitions, callerRole),
+    };
+  }
+
+  /**
+   * Drops every key in `fieldValues` whose matching ACTIVE field definition
+   * has `permissions[callerRole] === 'hidden'` — the key itself is removed
+   * (not set to `null`), per this PR's pinned HTTP contract. A stored value
+   * with no matching active definition (e.g. its definition was later
+   * archived) is left as-is: only an explicit `hidden` permission filters a
+   * value, absence of a definition does not.
+   */
+  private filterFieldValuesForRole(
+    fieldValues: Record<string, unknown>,
+    definitions: FieldDefinition[],
+    callerRole: Role,
+  ): Record<string, unknown> {
+    const hiddenKeys = new Set(
+      definitions
+        .filter((definition) => !canViewField(definition.permissions, callerRole))
+        .map((definition) => definition.key),
+    );
+
+    const filtered: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(fieldValues)) {
+      if (hiddenKeys.has(key)) {
+        continue;
+      }
+      filtered[key] = value;
+    }
+
+    return filtered;
+  }
+
+  /**
+   * A direct, UNFILTERED (by role) read of active field definitions for a
+   * single object type — deliberately bypasses
+   * `FieldDefinitionsService.list`'s own `canViewField` filtering (PR-B),
+   * because callers here need the FULL set for reasons that are not
+   * "should this caller see this field": `create`'s defaults are
+   * system-applied regardless of any role's permissions, and
+   * `setFieldValues`'s edit-permission check needs to know a `hidden` field
+   * DOES exist (to return 403, not a misleading 404) rather than have it
+   * silently filtered out of the lookup set.
+   */
+  private async getActiveFieldDefinitionsForType(
+    workspaceId: string,
+    objectType: ObjectType,
+  ): Promise<FieldDefinition[]> {
+    const rows = await this.db
+      .select()
+      .from(fieldDefinitions)
+      .where(
+        and(
+          eq(fieldDefinitions.workspaceId, workspaceId),
+          eq(fieldDefinitions.objectType, objectType),
+          eq(fieldDefinitions.lifecycle, 'active'),
+        ),
+      );
+
+    return rows.map((row) => this.toFieldDefinition(row));
+  }
+
+  /** Same as `getActiveFieldDefinitionsForType`, but for every object type in the workspace at once — used by `list`, which returns objects of mixed types in a single query. */
+  private async getActiveFieldDefinitionsGroupedByType(
+    workspaceId: string,
+  ): Promise<Map<string, FieldDefinition[]>> {
+    const rows = await this.db
+      .select()
+      .from(fieldDefinitions)
+      .where(
+        and(
+          eq(fieldDefinitions.workspaceId, workspaceId),
+          eq(fieldDefinitions.lifecycle, 'active'),
+        ),
+      );
+
+    const grouped = new Map<string, FieldDefinition[]>();
+
+    for (const row of rows) {
+      const definition = this.toFieldDefinition(row);
+      const existing = grouped.get(definition.objectType);
+
+      if (existing) {
+        existing.push(definition);
+      } else {
+        grouped.set(definition.objectType, [definition]);
+      }
+    }
+
+    return grouped;
+  }
+
+  private toFieldDefinition(row: typeof fieldDefinitions.$inferSelect): FieldDefinition {
+    return {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      objectType: row.objectType as ObjectType,
+      key: row.key,
+      label: row.label,
+      fieldType: row.fieldType as FieldDefinition['fieldType'],
+      config: row.config,
+      defaultValue: row.defaultValue ?? undefined,
+      permissions: row.permissions as FieldDefinition['permissions'],
+      lifecycle: row.lifecycle as FieldDefinition['lifecycle'],
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
   }
 }

@@ -37,6 +37,16 @@ import { runMigrations, runDownMigrations } from './migrate.js';
  * genuinely migration-layout-agnostic: it proves `runDownMigrations`
  * demonstrably reversed exactly what the real last migration created,
  * whatever that migration happens to be, now or in the future.
+ *
+ * A migration doesn't necessarily `CREATE TABLE` at all — F1-T2 PR-C's
+ * migration is a plain `ALTER TABLE ... ADD COLUMN` on an existing table
+ * (`objects_view`), the first migration in this codebase to be column-only.
+ * `getLastMigrationEffect` therefore parses BOTH `CREATE TABLE` and
+ * `ALTER TABLE ... ADD COLUMN` statements out of the last migration's SQL,
+ * and the rollback test branches its assertions on whichever the last
+ * migration actually did (table-count shrinkage for the former,
+ * column-disappearance-on-an-unchanged table set for the latter) rather than
+ * assuming every migration creates a table.
  */
 
 const TABLES_QUERY = `
@@ -60,15 +70,28 @@ interface MigrationJournal {
   entries: MigrationJournalEntry[];
 }
 
+interface AddedColumn {
+  table: string;
+  column: string;
+}
+
+interface LastMigrationEffect {
+  createdTables: string[];
+  addedColumns: AddedColumn[];
+}
+
 /**
  * Reads `meta/_journal.json` and the `.sql` file of the most recently
  * generated migration (the last entry in the journal), then extracts every
- * table name that migration's `CREATE TABLE "tablename" (...)` statements
- * created. This is how the test learns, without any hardcoded table name,
- * which tables `runDownMigrations`'s single default rollback step is
- * expected to remove.
+ * table that migration's `CREATE TABLE "tablename" (...)` statements
+ * created AND every `(table, column)` pair its
+ * `ALTER TABLE "tablename" ADD COLUMN "columnname" ...` statements added.
+ * This is how the test learns, without any hardcoded table/column name, what
+ * `runDownMigrations`'s single default rollback step is expected to undo —
+ * whether that's whole tables, columns on an existing table, or (in
+ * principle) both in the same migration.
  */
-function getTablesCreatedByLastMigration(): string[] {
+function getLastMigrationEffect(): LastMigrationEffect {
   const journal = JSON.parse(readFileSync(JOURNAL_PATH, 'utf-8')) as MigrationJournal;
   const lastEntry = journal.entries.at(-1);
 
@@ -79,22 +102,34 @@ function getTablesCreatedByLastMigration(): string[] {
   const sqlFilePath = path.join(MIGRATIONS_FOLDER, `${lastEntry.tag}.sql`);
   const sql = readFileSync(sqlFilePath, 'utf-8');
 
-  const tableNames = [...sql.matchAll(/CREATE TABLE "(\w+)"/g)]
+  const createdTables = [...sql.matchAll(/CREATE TABLE "(\w+)"/g)]
     .map((match) => match[1])
     .filter((tableName): tableName is string => tableName !== undefined);
 
-  if (tableNames.length === 0) {
+  const addedColumns = [...sql.matchAll(/ALTER TABLE "(\w+)" ADD COLUMN "(\w+)"/g)]
+    .map((match) => (match[1] && match[2] ? { table: match[1], column: match[2] } : undefined))
+    .filter((entry): entry is AddedColumn => entry !== undefined);
+
+  if (createdTables.length === 0 && addedColumns.length === 0) {
     throw new Error(
-      `No "CREATE TABLE" statements found in ${sqlFilePath}; the extraction regex may no longer match the generated SQL format.`,
+      `Neither a "CREATE TABLE" nor an "ALTER TABLE ... ADD COLUMN" statement was found in ${sqlFilePath}; the extraction regexes may no longer match the generated SQL format.`,
     );
   }
 
-  return tableNames;
+  return { createdTables, addedColumns };
 }
 
 async function getPublicTableNames(client: Client): Promise<string[]> {
   const result = await client.query<{ table_name: string }>(TABLES_QUERY);
   return result.rows.map((row) => row.table_name);
+}
+
+async function getColumnNames(client: Client, tableName: string): Promise<string[]> {
+  const result = await client.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName],
+  );
+  return result.rows.map((row) => row.column_name);
 }
 
 describe('database migrations (real Postgres via Testcontainers)', () => {
@@ -125,35 +160,63 @@ describe('database migrations (real Postgres via Testcontainers)', () => {
     }
   }, 30_000);
 
-  it('rolls back the last migration and removes its tables', async () => {
+  it('rolls back the last migration and removes what it added', async () => {
     await runMigrations(connectionString);
     const tableNamesBeforeDown = await getPublicTableNames(client);
+
+    // `runDownMigrations` defaults to reversing only the single most
+    // recently applied migration. Rather than hardcoding which table(s)/
+    // column(s) that touches (fragile — it changes every time a new
+    // migration is added), derive it from the migrations folder itself:
+    // whatever the actual last migration's own `.sql` file created/added is
+    // what must be undone by the down step below.
+    const effect = getLastMigrationEffect();
+
+    const columnsBeforeDownByTable = new Map<string, string[]>(
+      await Promise.all(
+        effect.addedColumns.map(async ({ table }): Promise<[string, string[]]> => [
+          table,
+          await getColumnNames(client, table),
+        ]),
+      ),
+    );
 
     await runDownMigrations(connectionString);
     const tableNamesAfterDown = await getPublicTableNames(client);
 
-    // The down step must strictly shrink the schema (it removed something,
-    // and added nothing) — proof that `runDownMigrations` actually reversed
-    // real migration state rather than being a no-op.
-    expect(tableNamesAfterDown.length).toBeLessThan(tableNamesBeforeDown.length);
+    // The down step must never ADD a table that didn't exist before it ran.
     for (const tableName of tableNamesAfterDown) {
       expect(tableNamesBeforeDown).toContain(tableName);
     }
 
-    // `runDownMigrations` defaults to reversing only the single most
-    // recently applied migration. Rather than hardcoding which table(s)
-    // that is (fragile — it changes every time a new migration is added),
-    // derive it from the migrations folder itself: whichever tables the
-    // actual last migration's own `.sql` file created are the tables that
-    // must have been removed by the down step.
-    const removedTables = tableNamesBeforeDown.filter(
-      (table) => !tableNamesAfterDown.includes(table),
-    );
-    const expectedRemovedTables = getTablesCreatedByLastMigration();
+    if (effect.createdTables.length > 0) {
+      // The last migration created whole table(s) — the down step must
+      // strictly shrink the table count and remove exactly those tables.
+      expect(tableNamesAfterDown.length).toBeLessThan(tableNamesBeforeDown.length);
 
-    expect(removedTables.length).toBeGreaterThan(0);
-    for (const expectedRemovedTable of expectedRemovedTables) {
-      expect(removedTables).toContain(expectedRemovedTable);
+      const removedTables = tableNamesBeforeDown.filter(
+        (table) => !tableNamesAfterDown.includes(table),
+      );
+
+      expect(removedTables.length).toBeGreaterThan(0);
+      for (const createdTable of effect.createdTables) {
+        expect(removedTables).toContain(createdTable);
+      }
+    }
+
+    if (effect.addedColumns.length > 0) {
+      // The last migration only added column(s) to (an) already-existing
+      // table(s) — the table set itself is unchanged, but each added column
+      // must be gone from its table afterward.
+      expect(tableNamesAfterDown).toEqual(tableNamesBeforeDown);
+
+      for (const { table, column } of effect.addedColumns) {
+        const columnsBeforeDown = columnsBeforeDownByTable.get(table) ?? [];
+        const columnsAfterDown = await getColumnNames(client, table);
+
+        expect(columnsBeforeDown).toContain(column);
+        expect(columnsAfterDown).not.toContain(column);
+      }
     }
   }, 30_000);
 

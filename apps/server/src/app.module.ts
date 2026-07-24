@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { DbModule } from './db/db.module.js';
+import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
 import { ObjectsModule } from './objects/objects.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
@@ -35,6 +36,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     AuthModule,
     WorkspacesModule,
     ObjectsModule,
+    FieldsModule,
   ],
   controllers: [AppController],
   providers: [
