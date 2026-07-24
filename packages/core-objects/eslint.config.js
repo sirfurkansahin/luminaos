@@ -17,6 +17,12 @@ export default [
           ],
         },
       ],
+      // F1-T4: formül alanları ifade motoru bu paket içinde yaşar; eval/
+      // Function KESİNLİKLE yasak (spec'in kendi ifadesi) — sözdizimsel bir
+      // güvence olarak burada zorunlu kılınır.
+      'no-eval': 'error',
+      'no-new-func': 'error',
+      'no-implied-eval': 'error',
     },
   },
 ];
