@@ -8,6 +8,7 @@ import {
   archiveObject,
   canEditField,
   canViewField,
+  computeAggregate,
   createObject,
   evaluateFormula,
   getAffectedFormulaKeysInOrder,
@@ -21,6 +22,7 @@ import {
   softDeleteObject,
 } from '@luminaos/core-objects';
 import type {
+  AggregateFn,
   FieldDefinition,
   FormulaFieldDependency,
   LuminaObject,
@@ -186,7 +188,11 @@ export class ObjectsService {
     return this.toObjectWithFieldValues(row, definitions, callerRole);
   }
 
-  async list(workspaceId: string, callerRole: Role): Promise<ObjectWithFieldValues[]> {
+  async list(
+    workspaceId: string,
+    callerRole: Role,
+    aggregateSpecs?: { fieldKey: string; fn: AggregateFn }[],
+  ): Promise<{ objects: ObjectWithFieldValues[]; aggregates?: Record<string, number | null> }> {
     const rows = await this.db
       .select()
       .from(objectsView)
@@ -194,11 +200,24 @@ export class ObjectsService {
 
     const definitionsByType = await this.getActiveFieldDefinitionsGroupedByType(workspaceId);
 
-    return rows
+    const objects = rows
       .map((row) =>
         this.toObjectWithFieldValues(row, definitionsByType.get(row.type) ?? [], callerRole),
       )
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    if (!aggregateSpecs || aggregateSpecs.length === 0) {
+      return { objects };
+    }
+
+    const aggregates: Record<string, number | null> = {};
+
+    for (const { fieldKey, fn } of aggregateSpecs) {
+      const values = objects.map((object) => object.fieldValues[fieldKey]);
+      aggregates[`${fieldKey}:${fn}`] = computeAggregate(fn, values);
+    }
+
+    return { objects, aggregates };
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
 import { createObjectSchema } from './dto/create-object.schema.js';
+import { listObjectsQuerySchema } from './dto/list-objects.schema.js';
 import { renameObjectSchema } from './dto/rename-object.schema.js';
 import { setFieldValuesSchema } from './dto/set-field-values.schema.js';
 import { ObjectsService } from './objects.service.js';
@@ -26,6 +28,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
 import type { CreateObjectInput } from './dto/create-object.schema.js';
+import type { ListObjectsQuery } from './dto/list-objects.schema.js';
 import type { RenameObjectInput } from './dto/rename-object.schema.js';
 import type { SetFieldValuesInput } from './dto/set-field-values.schema.js';
 import type { ObjectWithFieldValues } from './objects.service.js';
@@ -69,12 +72,17 @@ export class ObjectsController {
   @Get()
   async list(
     @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Query(new ZodValidationPipe(listObjectsQuerySchema)) query: ListObjectsQuery,
     @Req() req: Request,
-  ): Promise<{ objects: ObjectWithFieldValues[] }> {
+  ): Promise<{ objects: ObjectWithFieldValues[]; aggregates?: Record<string, number | null> }> {
     const callerRole = this.requireRole(req);
-    const objects = await this.objectsService.list(workspaceId, callerRole);
+    const { objects, aggregates } = await this.objectsService.list(
+      workspaceId,
+      callerRole,
+      query.aggregate,
+    );
 
-    return { objects };
+    return { objects, ...(aggregates ? { aggregates } : {}) };
   }
 
   @Get(':objectId')
