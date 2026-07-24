@@ -43,6 +43,13 @@
       "when": 1784865463780,
       "tag": "0005_fancy_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784884714912,
+      "tag": "0006_jazzy_tiger_shark",
+      "breakpoints": true
     }
   ]
 }
