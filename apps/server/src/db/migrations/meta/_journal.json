@@ -36,6 +36,13 @@
       "when": 1784863222028,
       "tag": "0004_demonic_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784865463780,
+      "tag": "0005_fancy_blade",
+      "breakpoints": true
     }
   ]
 }
