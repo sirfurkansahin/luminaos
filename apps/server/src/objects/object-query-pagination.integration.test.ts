@@ -323,4 +323,37 @@ describe('Lumina Object query endpoint — cursor pagination (real Postgres + re
     expect(response.status).toBe(400);
     expect((response.body as ApiErrorEnvelope).error.code).toBe('VALIDATION_ERROR');
   });
+
+  it("a well-formed (valid base64/JSON-array-shaped) cursor whose value does NOT match the sorted column's type -> 400 VALIDATION_ERROR, not a 500 (security review follow-up)", async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'rank',
+      label: 'Rank',
+      fieldType: 'number',
+      config: {},
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+
+    await createObject(cookie, workspaceId, 'task', 'Irrelevant object');
+
+    // Shape-valid (real base64url + real JSON array of the right LENGTH --
+    // one value per effective sort column: `rank`, then the trailing `id`
+    // tiebreaker), but the first element is a non-numeric string where the
+    // `rank` (number) sort column expects a number.
+    const forgedCursor = Buffer.from(
+      JSON.stringify(['not-a-number', '01ARZ3NDEKTSV4RRFFQ69G5FAV']),
+      'utf8',
+    ).toString('base64url');
+
+    const response = await queryObjects(cookie, workspaceId, {
+      objectType: 'task',
+      filters: [],
+      sort: [{ field: 'rank', direction: 'asc' }],
+      cursor: forgedCursor,
+    });
+
+    expect(response.status).toBe(400);
+    expect((response.body as ApiErrorEnvelope).error.code).toBe('VALIDATION_ERROR');
+  });
 });

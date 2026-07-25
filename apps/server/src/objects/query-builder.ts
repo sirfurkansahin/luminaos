@@ -685,7 +685,42 @@ export function decodeCursor(cursor: string): unknown[] {
   return parsed;
 }
 
+/**
+ * Validates a single decoded cursor value's JS type matches what its sort
+ * column's cast expects, BEFORE binding it -- mirrors the same
+ * type-before-cast discipline `assertNumberValue`/`assertStringValue`/
+ * `assertBooleanValue`/`assertDateValue` already apply to filter values
+ * (security review follow-up, F1-T6 PR-D): a `cursor` is caller-controlled
+ * data (only its base64/JSON-array SHAPE is checked by `decodeCursor`), so
+ * without this, a forged cursor value of the wrong type would reach a
+ * `::numeric`/`::timestamptz`/`::boolean` cast unchecked, surfacing as an
+ * uncontrolled Postgres cast error instead of a clean `ValidationError`.
+ */
+function assertCursorValueKind(kind: SortKind, value: unknown): void {
+  if (kind === 'numeric' && (typeof value !== 'number' || !Number.isFinite(value))) {
+    throw new ValidationError('cursor value does not match the expected numeric sort column');
+  }
+
+  if (kind === 'timestamp') {
+    if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) {
+      throw new ValidationError(
+        'cursor value does not match the expected date/datetime sort column',
+      );
+    }
+  }
+
+  if (kind === 'boolean' && typeof value !== 'boolean') {
+    throw new ValidationError('cursor value does not match the expected boolean sort column');
+  }
+
+  if (kind === 'text' && typeof value !== 'string') {
+    throw new ValidationError('cursor value does not match the expected text sort column');
+  }
+}
+
 function bindComparableValue(kind: SortKind, value: unknown): SQL {
+  assertCursorValueKind(kind, value);
+
   switch (kind) {
     case 'numeric':
       return sql`${value}::numeric`;
