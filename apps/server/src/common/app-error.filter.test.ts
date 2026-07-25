@@ -115,7 +115,13 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
 
     const { buildPinoHttpOptions } = await import('../observability/logging.module.js');
 
-    const fakeEnv: Env = { databaseUrl: 'unused', logLevel: 'info', redisUrl: 'unused' };
+    const fakeEnv: Env = {
+      databaseUrl: 'unused',
+      logLevel: 'info',
+      redisUrl: 'unused',
+      aiTokenQuotaPerWorkspace: 1_000_000,
+      aiRefreshDebounceMs: 5_000,
+    };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 
     stream = new CollectingStream();

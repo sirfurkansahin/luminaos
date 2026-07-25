@@ -16,6 +16,7 @@
     "db:migrate:down": "tsx src/db/migrate-down.ts"
   },
   "dependencies": {
+    "@luminaos/ai-gateway": "workspace:*",
     "@luminaos/core-objects": "workspace:*",
     "@luminaos/shared": "workspace:*",
     "@nestjs/common": "^11.1.28",

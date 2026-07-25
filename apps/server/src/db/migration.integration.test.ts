@@ -239,10 +239,15 @@ describe('database migrations (real Postgres via Testcontainers)', () => {
     }
 
     if (effect.addedIndexes.length > 0) {
-      // The last migration only added index(es) on (an) already-existing
-      // table(s) — the table set itself is unchanged, but each added index
-      // must be gone afterward.
-      expect(tableNamesAfterDown).toEqual(tableNamesBeforeDown);
+      // The last migration added index(es). If it did NOT also create
+      // whole table(s) (the `createdTables` branch above already asserted
+      // the table-set shrinkage for that case, e.g. F1-T5's
+      // `ai_usage_records` migration, which creates both a table and an
+      // index in the same file), the table set itself must be unchanged —
+      // only the index(es) should disappear.
+      if (effect.createdTables.length === 0) {
+        expect(tableNamesAfterDown).toEqual(tableNamesBeforeDown);
+      }
 
       const indexNamesAfterDown = await getIndexNames(client);
 

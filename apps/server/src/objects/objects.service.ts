@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 
+import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
 import {
   applyDefaultFieldValues,
   archiveObject,
@@ -30,11 +31,22 @@ import type {
   ObjectType,
   Role,
 } from '@luminaos/core-objects';
-import { ForbiddenError, NotFoundError, ValidationError } from '@luminaos/shared';
+import {
+  ForbiddenError,
+  NotFoundError,
+  QuotaExceededError,
+  ValidationError,
+} from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ObjectsViewProjection } from './objects-view.projection.js';
+import { AI_PROVIDER } from '../ai/ai-provider.token.js';
+import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
+import { AIUsageProjection } from '../ai/ai-usage.projection.js';
+import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
+import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { aiUsageRecords } from '../db/schema/ai-usage.js';
 import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
@@ -44,10 +56,37 @@ import type { Database } from '../db/client.js';
 
 const STREAM_TYPE = 'lumina-object';
 
+/** The dedicated event-stream type for `AIUsageRecorded` events — one brand-new stream per usage record, never the object's own stream (F1-T5 PR-C). */
+const AI_USAGE_STREAM_TYPE = 'ai-usage';
+
 /** The always-and-only actor recorded for a formula field's own recomputed
  * `FieldValueChanged` events -- never the caller's own actor, since the
  * caller never directly wrote these values (F1-T4 plan). */
 const FORMULA_ENGINE_ACTOR: Actor = { type: 'system', id: 'formula-engine' };
+
+/**
+ * The always-and-only actor recorded for an `ai` field's own system-computed
+ * `FieldValueChanged` events (F1-T5 PR-C) -- deliberately `'agent'`, not
+ * `'system'` like `FORMULA_ENGINE_ACTOR`: an AI-gateway completion is a real
+ * (if automated) agent action, distinct from the purely deterministic
+ * formula engine. Always this actor regardless of who/what triggered the
+ * refresh (manual `POST .../refresh` or an `onSourceChange` cascade).
+ */
+const AI_GATEWAY_ACTOR: Actor = { type: 'agent', id: 'ai-gateway' };
+
+/**
+ * The shape `defineField`/`updateField`'s own `aiConfigSchema` guarantees an
+ * `ai`-typed `FieldDefinition.config` always carries by construction once it
+ * reaches here -- mirrors `formulaExpression`'s exact "single place this
+ * assumption is documented and asserted" reasoning.
+ */
+interface AIFieldConfig {
+  promptTemplate: string;
+  sourceFields: string[];
+  outputType: 'text' | 'select';
+  refreshMode: 'manual' | 'onSourceChange';
+  options?: string[];
+}
 
 /**
  * The server-side, over-the-wire shape of a Lumina Object (F1-T2 PR-C): the
@@ -74,10 +113,15 @@ export class ObjectsService {
    */
   private readonly projection = new ObjectsViewProjection();
 
+  /** Same "single, stable instance" reasoning as `projection` above, for the `ai_usage_records` read model (F1-T5 PR-C). */
+  private readonly aiUsageProjection = new AIUsageProjection();
+
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
     private readonly eventStore: EventStoreService,
     private readonly projectionRunner: ProjectionRunner,
+    private readonly aiRefreshScheduler: AIRefreshScheduler,
+    @Inject(AI_PROVIDER) private readonly aiProvider: AIProvider,
   ) {}
 
   async create(
@@ -271,6 +315,15 @@ export class ObjectsService {
         });
       }
 
+      // Same reasoning as the `formula` guard above -- an `ai` field's value
+      // is always computed by the ai-gateway, never directly writable
+      // (F1-T5 PR-C).
+      if (definition.fieldType === 'ai') {
+        throw new ValidationError('cannot directly set a value for a computed ai field', {
+          fieldKey: entry.fieldKey,
+        });
+      }
+
       if (!canEditField(definition.permissions, callerRole)) {
         throw new ForbiddenError();
       }
@@ -316,10 +369,269 @@ export class ObjectsService {
     const object = replayObject([...priorEvents, ...appended]);
     const fieldValues = replayFieldValues([...priorEvents, ...appended]);
 
+    // `onSourceChange` AI-refresh scheduling -- ONLY reachable from this
+    // USER-triggered write path, never from `refreshAIField`'s own internal
+    // `FieldValueChanged` write. This is what structurally prevents
+    // AI-to-AI cascading ("AI kaynaklı değişiklik yeni AI yenilemesi
+    // tetiklemez", F1-T5 plan): an `ai` field's own system-computed write
+    // never runs through `setFieldValues` at all, so it can never reach this
+    // scheduling call. Fires for every key genuinely written by THIS
+    // operation -- the caller's own entries plus whatever the formula engine
+    // recomputed as a result, since both are real value changes this
+    // request produced.
+    const recomputedKeys = recomputeDrafts.map(
+      (draft) => (draft.payload as { fieldKey: string }).fieldKey,
+    );
+    this.scheduleOnSourceChangeAIRefreshes(workspaceId, objectId, definitions, [
+      ...changedKeys,
+      ...recomputedKeys,
+    ]);
+
     return {
       ...object,
       fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
     };
+  }
+
+  /**
+   * Resolves `objectId -> streamId, objectType` (same lookup
+   * `lookupStreamIdAndType` already performs), finds `fieldKey`'s active
+   * `ai` field definition, enforces its own quota + role-visibility rules,
+   * renders its prompt against the object's current field values, calls the
+   * injected `AIProvider` (retrying once for an `outputType: 'select'`
+   * response that isn't a valid option), and appends the resolved value as a
+   * `FieldValueChanged` event authored by `AI_GATEWAY_ACTOR` -- own, single
+   * atomic `append` call, entirely separate from whatever triggered this
+   * refresh (a manual `POST .../refresh` or a scheduled `onSourceChange`
+   * cascade).
+   */
+  async refreshAIField(
+    workspaceId: string,
+    objectId: string,
+    fieldKey: string,
+    actor: Actor,
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
+    void actor;
+
+    const { streamId, objectType } = await this.lookupStreamIdAndType(workspaceId, objectId);
+    const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, objectType);
+    const definition = definitions.find((candidate) => candidate.key === fieldKey);
+
+    // Same "hidden field must be indistinguishable from undefined" reasoning
+    // as `setFieldValues`'s own lookup -- a non-`ai` field key is ALSO
+    // treated as not-found here (this route only makes sense for `ai`
+    // fields; leaking "it exists, but as a different type" via a different
+    // error would itself be an information leak).
+    if (
+      !definition ||
+      !canViewField(definition.permissions, callerRole) ||
+      definition.fieldType !== 'ai'
+    ) {
+      throw new NotFoundError(
+        'No active ai field definition found for this key on this object type.',
+      );
+    }
+
+    return this.withWorkspaceAILock(workspaceId, () =>
+      this.performAIFieldRefresh(
+        workspaceId,
+        streamId,
+        objectId,
+        fieldKey,
+        definition,
+        definitions,
+        callerRole,
+      ),
+    );
+  }
+
+  /**
+   * The actual quota-check-through-write body of `refreshAIField`, run
+   * inside `withWorkspaceAILock` so two concurrent refresh operations for
+   * the same workspace can never both read the same pre-call cumulative
+   * usage and both proceed (security review finding, F1-T5 PR-C) -- see
+   * `withWorkspaceAILock`'s own doc comment.
+   */
+  private async performAIFieldRefresh(
+    workspaceId: string,
+    streamId: string,
+    objectId: string,
+    fieldKey: string,
+    definition: FieldDefinition,
+    definitions: FieldDefinition[],
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
+    // Quota is checked EXACTLY ONCE per refresh operation, before the FIRST
+    // provider call -- never re-checked between the first attempt and its
+    // retry (F1-T5 PR-C design decision, see `object-ai-refresh.integration.test.ts`).
+    await this.assertAITokenQuotaNotExceeded(workspaceId);
+
+    const priorEvents = await this.eventStore.readStream(streamId);
+    const fieldValues = replayFieldValues(priorEvents);
+
+    const config = this.aiFieldConfig(definition);
+
+    const resolvedValue = await resolveAIFieldValue({
+      provider: this.aiProvider,
+      promptTemplate: config.promptTemplate,
+      sourceFieldValues: fieldValues,
+      outputType: config.outputType,
+      ...(config.options !== undefined ? { options: config.options } : {}),
+      recordUsage: (usage) => this.recordAIUsage(workspaceId, definition.id, objectId, usage),
+    });
+
+    const draft: ObjectEventDraft = {
+      type: 'FieldValueChanged',
+      payload: { objectId, fieldKey, value: resolvedValue },
+    };
+
+    const newEvents = this.wrapDrafts([draft], workspaceId, AI_GATEWAY_ACTOR);
+    const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
+
+    await this.projectionRunner.catchUp(this.projection);
+
+    const allEvents = [...priorEvents, ...appended];
+    const object = replayObject(allEvents);
+    const updatedFieldValues = replayFieldValues(allEvents);
+
+    return {
+      ...object,
+      fieldValues: this.filterFieldValuesForRole(updatedFieldValues, definitions, callerRole),
+    };
+  }
+
+  /**
+   * Serializes every `refreshAIField` critical section (quota check through
+   * the final field-value write) per WORKSPACE, via a Postgres session-level
+   * advisory lock (`pg_advisory_lock`/`pg_advisory_unlock`) taken on a
+   * dedicated connection checked out from the pool -- closes a TOCTOU race
+   * where two concurrent refreshes could both read the same pre-call
+   * cumulative usage total and both proceed, letting a workspace's actual
+   * spend silently exceed `env.aiTokenQuotaPerWorkspace` (security review
+   * finding, F1-T5 PR-C; see
+   * `object-ai-refresh.integration.test.ts`'s "two CONCURRENT refresh
+   * operations" test). `hashtext(workspaceId)` scopes the lock per
+   * workspace, so concurrent refreshes in DIFFERENT workspaces never contend
+   * with each other. The lock is held across the real `AIProvider.complete()`
+   * call(s) -- an accepted v0 tradeoff (refreshes are not a hot path: manual
+   * or debounced) in exchange for a simple, well-understood correctness
+   * guarantee, instead of holding a DB transaction open across an external
+   * HTTP call.
+   */
+  private async withWorkspaceAILock<T>(workspaceId: string, fn: () => Promise<T>): Promise<T> {
+    const client = await this.db.$client.connect();
+
+    try {
+      await client.query('SELECT pg_advisory_lock(hashtext($1)::bigint)', [workspaceId]);
+
+      try {
+        return await fn();
+      } finally {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1)::bigint)', [workspaceId]);
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Schedules a debounced `refreshAIField` call (via `aiRefreshScheduler`)
+   * for every ACTIVE, `ai`-typed, `refreshMode: 'onSourceChange'` field
+   * definition whose `config.sourceFields` intersects `changedKeys`. Called
+   * ONLY from `setFieldValues` (the user-triggered write path) -- see that
+   * method's own doc comment for why this structurally prevents AI-to-AI
+   * cascading. Uses the permissive `'owner'` role for the scheduled
+   * refresh's own visibility check -- there is no real external caller to
+   * protect via filtering for a system-scheduled background action.
+   */
+  private scheduleOnSourceChangeAIRefreshes(
+    workspaceId: string,
+    objectId: string,
+    definitions: FieldDefinition[],
+    changedKeys: string[],
+  ): void {
+    const changedKeySet = new Set(changedKeys);
+
+    for (const definition of definitions) {
+      if (definition.fieldType !== 'ai') {
+        continue;
+      }
+
+      const config = this.aiFieldConfig(definition);
+
+      if (config.refreshMode !== 'onSourceChange') {
+        continue;
+      }
+
+      if (!config.sourceFields.some((sourceFieldKey) => changedKeySet.has(sourceFieldKey))) {
+        continue;
+      }
+
+      this.aiRefreshScheduler.schedule(objectId, definition.key, async () => {
+        await this.refreshAIField(workspaceId, objectId, definition.key, AI_GATEWAY_ACTOR, 'owner');
+      });
+    }
+  }
+
+  /** See `AIFieldConfig`'s own doc comment for the assumption this asserts. */
+  private aiFieldConfig(definition: FieldDefinition): AIFieldConfig {
+    return definition.config as AIFieldConfig;
+  }
+
+  /**
+   * Throws `QuotaExceededError` if this workspace's cumulative
+   * `ai_usage_records` usage (`SUM(inputTokens + outputTokens)`) already
+   * meets or exceeds `env.aiTokenQuotaPerWorkspace` -- checked BEFORE any
+   * provider call, per `refreshAIField`'s own "once per operation" design
+   * decision.
+   */
+  private async assertAITokenQuotaNotExceeded(workspaceId: string): Promise<void> {
+    const [row] = await this.db
+      .select({
+        total: sql<string>`COALESCE(SUM(${aiUsageRecords.inputTokens} + ${aiUsageRecords.outputTokens}), 0)`,
+      })
+      .from(aiUsageRecords)
+      .where(eq(aiUsageRecords.workspaceId, workspaceId));
+
+    const totalTokensUsed = Number(row?.total ?? 0);
+
+    if (totalTokensUsed >= env.aiTokenQuotaPerWorkspace) {
+      throw new QuotaExceededError('AI token quota exceeded for this workspace.', { workspaceId });
+    }
+  }
+
+  /**
+   * Records `usage` as an `AIUsageRecorded` event on its OWN dedicated
+   * stream (own atomic `append`, separate from the object's own stream --
+   * see `AI_USAGE_STREAM_TYPE`'s doc comment). Passed to
+   * `resolveAIFieldValue` as its `recordUsage` callback.
+   */
+  private async recordAIUsage(
+    workspaceId: string,
+    fieldDefinitionId: string,
+    objectId: string,
+    usage: AITokenUsage,
+  ): Promise<void> {
+    const usageStreamId = randomUUID();
+    const event: NewDomainEvent = {
+      id: randomUUID(),
+      streamType: AI_USAGE_STREAM_TYPE,
+      workspaceId,
+      type: 'AIUsageRecorded',
+      payload: {
+        workspaceId,
+        fieldDefinitionId,
+        objectId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      },
+      actor: AI_GATEWAY_ACTOR,
+      occurredAt: new Date(),
+    };
+
+    await this.eventStore.append(usageStreamId, 0, [event]);
+    await this.projectionRunner.catchUp(this.aiUsageProjection);
   }
 
   /**

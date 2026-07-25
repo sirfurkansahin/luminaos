@@ -21,6 +21,7 @@ export * from './fields/formula/formula-recompute-order.js';
 export * from './fields/formula/parser.js';
 export * from './fields/formula/evaluator.js';
 export * from './fields/formula/formula-value.js';
+export * from './fields/ai/ai-value.js';
 export * from './relations/relation.js';
 export * from './relations/relation-graph.js';
 export * from './relations/relation-commands.js';

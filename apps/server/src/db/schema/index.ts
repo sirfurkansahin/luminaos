@@ -8,3 +8,4 @@ export * from './field-definitions.js';
 export * from './relations-view.js';
 export * from './projection-checkpoints.js';
 export * from './projection-workspace-event-counts.js';
+export * from './ai-usage.js';

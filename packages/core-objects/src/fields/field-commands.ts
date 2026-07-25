@@ -3,6 +3,7 @@ import { InvalidObjectStateError, ValidationError } from '@luminaos/shared';
 import { isKnownObjectType } from '../object-type-registry.js';
 import { isValidFieldPermissions } from './field-permissions.js';
 import {
+  aiConfigSchema,
   formulaConfigSchema,
   isKnownFieldType,
   validateFieldConfig,
@@ -70,6 +71,33 @@ function assertSafeFieldKey(key: string): void {
 }
 
 /**
+ * Shared by `assertFormulaFieldRules` and `assertAIFieldRules`: both
+ * `formula` and `ai` fields have values that are always computed, never
+ * directly defaultable or editable. `fieldTypeLabel` (e.g. `'formula'` /
+ * `'ai'`) is interpolated into the thrown `ValidationError`'s message only
+ * (a fixed, known-safe label — never a raw external value), per F1-T1
+ * PR-A's security-review "unknown object type" convention.
+ */
+function assertNoDefaultValueOrEditPermission(
+  fieldTypeLabel: string,
+  defaultValueProvided: boolean,
+  permissions: FieldPermissions | undefined,
+  permissionsProvided: boolean,
+): void {
+  if (defaultValueProvided) {
+    throw new ValidationError(`${fieldTypeLabel} fields cannot have a defaultValue`);
+  }
+
+  if (permissionsProvided && permissions !== undefined) {
+    const grantsEdit = Object.values(permissions).some((level) => level === 'edit');
+
+    if (grantsEdit) {
+      throw new ValidationError(`${fieldTypeLabel} fields cannot be directly edited`);
+    }
+  }
+}
+
+/**
  * Per F1-T4 plan: a formula field's value is always computed, never
  * directly editable/defaultable. Also validates (when `config` is being
  * set) that every field the expression references is known, and that
@@ -85,17 +113,12 @@ function assertFormulaFieldRules(options: {
   permissionsProvided: boolean;
   existingFieldDefinitions: FieldDefinition[];
 }): void {
-  if (options.defaultValueProvided) {
-    throw new ValidationError('formula fields cannot have a defaultValue');
-  }
-
-  if (options.permissionsProvided && options.permissions !== undefined) {
-    const grantsEdit = Object.values(options.permissions).some((level) => level === 'edit');
-
-    if (grantsEdit) {
-      throw new ValidationError('formula fields cannot be directly edited');
-    }
-  }
+  assertNoDefaultValueOrEditPermission(
+    'formula',
+    options.defaultValueProvided,
+    options.permissions,
+    options.permissionsProvided,
+  );
 
   if (!options.configProvided) {
     return;
@@ -130,6 +153,52 @@ function assertFormulaFieldRules(options: {
   }
 }
 
+/**
+ * Per F1-T5 plan: an `ai` field's value is always computed by the
+ * ai-gateway, never directly editable/defaultable. Also validates (when
+ * `config` is being set) that every field named in `config.sourceFields` is
+ * known. UNLIKE `formula`, `ai` fields get no cycle detection (explicitly
+ * out of scope per the approved plan) — an `ai` field's `sourceFields` may
+ * reference another `ai` field with no graph-cycle check.
+ */
+function assertAIFieldRules(options: {
+  candidateKey: string;
+  objectType: ObjectType;
+  config: unknown;
+  configProvided: boolean;
+  defaultValueProvided: boolean;
+  permissions: FieldPermissions | undefined;
+  permissionsProvided: boolean;
+  existingFieldDefinitions: FieldDefinition[];
+}): void {
+  assertNoDefaultValueOrEditPermission(
+    'ai',
+    options.defaultValueProvided,
+    options.permissions,
+    options.permissionsProvided,
+  );
+
+  if (!options.configProvided) {
+    return;
+  }
+
+  const sameObjectType = options.existingFieldDefinitions.filter(
+    (field) => field.objectType === options.objectType,
+  );
+
+  const { sourceFields } = aiConfigSchema.parse(options.config);
+
+  const knownKeys = new Set(sameObjectType.map((field) => field.key));
+
+  for (const sourceFieldKey of sourceFields) {
+    if (!knownKeys.has(sourceFieldKey)) {
+      throw new ValidationError('ai field references an unknown source field', {
+        key: sourceFieldKey,
+      });
+    }
+  }
+}
+
 export function defineField(
   input: DefineFieldInput,
   existingFieldDefinitions: FieldDefinition[] = [],
@@ -158,6 +227,19 @@ export function defineField(
 
   if (input.fieldType === 'formula') {
     assertFormulaFieldRules({
+      candidateKey: input.key,
+      objectType: input.objectType,
+      config: input.config,
+      configProvided: true,
+      defaultValueProvided: input.defaultValue !== undefined,
+      permissions: input.permissions,
+      permissionsProvided: true,
+      existingFieldDefinitions,
+    });
+  }
+
+  if (input.fieldType === 'ai') {
+    assertAIFieldRules({
       candidateKey: input.key,
       objectType: input.objectType,
       config: input.config,
@@ -216,6 +298,19 @@ export function updateField(
 
   if (state.fieldType === 'formula') {
     assertFormulaFieldRules({
+      candidateKey: state.key,
+      objectType: state.objectType,
+      config: effectiveConfig,
+      configProvided: input.config !== undefined,
+      defaultValueProvided: input.defaultValue !== undefined,
+      permissions: input.permissions,
+      permissionsProvided: input.permissions !== undefined,
+      existingFieldDefinitions,
+    });
+  }
+
+  if (state.fieldType === 'ai') {
+    assertAIFieldRules({
       candidateKey: state.key,
       objectType: state.objectType,
       config: effectiveConfig,

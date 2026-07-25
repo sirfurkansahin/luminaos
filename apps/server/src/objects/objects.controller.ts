@@ -164,6 +164,34 @@ export class ObjectsController {
     return { object };
   }
 
+  /**
+   * Mirrors `archive`/`restore`'s action-route style exactly. Same guard
+   * stack as every other object mutation route (no extra role gating) --
+   * `ObjectsService.refreshAIField` itself enforces the "must be able to
+   * view this field" visibility check (F1-T5 PR-C).
+   */
+  @Post(':objectId/fields/:fieldKey/refresh')
+  @HttpCode(HttpStatus.OK)
+  async refreshAIField(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Param('fieldKey') fieldKey: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.refreshAIField(
+      workspaceId,
+      objectId,
+      fieldKey,
+      actor,
+      callerRole,
+    );
+
+    return { object };
+  }
+
   @Delete(':objectId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async softDelete(

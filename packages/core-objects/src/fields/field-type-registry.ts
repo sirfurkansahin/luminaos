@@ -2,12 +2,13 @@ import { z } from 'zod';
 
 import { ValidationError } from '@luminaos/shared';
 
+import { aiFieldErrorSchema } from './ai/ai-value.js';
 import { formulaValueSchema } from './formula/formula-value.js';
 import { MAX_EXPRESSION_LENGTH } from './formula/tokenizer.js';
 
 /**
- * Per F1-T2 plan (PR-A) + F1-T4 plan (PR-A2): 13 built-in field types.
- * `ai` is explicitly out of scope (deferred to F1-T5).
+ * Per F1-T2 plan (PR-A) + F1-T4 plan (PR-A2) + F1-T5 plan (PR-B): 14
+ * built-in field types.
  */
 export type FieldType =
   | 'text'
@@ -22,7 +23,8 @@ export type FieldType =
   | 'email'
   | 'people'
   | 'currency'
-  | 'formula';
+  | 'formula'
+  | 'ai';
 
 const FIELD_TYPES: readonly FieldType[] = [
   'text',
@@ -38,6 +40,7 @@ const FIELD_TYPES: readonly FieldType[] = [
   'people',
   'currency',
   'formula',
+  'ai',
 ];
 
 const FIELD_TYPE_SET: ReadonlySet<string> = new Set(FIELD_TYPES);
@@ -106,6 +109,47 @@ export const formulaConfigSchema = z
   .strict();
 
 /**
+ * Per F1-T5 plan: `ai`'s own prompt-template length cap — the same
+ * length-cap style as `formulaConfigSchema`'s `expression`, but a
+ * standalone constant (reusing the formula engine's `MAX_EXPRESSION_LENGTH`
+ * would entangle two unrelated domains).
+ */
+const MAX_AI_PROMPT_TEMPLATE_LENGTH = 2000;
+
+/**
+ * Per F1-T5 plan: `ai`'s config carries a prompt template, the field keys it
+ * may reference (`sourceFields`, possibly empty for a static prompt), an
+ * output shape, and a refresh strategy. `options` reuses the same
+ * `MAX_OPTIONS_COUNT`/`MAX_OPTION_LENGTH` bounds as `select`/`multiSelect`,
+ * and is required (non-empty) when `outputType === 'select'`, forbidden
+ * (must be `undefined`) when `outputType === 'text'`. This schema does NOT
+ * itself check that `sourceFields` entries are known fields, or that
+ * `promptTemplate` placeholders are well-formed — that is
+ * `defineField`/`updateField`'s job via `assertAIFieldRules`, one layer up.
+ */
+export const aiConfigSchema = z
+  .object({
+    promptTemplate: z.string().min(1).max(MAX_AI_PROMPT_TEMPLATE_LENGTH),
+    sourceFields: z.array(z.string()),
+    outputType: z.enum(['text', 'select']),
+    refreshMode: z.enum(['manual', 'onSourceChange']),
+    options: z
+      .array(z.string().min(1).max(MAX_OPTION_LENGTH))
+      .min(1)
+      .max(MAX_OPTIONS_COUNT)
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (config) =>
+      config.outputType === 'select' ? config.options !== undefined : config.options === undefined,
+    {
+      message:
+        'options is required when outputType is "select" and forbidden when outputType is "text"',
+    },
+  );
+
+/**
  * Parses `config` against `schema`; throws `ValidationError` (zod issues in
  * `details`, never a raw value interpolated into the message string — per
  * F1-T1 PR-A's security-review "unknown object type" fix) on failure,
@@ -141,6 +185,8 @@ function parseConfigForType(fieldType: FieldType, config: unknown): unknown {
       return parseConfig(currencyConfigSchema, fieldType, config);
     case 'formula':
       return parseConfig(formulaConfigSchema, fieldType, config);
+    case 'ai':
+      return parseConfig(aiConfigSchema, fieldType, config);
   }
 }
 
@@ -210,6 +256,12 @@ function buildValueSchema(fieldType: FieldType, config: unknown): z.ZodType {
     case 'formula': {
       parseConfig(formulaConfigSchema, fieldType, config);
       return formulaValueSchema;
+    }
+    case 'ai': {
+      const parsed = parseConfig(aiConfigSchema, fieldType, config);
+      const successSchema =
+        parsed.outputType === 'select' ? z.enum(parsed.options ?? []) : z.string();
+      return z.union([successSchema, aiFieldErrorSchema]);
     }
   }
 }
