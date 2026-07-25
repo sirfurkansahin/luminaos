@@ -429,6 +429,22 @@ describe('querySpecSchema', () => {
       const result = querySpecSchema.safeParse({ ...minimalQuerySpec(), cursor: '' });
       expect(result.success).toBe(false);
     });
+
+    it('accepts a cursor string of exactly 2000 characters', () => {
+      const result = querySpecSchema.safeParse({
+        ...minimalQuerySpec(),
+        cursor: 'a'.repeat(2000),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a cursor string longer than 2000 characters', () => {
+      const result = querySpecSchema.safeParse({
+        ...minimalQuerySpec(),
+        cursor: 'a'.repeat(2001),
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('limit (optional, bounded positive integer)', () => {

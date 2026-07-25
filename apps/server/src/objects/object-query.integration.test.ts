@@ -666,6 +666,70 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
       expectValidationError(response);
     });
+
+    // --- security review follow-up: field-type-aware value validation -----
+
+    it('"equals" on a number field with a non-numeric string value -> 400 VALIDATION_ERROR (not a raw 500 from an unchecked ::numeric cast)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [{ field: 'score', operator: 'equals', value: 'not-a-number' }],
+      });
+
+      expectValidationError(response);
+    });
+
+    it('"before" on a date field with an unparseable date string -> 400 VALIDATION_ERROR (not a raw 500 from an unchecked ::timestamptz cast)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [{ field: 'dueDate', operator: 'before', value: 'not-a-date' }],
+      });
+
+      expectValidationError(response);
+    });
+
+    it('"equals" on a checkbox field with a non-boolean value -> 400 VALIDATION_ERROR', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [{ field: 'urgent', operator: 'equals', value: 'true' }],
+      });
+
+      expectValidationError(response);
+    });
+
+    it('"in" on a select field with a non-string array element -> 400 VALIDATION_ERROR', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [{ field: 'status', operator: 'in', value: ['todo', 42] }],
+      });
+
+      expectValidationError(response);
+    });
+
+    it('"in" array value with more than 100 entries -> 400 VALIDATION_ERROR', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [
+          { field: 'status', operator: 'in', value: Array.from({ length: 101 }, () => 'todo') },
+        ],
+      });
+
+      expectValidationError(response);
+    });
   });
 
   // ===========================================================================
@@ -714,6 +778,31 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
       expect(response.status).toBe(200);
       const ids = (response.body as QueryFlatEnvelope).objects.map((o) => o.id);
       expect(ids).toEqual([exact.id]);
+    });
+
+    it('"contains" with a literal backslash-underscore in the value matches only the literal text, never treating the underscore as a live ILIKE wildcard (security review follow-up)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await defineStandardTaskFields(cookie, workspaceId);
+
+      // The literal, intended match: contains the exact substring `a\_b`.
+      const literalMatch = await createObject(cookie, workspaceId, 'task', 'Literal match');
+      await setFieldValues(cookie, workspaceId, literalMatch.id, { notes: 'prefix a\\_b suffix' });
+
+      // If the trailing `_` in the search value were ever (incorrectly)
+      // treated as a live single-char wildcard, this row -- which only
+      // matches if `_` matches ANY character -- would also match. It must
+      // NOT be returned.
+      const wildcardDecoy = await createObject(cookie, workspaceId, 'task', 'Wildcard decoy');
+      await setFieldValues(cookie, workspaceId, wildcardDecoy.id, { notes: 'prefix a\\Xb suffix' });
+
+      const response = await queryObjects(cookie, workspaceId, {
+        objectType: 'task',
+        filters: [{ field: 'notes', operator: 'contains', value: 'a\\_b' }],
+      });
+
+      expect(response.status).toBe(200);
+      const ids = (response.body as QueryFlatEnvelope).objects.map((o) => o.id);
+      expect(ids).toEqual([literalMatch.id]);
     });
   });
 

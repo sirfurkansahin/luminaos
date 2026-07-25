@@ -66,6 +66,9 @@ export const FIXED_COLUMN_OPERATORS: Record<FixedColumnKey, readonly FilterOpera
 export type ResolvedField =
   { kind: 'fixed'; key: FixedColumnKey } | { kind: 'custom'; key: string; fieldType: FieldType };
 
+/** Caps an `in`/`notIn` filter's array length -- an uncapped array would let a single filter condition drive an arbitrarily large parameterized `IN (...)`/`?|` list (security review finding, F1-T6 PR-C; mirrors every other bounded-count constant `packages/shared/src/query/query-spec.ts` already applies at the `QuerySpec` level). */
+const MAX_FILTER_ARRAY_LENGTH = 100;
+
 /**
  * Operator-driven `value` shape rules -- independent of the field's type,
  * purely a function of the operator itself. Throws `ValidationError` on any
@@ -90,6 +93,14 @@ export function assertOperatorValueShape(operator: FilterOperator, value: unknow
     if (!Array.isArray(value)) {
       throw new ValidationError(`"${operator}" requires an array value`, { operator });
     }
+
+    if (value.length > MAX_FILTER_ARRAY_LENGTH) {
+      throw new ValidationError(
+        `"${operator}" array value exceeds the maximum of ${String(MAX_FILTER_ARRAY_LENGTH)} entries`,
+        { operator },
+      );
+    }
+
     return;
   }
 
@@ -100,6 +111,77 @@ export function assertOperatorValueShape(operator: FilterOperator, value: unknow
   if (Array.isArray(value)) {
     throw new ValidationError(`"${operator}" does not accept an array value`, { operator });
   }
+}
+
+// --- per-operator VALUE TYPE assertions (field-type-aware) -----------------
+//
+// `assertOperatorValueShape` (above) only checks operator-driven ARITY
+// (array-vs-scalar, presence/absence, `between`'s 2-element requirement) --
+// it has no knowledge of the target field's TYPE, so it cannot check that,
+// say, a `number` field's `equals` value is actually a JS number. Without
+// this, a malformed value (e.g. a string where a number is expected) would
+// reach a `::numeric`/`::timestamptz`/`::boolean` SQL cast unchecked,
+// surfacing as a raw, uncontrolled Postgres cast error (never a SQL
+// injection or data leak -- `AppErrorFilter` already prevents any raw driver
+// message from reaching the client/logs -- but a worse-than-necessary,
+// un-actionable `500` instead of a clean `400 ValidationError`). These
+// helpers close that gap (security review finding, F1-T6 PR-C).
+
+function assertStringValue(value: unknown, operator: FilterOperator): string {
+  if (typeof value !== 'string') {
+    throw new ValidationError(`"${operator}" requires a string value`, { operator });
+  }
+
+  return value;
+}
+
+function assertNumberValue(value: unknown, operator: FilterOperator): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ValidationError(`"${operator}" requires a numeric value`, { operator });
+  }
+
+  return value;
+}
+
+function assertBooleanValue(value: unknown, operator: FilterOperator): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ValidationError(`"${operator}" requires a boolean value`, { operator });
+  }
+
+  return value;
+}
+
+function assertDateValue(value: unknown, operator: FilterOperator): Date {
+  const raw = assertStringValue(value, operator);
+  const date = new Date(raw);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new ValidationError(`"${operator}" requires a valid date/datetime string value`, {
+      operator,
+    });
+  }
+
+  return date;
+}
+
+function assertStringArrayValue(value: unknown, operator: FilterOperator): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new ValidationError(`"${operator}" requires an array of string values`, { operator });
+  }
+
+  return value;
+}
+
+/** `assertOperatorValueShape` already guarantees `value` is a 2-element array for `between` -- this only validates each element's type. */
+function assertNumberPair(value: unknown, operator: FilterOperator): [number, number] {
+  const [first, second] = value as [unknown, unknown];
+  return [assertNumberValue(first, operator), assertNumberValue(second, operator)];
+}
+
+/** Same arity guarantee as `assertNumberPair`, for date-shaped `between` bounds. */
+function assertDatePair(value: unknown, operator: FilterOperator): [Date, Date] {
+  const [first, second] = value as [unknown, unknown];
+  return [assertDateValue(first, operator), assertDateValue(second, operator)];
 }
 
 // --- jsonb access helpers ---------------------------------------------------
@@ -125,9 +207,23 @@ function fieldJsonbExpr(key: string): SQL {
   return sql`(${objectsView.fieldValues} -> ${key}::text)`;
 }
 
-/** Escapes a raw string's own literal `%`/`_` characters before it is wrapped as an ILIKE pattern -- a functional-correctness concern (so a value containing a literal `%` doesn't act as an unintended wildcard), not a SQL-injection concern (the value is bound as a parameter regardless). */
+/**
+ * Escapes a raw string's own literal `\`/`%`/`_` characters before it is
+ * wrapped as an ILIKE pattern -- a functional-correctness concern (so a
+ * value containing a literal `%`/`_` doesn't act as an unintended
+ * wildcard), not a SQL-injection concern (the value is bound as a
+ * parameter regardless). The backslash itself MUST be escaped FIRST: `\`
+ * is ILIKE's own default escape character, so escaping `%`/`_` before `\`
+ * would let a caller's own pre-existing backslash "consume" the escape we
+ * just inserted (e.g. `a\_b` -> naively escaping `_` first gives `a\\_b`,
+ * which Postgres reads as an escaped literal backslash followed by an
+ * UNESCAPED, live `_` wildcard -- not the literal underscore the caller
+ * intended). Escaping `\` first (`a\_b` -> `a\\_b` at THIS step, then
+ * `%`/`_` escaping sees no bare `_` left to touch) closes that gap
+ * (security review finding, F1-T6 PR-C).
+ */
 function likePattern(raw: string): string {
-  const escaped = raw.replace(/[%_]/g, (match) => `\\${match}`);
+  const escaped = raw.replace(/\\/g, '\\\\').replace(/[%_]/g, (match) => `\\${match}`);
   return `%${escaped}%`;
 }
 
@@ -145,13 +241,13 @@ function buildFixedColumnPredicate(key: FixedColumnKey, condition: FilterConditi
 
     switch (operator) {
       case 'equals':
-        return eq(column, value as string);
+        return eq(column, assertStringValue(value, operator));
       case 'notEquals':
-        return ne(column, value as string);
+        return ne(column, assertStringValue(value, operator));
       case 'contains':
-        return ilike(column, likePattern(value as string));
+        return ilike(column, likePattern(assertStringValue(value, operator)));
       case 'notContains':
-        return notIlike(column, likePattern(value as string));
+        return notIlike(column, likePattern(assertStringValue(value, operator)));
       case 'isEmpty':
         return sql`false`;
       case 'isNotEmpty':
@@ -165,14 +261,14 @@ function buildFixedColumnPredicate(key: FixedColumnKey, condition: FilterConditi
 
   switch (operator) {
     case 'equals':
-      return eq(column, new Date(value as string));
+      return eq(column, assertDateValue(value, operator));
     case 'before':
-      return lt(column, new Date(value as string));
+      return lt(column, assertDateValue(value, operator));
     case 'after':
-      return gt(column, new Date(value as string));
+      return gt(column, assertDateValue(value, operator));
     case 'between': {
-      const [min, max] = value as [string, string];
-      return between(column, new Date(min), new Date(max));
+      const [min, max] = assertDatePair(value, operator);
+      return between(column, min, max);
     }
     case 'isEmpty':
       return sql`false`;
@@ -190,13 +286,13 @@ function buildTextLikePredicate(key: string, operator: FilterOperator, value: un
 
   switch (operator) {
     case 'equals':
-      return eq(textExpr, value as string);
+      return eq(textExpr, assertStringValue(value, operator));
     case 'notEquals':
-      return ne(textExpr, value as string);
+      return ne(textExpr, assertStringValue(value, operator));
     case 'contains':
-      return ilike(textExpr, likePattern(value as string));
+      return ilike(textExpr, likePattern(assertStringValue(value, operator)));
     case 'notContains':
-      return notIlike(textExpr, likePattern(value as string));
+      return notIlike(textExpr, likePattern(assertStringValue(value, operator)));
     case 'isEmpty':
       return isNull(fieldJsonbExpr(key));
     case 'isNotEmpty':
@@ -211,19 +307,19 @@ function buildNumericPredicate(key: string, operator: FilterOperator, value: unk
 
   switch (operator) {
     case 'equals':
-      return eq(numericExpr, value as number);
+      return eq(numericExpr, assertNumberValue(value, operator));
     case 'notEquals':
-      return ne(numericExpr, value as number);
+      return ne(numericExpr, assertNumberValue(value, operator));
     case 'gt':
-      return gt(numericExpr, value as number);
+      return gt(numericExpr, assertNumberValue(value, operator));
     case 'gte':
-      return gte(numericExpr, value as number);
+      return gte(numericExpr, assertNumberValue(value, operator));
     case 'lt':
-      return lt(numericExpr, value as number);
+      return lt(numericExpr, assertNumberValue(value, operator));
     case 'lte':
-      return lte(numericExpr, value as number);
+      return lte(numericExpr, assertNumberValue(value, operator));
     case 'between': {
-      const [min, max] = value as [number, number];
+      const [min, max] = assertNumberPair(value, operator);
       return between(numericExpr, min, max);
     }
     default:
@@ -236,14 +332,14 @@ function buildDatePredicate(key: string, operator: FilterOperator, value: unknow
 
   switch (operator) {
     case 'equals':
-      return eq(timestampExpr, new Date(value as string));
+      return eq(timestampExpr, assertDateValue(value, operator));
     case 'before':
-      return lt(timestampExpr, new Date(value as string));
+      return lt(timestampExpr, assertDateValue(value, operator));
     case 'after':
-      return gt(timestampExpr, new Date(value as string));
+      return gt(timestampExpr, assertDateValue(value, operator));
     case 'between': {
-      const [min, max] = value as [string, string];
-      return between(timestampExpr, new Date(min), new Date(max));
+      const [min, max] = assertDatePair(value, operator);
+      return between(timestampExpr, min, max);
     }
     case 'isEmpty':
       return isNull(fieldJsonbExpr(key));
@@ -259,7 +355,7 @@ function buildCheckboxPredicate(key: string, operator: FilterOperator, value: un
 
   switch (operator) {
     case 'equals':
-      return eq(booleanExpr, value as boolean);
+      return eq(booleanExpr, assertBooleanValue(value, operator));
     default:
       throw invalidOperatorError(operator);
   }
@@ -270,13 +366,13 @@ function buildSelectPredicate(key: string, operator: FilterOperator, value: unkn
 
   switch (operator) {
     case 'equals':
-      return eq(textExpr, value as string);
+      return eq(textExpr, assertStringValue(value, operator));
     case 'notEquals':
-      return ne(textExpr, value as string);
+      return ne(textExpr, assertStringValue(value, operator));
     case 'in':
-      return inArray(textExpr, value as string[]);
+      return inArray(textExpr, assertStringArrayValue(value, operator));
     case 'notIn':
-      return notInArray(textExpr, value as string[]);
+      return notInArray(textExpr, assertStringArrayValue(value, operator));
     default:
       throw invalidOperatorError(operator);
   }
@@ -287,9 +383,9 @@ function buildMultiSelectPredicate(key: string, operator: FilterOperator, value:
 
   switch (operator) {
     case 'in':
-      return sql`${arrayExpr} ?| ${value as string[]}::text[]`;
+      return sql`${arrayExpr} ?| ${assertStringArrayValue(value, operator)}::text[]`;
     case 'notIn':
-      return sql`NOT (${arrayExpr} ?| ${value as string[]}::text[])`;
+      return sql`NOT (${arrayExpr} ?| ${assertStringArrayValue(value, operator)}::text[])`;
     case 'isEmpty':
       return isNull(arrayExpr);
     case 'isNotEmpty':
@@ -304,7 +400,7 @@ function buildPeoplePredicate(key: string, operator: FilterOperator, value: unkn
 
   switch (operator) {
     case 'contains':
-      return sql`${arrayExpr} ? ${value as string}::text`;
+      return sql`${arrayExpr} ? ${assertStringValue(value, operator)}::text`;
     case 'isEmpty':
       return isNull(arrayExpr);
     case 'isNotEmpty':
@@ -333,13 +429,13 @@ function buildGenericScalarPredicate(key: string, operator: FilterOperator, valu
     case 'notEquals':
       return sql`${jsonbExpr} != ${JSON.stringify(value)}::jsonb`;
     case 'contains':
-      return ilike(textExpr, likePattern(value as string));
+      return ilike(textExpr, likePattern(assertStringValue(value, operator)));
     case 'notContains':
-      return notIlike(textExpr, likePattern(value as string));
+      return notIlike(textExpr, likePattern(assertStringValue(value, operator)));
     case 'in':
-      return inArray(textExpr, value as string[]);
+      return inArray(textExpr, assertStringArrayValue(value, operator));
     case 'notIn':
-      return notInArray(textExpr, value as string[]);
+      return notInArray(textExpr, assertStringArrayValue(value, operator));
     case 'isEmpty':
       return isNull(jsonbExpr);
     case 'isNotEmpty':

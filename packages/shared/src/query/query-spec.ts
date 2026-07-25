@@ -66,7 +66,11 @@ export const querySpecSchema = z
     filters: z.array(filterConditionSchema).max(50),
     sort: z.array(sortSpecSchema).max(10).optional(),
     group: z.string().min(1).max(200).optional(),
-    cursor: z.string().min(1).optional(),
+    // 2000 chars is generous for any real base64url-encoded keyset cursor
+    // (a handful of sort-column values + an id) -- caps an otherwise-
+    // unbounded string field for defense-in-depth, matching every other
+    // bounded field in this schema (security review finding, F1-T6 PR-C).
+    cursor: z.string().min(1).max(2000).optional(),
     limit: z.number().int().positive().max(200).optional(),
   })
   .strict();
