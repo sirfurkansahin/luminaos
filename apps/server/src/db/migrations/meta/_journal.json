@@ -57,6 +57,13 @@
       "when": 1784886611795,
       "tag": "0007_ordinary_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784940726319,
+      "tag": "0008_clammy_professor_monster",
+      "breakpoints": true
     }
   ]
 }
