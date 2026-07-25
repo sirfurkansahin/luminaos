@@ -43,6 +43,7 @@ import { ObjectsViewProjection } from './objects-view.projection.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AIUsageProjection } from '../ai/ai-usage.projection.js';
+import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
 import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
 import { aiUsageRecords } from '../db/schema/ai-usage.js';
@@ -470,31 +471,15 @@ export class ObjectsService {
     const fieldValues = replayFieldValues(priorEvents);
 
     const config = this.aiFieldConfig(definition);
-    const prompt = this.renderAIPrompt(config.promptTemplate, fieldValues);
 
-    let resolvedValue: unknown = await this.completeAndRecordAIUsage(
-      workspaceId,
-      definition.id,
-      objectId,
-      prompt,
-    );
-
-    if (config.outputType === 'select') {
-      const options = config.options ?? [];
-
-      if (!options.includes(resolvedValue as string)) {
-        const retryValue = await this.completeAndRecordAIUsage(
-          workspaceId,
-          definition.id,
-          objectId,
-          prompt,
-        );
-
-        resolvedValue = options.includes(retryValue)
-          ? retryValue
-          : { aiFieldError: true, message: 'AI response was not a valid option after retry' };
-      }
-    }
+    const resolvedValue = await resolveAIFieldValue({
+      provider: this.aiProvider,
+      promptTemplate: config.promptTemplate,
+      sourceFieldValues: fieldValues,
+      outputType: config.outputType,
+      ...(config.options !== undefined ? { options: config.options } : {}),
+      recordUsage: (usage) => this.recordAIUsage(workspaceId, definition.id, objectId, usage),
+    });
 
     const draft: ObjectEventDraft = {
       type: 'FieldValueChanged',
@@ -595,52 +580,6 @@ export class ObjectsService {
   }
 
   /**
-   * Substitutes every `{fieldKey}` placeholder in `promptTemplate` with the
-   * corresponding entry from `fieldValues`, stringified. An unknown
-   * placeholder (no matching key in `fieldValues`) is left as-is, verbatim
-   * -- `assertAIFieldRules` already guarantees every `sourceFields` entry is
-   * a known field at DEFINE time, so this is a defensive fallback, not an
-   * expected path.
-   */
-  private renderAIPrompt(promptTemplate: string, fieldValues: Record<string, unknown>): string {
-    return promptTemplate.replace(/\{([a-zA-Z0-9_]+)\}/g, (placeholder, key: string) => {
-      if (!(key in fieldValues)) {
-        return placeholder;
-      }
-
-      return this.stringifyFieldValueForPrompt(fieldValues[key]);
-    });
-  }
-
-  private stringifyFieldValueForPrompt(value: unknown): string {
-    if (value === undefined || value === null) {
-      return '';
-    }
-
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-
-    if (typeof value === 'number') {
-      return String(value);
-    }
-
-    if (typeof value === 'boolean') {
-      return String(value);
-    }
-
-    // `bigint`/`symbol`/`function` -- not a shape any real field value ever
-    // takes (`validateFieldValue` at DEFINE time already rejects these), but
-    // covered defensively with a fixed, safe placeholder rather than an
-    // unsafe default-`Object.prototype.toString` stringification.
-    return '[unsupported value]';
-  }
-
-  /**
    * Throws `QuotaExceededError` if this workspace's cumulative
    * `ai_usage_records` usage (`SUM(inputTokens + outputTokens)`) already
    * meets or exceeds `env.aiTokenQuotaPerWorkspace` -- checked BEFORE any
@@ -663,23 +602,11 @@ export class ObjectsService {
   }
 
   /**
-   * Calls the injected `AIProvider`, records the resulting `usage` as an
-   * `AIUsageRecorded` event on its OWN dedicated stream (own atomic
-   * `append`, separate from the object's own stream -- see
-   * `AI_USAGE_STREAM_TYPE`'s doc comment), and returns the completion's
-   * `text`.
+   * Records `usage` as an `AIUsageRecorded` event on its OWN dedicated
+   * stream (own atomic `append`, separate from the object's own stream --
+   * see `AI_USAGE_STREAM_TYPE`'s doc comment). Passed to
+   * `resolveAIFieldValue` as its `recordUsage` callback.
    */
-  private async completeAndRecordAIUsage(
-    workspaceId: string,
-    fieldDefinitionId: string,
-    objectId: string,
-    prompt: string,
-  ): Promise<string> {
-    const result = await this.aiProvider.complete({ prompt });
-    await this.recordAIUsage(workspaceId, fieldDefinitionId, objectId, result.usage);
-    return result.text;
-  }
-
   private async recordAIUsage(
     workspaceId: string,
     fieldDefinitionId: string,
