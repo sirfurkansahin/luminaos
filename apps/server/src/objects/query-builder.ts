@@ -378,14 +378,44 @@ function buildSelectPredicate(key: string, operator: FilterOperator, value: unkn
   }
 }
 
+/**
+ * Builds a Postgres `text[]` array literal from `values` for use as the
+ * right-hand side of a jsonb `?|` operator -- via an explicit `ARRAY[...]`
+ * constructor over INDIVIDUALLY bound scalar parameters, NOT by
+ * interpolating the raw JS array directly into a `sql` template.
+ *
+ * This is a hard-won correctness fix, not a style choice: drizzle-orm's
+ * `sql` tagged template treats a bare array interpolation (`${someArray}`)
+ * as a request to JOIN the array's elements as separate SQL fragments (the
+ * same mechanism `sql.join` uses), not as one array-typed bind parameter --
+ * for a single-element array this silently produces exactly ONE scalar
+ * parameter (the lone element itself, unwrapped), which Postgres then
+ * rejects with `malformed array literal` when the following `::text[]` cast
+ * tries to parse a bare string like `'green'` as an array (reproduced and
+ * confirmed directly against a live Postgres instance during F1-T6 PR-D).
+ * `ARRAY[$1, $2, ...]::text[]` sidesteps this entirely: each element is
+ * still a normal, individually-bound parameter (no injection surface
+ * whatsoever, same discipline as everywhere else in this file), and
+ * Postgres's own `ARRAY[...]` constructor -- not driver-side array
+ * serialization -- assembles the real array server-side. Works correctly
+ * for zero, one, or many elements (`ARRAY[]::text[]` is valid Postgres
+ * syntax for an empty array).
+ */
+function sqlTextArrayLiteral(values: readonly string[]): SQL {
+  return sql`ARRAY[${sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  )}]::text[]`;
+}
+
 function buildMultiSelectPredicate(key: string, operator: FilterOperator, value: unknown): SQL {
   const arrayExpr = fieldJsonbExpr(key);
 
   switch (operator) {
     case 'in':
-      return sql`${arrayExpr} ?| ${assertStringArrayValue(value, operator)}::text[]`;
+      return sql`${arrayExpr} ?| ${sqlTextArrayLiteral(assertStringArrayValue(value, operator))}`;
     case 'notIn':
-      return sql`NOT (${arrayExpr} ?| ${assertStringArrayValue(value, operator)}::text[])`;
+      return sql`NOT (${arrayExpr} ?| ${sqlTextArrayLiteral(assertStringArrayValue(value, operator))})`;
     case 'isEmpty':
       return isNull(arrayExpr);
     case 'isNotEmpty':

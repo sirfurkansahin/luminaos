@@ -1,0 +1,2 @@
+CREATE INDEX "objects_view_workspace_id_type_lifecycle_idx" ON "objects_view" USING btree ("workspace_id","type","lifecycle");--> statement-breakpoint
+CREATE INDEX "objects_view_field_values_gin_idx" ON "objects_view" USING gin ("field_values");
