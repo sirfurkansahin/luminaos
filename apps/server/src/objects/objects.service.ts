@@ -7,12 +7,16 @@ import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
 import {
   applyDefaultFieldValues,
   archiveObject,
+  assertGroupableField,
+  assertSortableField,
+  assertValidFilterCondition,
   canEditField,
   canViewField,
   computeAggregate,
   createObject,
   evaluateFormula,
   getAffectedFormulaKeysInOrder,
+  isKnownObjectType,
   newObjectId,
   parseFormula,
   renameObject,
@@ -37,9 +41,23 @@ import {
   QuotaExceededError,
   ValidationError,
 } from '@luminaos/shared';
-import type { Actor, NewDomainEvent } from '@luminaos/shared';
+import type { Actor, NewDomainEvent, QuerySpec } from '@luminaos/shared';
 
 import { ObjectsViewProjection } from './objects-view.projection.js';
+import {
+  assertOperatorValueShape,
+  buildFilterPredicate,
+  buildGroupNotNullPredicate,
+  buildKeysetPredicate,
+  buildOrderBy,
+  buildSortColumns,
+  decodeCursor,
+  encodeCursor,
+  extractCursorValues,
+  extractGroupValue,
+  FIXED_COLUMN_OPERATORS,
+  isFixedColumnKey,
+} from './query-builder.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AIUsageProjection } from '../ai/ai-usage.projection.js';
@@ -53,6 +71,7 @@ import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 
 import type { Database } from '../db/client.js';
+import type { SQL } from 'drizzle-orm';
 
 const STREAM_TYPE = 'lumina-object';
 
@@ -101,6 +120,20 @@ export interface SetFieldValueEntry {
   fieldKey: string;
   value: unknown;
 }
+
+/**
+ * `ObjectsService.query`'s (F1-T6 PR-C) return shape: flat, paginated
+ * `{ objects, nextCursor? }` when `QuerySpec.group` is absent, or
+ * `{ groups }` (no pagination at all) when it's present -- see
+ * `object-query.integration.test.ts`'s header comment for the full
+ * flat-vs-group contract this pins.
+ */
+export type QueryResult =
+  | { objects: ObjectWithFieldValues[]; nextCursor?: string }
+  | { groups: { groupValue: string; count: number; items: ObjectWithFieldValues[] }[] };
+
+/** `QuerySpec.limit`'s default when the caller doesn't specify one (F1-T6 PR-C, flat mode only). */
+const DEFAULT_QUERY_LIMIT = 50;
 
 @Injectable()
 export class ObjectsService {
@@ -262,6 +295,232 @@ export class ObjectsService {
     }
 
     return { objects, aggregates };
+  }
+
+  /**
+   * F1-T6 PR-C: the server-side query/filter/sort/group engine. Validation
+   * precedence (exact order, per `object-query.integration.test.ts`'s
+   * header comment): (1) unknown `objectType` -> `ValidationError`; (2)
+   * every field key referenced by `filters`/`sort`/`group` that is not one
+   * of the three fixed columns (`title`/`createdAt`/`updatedAt`) must
+   * resolve to an active, caller-VISIBLE field definition, or `NotFoundError`
+   * -- same "hidden must be indistinguishable from undefined" reasoning as
+   * `setFieldValues`'s own lookup; (3) each filter's operator must be valid
+   * for its field's type (`assertValidFilterCondition` for custom fields, a
+   * local fixed-column operator table otherwise); (4) each sort field must
+   * be sortable; (5) a `group` field must be groupable; (6) each filter's
+   * `value` must match its operator's arity, independent of field type.
+   * Only once every one of these passes does this compile and run the
+   * actual SQL query (`query-builder.ts`).
+   */
+  async query(workspaceId: string, callerRole: Role, querySpec: QuerySpec): Promise<QueryResult> {
+    if (!isKnownObjectType(querySpec.objectType)) {
+      throw new ValidationError('unknown object type', { objectType: querySpec.objectType });
+    }
+
+    const objectType: ObjectType = querySpec.objectType;
+    const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, objectType);
+    const definitionsByKey = new Map(definitions.map((definition) => [definition.key, definition]));
+
+    const resolveField = (field: string) => {
+      if (isFixedColumnKey(field)) {
+        return { kind: 'fixed' as const, key: field };
+      }
+
+      const definition = definitionsByKey.get(field);
+
+      // Same "hidden must be indistinguishable from undefined" reasoning as
+      // `setFieldValues`'s own lookup (security review precedent) -- a
+      // distinguishable 403/other-shaped error here would let a caller
+      // enumerate hidden field keys via a query request.
+      if (!definition || !canViewField(definition.permissions, callerRole)) {
+        throw new NotFoundError(
+          'No active field definition found for this key on this object type.',
+        );
+      }
+
+      return { kind: 'custom' as const, key: field, fieldType: definition.fieldType };
+    };
+
+    // Step 2: resolve every referenced field key across filters/sort/group
+    // BEFORE any operator/value validation -- a hidden or undefined field
+    // key must 404 regardless of what else is wrong with the request.
+    const resolvedFilters = querySpec.filters.map((condition) => ({
+      condition,
+      field: resolveField(condition.field),
+    }));
+
+    const sortSpecs = querySpec.sort ?? [];
+    const resolvedSort = sortSpecs.map((sortEntry) => resolveField(sortEntry.field));
+
+    const resolvedGroup = querySpec.group !== undefined ? resolveField(querySpec.group) : undefined;
+
+    // Step 3: operator validity per filter.
+    for (const { condition, field } of resolvedFilters) {
+      if (field.kind === 'fixed') {
+        const allowedOperators = FIXED_COLUMN_OPERATORS[field.key];
+
+        if (!allowedOperators.includes(condition.operator)) {
+          throw new ValidationError('operator is not valid for this fixed column', {
+            field: field.key,
+            operator: condition.operator,
+          });
+        }
+      } else {
+        const definition = definitionsByKey.get(field.key);
+
+        if (definition) {
+          assertValidFilterCondition(definition, condition);
+        }
+      }
+    }
+
+    // Step 4: sortability.
+    for (const field of resolvedSort) {
+      if (field.kind === 'custom') {
+        const definition = definitionsByKey.get(field.key);
+
+        if (definition) {
+          assertSortableField(definition);
+        }
+      }
+    }
+
+    // Step 5: groupability -- fixed columns are never `select`-typed, so
+    // they can never be groupable.
+    if (resolvedGroup) {
+      if (resolvedGroup.kind === 'fixed') {
+        throw new ValidationError('fixed columns are not groupable', {
+          field: resolvedGroup.key,
+        });
+      }
+
+      const definition = definitionsByKey.get(resolvedGroup.key);
+
+      if (definition) {
+        assertGroupableField(definition);
+      }
+    }
+
+    // Step 6: operator-driven `value` shape rules, independent of field type.
+    for (const { condition } of resolvedFilters) {
+      assertOperatorValueShape(condition.operator, condition.value);
+    }
+
+    const filterPredicates = resolvedFilters.map(({ condition, field }) =>
+      buildFilterPredicate(field, condition),
+    );
+
+    const baseWhere = and(
+      eq(objectsView.workspaceId, workspaceId),
+      eq(objectsView.type, objectType),
+      ne(objectsView.lifecycle, 'deleted'),
+      ...filterPredicates,
+    );
+
+    if (!baseWhere) {
+      // Unreachable: the three scope predicates above are always present.
+      throw new ValidationError('failed to build query predicate');
+    }
+
+    if (querySpec.group !== undefined) {
+      return this.queryGrouped(baseWhere, querySpec.group, definitions, callerRole);
+    }
+
+    return this.queryFlat(baseWhere, querySpec, definitions, callerRole, definitionsByKey);
+  }
+
+  /** Flat (non-grouped) mode of `query`: real ORDER BY + keyset cursor pagination. See `query-builder.ts` for the SQL compilation this delegates to. */
+  private async queryFlat(
+    where: SQL,
+    querySpec: QuerySpec,
+    definitions: FieldDefinition[],
+    callerRole: Role,
+    definitionsByKey: Map<string, FieldDefinition>,
+  ): Promise<{ objects: ObjectWithFieldValues[]; nextCursor?: string }> {
+    const sortColumns = buildSortColumns(
+      querySpec.sort,
+      (field) => definitionsByKey.get(field)?.fieldType,
+    );
+
+    let effectiveWhere = where;
+
+    if (querySpec.cursor !== undefined) {
+      const cursorValues = decodeCursor(querySpec.cursor);
+      const keysetPredicate = buildKeysetPredicate(sortColumns, cursorValues);
+      const combined = and(effectiveWhere, keysetPredicate);
+
+      if (!combined) {
+        throw new ValidationError('failed to build query predicate');
+      }
+
+      effectiveWhere = combined;
+    }
+
+    const limit = querySpec.limit ?? DEFAULT_QUERY_LIMIT;
+
+    const rows = await this.db
+      .select()
+      .from(objectsView)
+      .where(effectiveWhere)
+      .orderBy(...buildOrderBy(sortColumns))
+      .limit(limit + 1);
+
+    const hasNextPage = rows.length > limit;
+    const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
+    const objects = pageRows.map((row) =>
+      this.toObjectWithFieldValues(row, definitions, callerRole),
+    );
+    const lastRow = pageRows[pageRows.length - 1];
+
+    if (hasNextPage && lastRow) {
+      return { objects, nextCursor: encodeCursor(extractCursorValues(lastRow, sortColumns)) };
+    }
+
+    return { objects };
+  }
+
+  /**
+   * Group mode of `query`: fetches EVERY matching row (still scoped by
+   * `where`, which already includes `filters`), excluding any row whose
+   * group field has no value at all, then groups them in application code.
+   * `sort`/`cursor`/`limit` are never consulted here -- group mode has no
+   * pagination at all (per this PR's pinned contract).
+   */
+  private async queryGrouped(
+    where: SQL,
+    groupField: string,
+    definitions: FieldDefinition[],
+    callerRole: Role,
+  ): Promise<{ groups: { groupValue: string; count: number; items: ObjectWithFieldValues[] }[] }> {
+    const combined = and(where, buildGroupNotNullPredicate(groupField));
+
+    if (!combined) {
+      throw new ValidationError('failed to build query predicate');
+    }
+
+    const rows = await this.db.select().from(objectsView).where(combined);
+
+    const rowsByGroupValue = new Map<string, (typeof objectsView.$inferSelect)[]>();
+
+    for (const row of rows) {
+      const groupValue = String(extractGroupValue(row, groupField));
+      const existing = rowsByGroupValue.get(groupValue);
+
+      if (existing) {
+        existing.push(row);
+      } else {
+        rowsByGroupValue.set(groupValue, [row]);
+      }
+    }
+
+    const groups = Array.from(rowsByGroupValue.entries()).map(([groupValue, groupRows]) => ({
+      groupValue,
+      count: groupRows.length,
+      items: groupRows.map((row) => this.toObjectWithFieldValues(row, definitions, callerRole)),
+    }));
+
+    return { groups };
   }
 
   /**

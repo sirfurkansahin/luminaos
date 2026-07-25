@@ -15,8 +15,8 @@ import {
 } from '@nestjs/common';
 
 import type { LuminaObject, Role } from '@luminaos/core-objects';
-import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
-import type { Actor } from '@luminaos/shared';
+import { querySpecSchema, ForbiddenError, UnauthorizedError } from '@luminaos/shared';
+import type { Actor, QuerySpec } from '@luminaos/shared';
 
 import { createObjectSchema } from './dto/create-object.schema.js';
 import { listObjectsQuerySchema } from './dto/list-objects.schema.js';
@@ -31,7 +31,7 @@ import type { CreateObjectInput } from './dto/create-object.schema.js';
 import type { ListObjectsQuery } from './dto/list-objects.schema.js';
 import type { RenameObjectInput } from './dto/rename-object.schema.js';
 import type { SetFieldValuesInput } from './dto/set-field-values.schema.js';
-import type { ObjectWithFieldValues } from './objects.service.js';
+import type { ObjectWithFieldValues, QueryResult } from './objects.service.js';
 import type { MembershipRole } from '../workspaces/membership.util.js';
 import type { Request } from 'express';
 
@@ -83,6 +83,26 @@ export class ObjectsController {
     );
 
     return { objects, ...(aggregates ? { aggregates } : {}) };
+  }
+
+  /**
+   * F1-T6 PR-C: read-only query/filter/sort/group endpoint. Same guard
+   * stack as every other route here; only `requireRole` is needed (no
+   * `actor`, no event writes). `ObjectsService.query`'s own return shape
+   * already matches this route's response body exactly (`{ objects,
+   * nextCursor? }` or `{ groups }`) -- no extra wrapping, unlike `create`'s
+   * `{ object }`.
+   */
+  @Post('query')
+  @HttpCode(HttpStatus.OK)
+  async query(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Body(new ZodValidationPipe(querySpecSchema)) body: QuerySpec,
+    @Req() req: Request,
+  ): Promise<QueryResult> {
+    const callerRole = this.requireRole(req);
+
+    return this.objectsService.query(workspaceId, callerRole, body);
   }
 
   @Get(':objectId')
