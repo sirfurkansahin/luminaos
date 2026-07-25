@@ -1,5 +1,6 @@
 export * from './errors/index.js';
 export * from './events/index.js';
+export * from './query/index.js';
 
 /**
  * `/health`'s response shape. Widened for F0-T8 PR-C: health-checking now
