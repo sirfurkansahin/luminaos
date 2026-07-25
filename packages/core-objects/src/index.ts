@@ -15,6 +15,7 @@ export * from './fields/field-commands.js';
 export * from './fields/field-replay.js';
 export * from './fields/field-value-commands.js';
 export * from './fields/field-value-replay.js';
+export * from './fields/query/filter-operators.js';
 export * from './fields/formula/formula-graph.js';
 export * from './fields/formula/field-aggregations.js';
 export * from './fields/formula/formula-recompute-order.js';
