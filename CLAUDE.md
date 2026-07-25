@@ -62,6 +62,13 @@ Gerçek kalite güvencesi PR satır sayısından değil, test-writer → impleme
 
 - Keşif → `explorer` · Tasarım/ADR → `architect` · Test → `test-writer` · Uygulama → `implementer` · Denetim → `security-reviewer` · Doküman → `docs-writer`
 - Tekrarlanan prosedürler için skill'ler: `yeni-ozellik`, `yeni-lumina-object-tipi`, `mcp-baglayici`, `agent-skill-sdk`, `release` (`.claude/skills/`).
+- Subagent'lar ana oturuma yalnızca damıtılmış sonuç döner: "bulgu var/yok + 1-2 cümle özet". Tam dosya diff'i veya log dökümü ana oturuma taşınmaz — gerekirse insan ayrıca ister.
+
+## Özetleme Disiplini (token tasarrufu — kaliteden ödün vermeden)
+
+- Oturum/görev sonu özeti kısa olur: "N dosya değişti, M test geçti/kaldı, kalan elle-adım: X" formatında tek paragraf. PR açıklamasını, commit listesini veya dosya içeriklerini özet içinde tekrar yazma — bunlar zaten GitHub'da ve diff'te duruyor.
+- Başarılı adımların ayrıntılı çıktısı (test logu, lint çıktısı) ana oturuma basılmaz; yalnızca başarısızlıkta tam çıktı gösterilir (hook'lar zaten bu şekilde: `post-write-quality.mjs`, `stop-quality-gate.mjs`).
+- İnsana durum aktarırken (ör. `durum-kontrol` çıktısı) yalnızca aktif branch/görev/son commit/bekleyen değişiklik yeterlidir; tamamlanmış görev listesinin tamamı yalnızca açıkça istenince verilir.
 
 ## Mimari Değişmezler
 
