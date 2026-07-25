@@ -98,7 +98,7 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const MAX_LINES = 400;
+            const MAX_LINES = 800; // bkz. CLAUDE.md "PR Boyutu": mimari-kritik 400, mekanik/tekrarlı 600-800
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -110,6 +110,6 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `⚠️ Bu PR ${changed} satır değiştiriyor (eşik: ${MAX_LINES}). CLAUDE.md'ye göre PR'lar ±400 satırı geçmemeli — bölmeyi düşünün.`,
+                body: `⚠️ Bu PR ${changed} satır değiştiriyor (eşik: ${MAX_LINES}). CLAUDE.md'ye göre mimari-kritik görevlerde ±400, mekanik/tekrarlı görevlerde ±600-800 satır sınırı var — bölmeyi düşünün. (Bu kontrol yalnızca uyarı amaçlıdır, merge'ü engellemez.)`,
               });
             }
