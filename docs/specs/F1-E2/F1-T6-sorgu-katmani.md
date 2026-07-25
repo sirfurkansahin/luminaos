@@ -1,6 +1,6 @@
 # F1-T6 — Sorgu Katmanı (Filter/Sort/Group DSL)
 
-**Epik:** F1-E2 (Görünüm Motoru) · **Durum:** Yapılacak
+**Epik:** F1-E2 (Görünüm Motoru) · **Durum:** Tamamlandı
 **Bağımlılık:** F1-E1 tamamlandı (özellikle F1-T2 Custom Fields, F1-T4 Formül Alanları)
 
 ## Amaç
@@ -24,9 +24,44 @@ Nesneleri filtreleme/sıralama/gruplama için tip-güvenli bir sorgu dili (DSL) 
 
 ## Kabul Kriterleri
 
-- [ ] Her alan tipi için en az 2 geçerli filtre senaryosu + 1 geçersiz operatör reddi testli.
-- [ ] Sıralama: başlık, `createdAt`, bir custom alan (number/date) ile test edilir.
-- [ ] Gruplama: `select` alanına göre gruplama doğru sayım + öğe listesi döner.
-- [ ] SQL injection'a karşı güvenli: bilerek kötücül bir filtre değeri (`'; DROP TABLE--`) gönderilir, zararsız şekilde işlenir (security-reviewer + testli).
-- [ ] 10.000 nesnelik test workspace'inde tipik sorgu <200ms (performans testi).
-- [ ] Rol-bazlı `hidden` alan süzme, sorgu sonuçlarında da korunur (guest kullanıcı hidden alana göre filtreleme yapamaz veya sonuçta göremez).
+- [x] Her alan tipi için en az 2 geçerli filtre senaryosu + 1 geçersiz operatör reddi testli.
+- [x] Sıralama: başlık, `createdAt`, bir custom alan (number/date) ile test edilir.
+- [x] Gruplama: `select` alanına göre gruplama doğru sayım + öğe listesi döner.
+- [x] SQL injection'a karşı güvenli: bilerek kötücül bir filtre değeri (`'; DROP TABLE--`) gönderilir, zararsız şekilde işlenir (security-reviewer + testli).
+- [x] 10.000 nesnelik test workspace'inde tipik sorgu <200ms (performans testi).
+- [x] Rol-bazlı `hidden` alan süzme, sorgu sonuçlarında da korunur (guest kullanıcı hidden alana göre filtreleme yapamaz veya sonuçta göremez).
+
+## Tamamlanma Notu
+
+Dört PR halinde uygulandı (branch: `feature/f1-t6-sorgu-katmani`), `docs/adr/ADR-0009-sorgu-katmani.md`'de belgelendi:
+
+- **PR-A** (`packages/shared/src/query/`): `QuerySpec`/`FilterCondition`/`SortSpec`/
+  `FilterOperator` zod şemaları + tipleri — çerçeveden ve `core-objects`'ten
+  bağımsız, F1-T9'un `SavedView.querySpec`'inin doğrudan saklayabileceği bir
+  sözleşme.
+- **PR-B** (`packages/core-objects/src/fields/query/`): `getValidOperatorsForField`/
+  `assertValidFilterCondition`/`assertGroupableField`/`assertSortableField` — 14
+  `FieldType`'ın operatör matrisi, `ai`'ın `config.outputType`'a bağlı dallanması,
+  `formula`'nın tip-agnostik kısıtlı seti.
+- **PR-C** (sunucu entegrasyonu): `query-builder.ts` (parametreli Drizzle SQL
+  derleyici, F1-T2'nin `jsonb_set` disiplinini izler), `ObjectsService.query`,
+  `POST .../objects/query` route'u, genel keyset-sayfalama formülüne dayanan
+  cursor tasarımı, `{groupValue,count,items}` gruplaması, rol-bazlı hidden-alan
+  reddi (`setFieldValues`'ın 404-varlık-gizleme deseni). **security-reviewer
+  bulguları:** ILIKE kaçışlama sırası hatası, operatör-değeri tip doğrulaması
+  eksikliği, `in`/`notIn` dizi üst sınırı yokluğu, `cursor` üst sınırı yokluğu —
+  hepsi kapatıldı.
+- **PR-D** (migration + performans + kalan kapsam): `objects_view`'a composite
+  btree + `field_values` GIN index (migration 0009); kalan 8 `FieldType`
+  (`longText`/`url`/`email`/`datetime`/`multiSelect`/`people`/`currency`/`ai`)
+  için kapsamlı filtre testleri; 10.000-nesnelik performans testi (<200ms
+  tipik sorgu). Bu turda gerçek Postgres'e karşı doğrulanırken bulunan bir
+  korektlik hatası (drizzle-orm'un `sql` template'inin ham bir JS dizisini tek
+  parametre değil ayrı fragmanlara bölmesi, `multiSelect`'in `?|` filtresini
+  bozuyordu) düzeltildi. **Son security-reviewer turu:** cursor değerlerinin
+  filtre değerleriyle tutarsız şekilde tip-doğrulanmadığı bulundu ve kapatıldı.
+
+`apps/server` tam entegrasyon takımı (23 dosya, 219 test, Testcontainers ile
+gerçek Postgres+Redis+HTTP, 10.000-nesnelik performans testi dahil) + birim
+testleri (13 dosya, 98 test) + `packages/shared`/`packages/core-objects`
+kendi test takımları yeşil, regresyon yok.
