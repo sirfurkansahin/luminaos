@@ -5,7 +5,7 @@ import type { QuerySpec } from '@luminaos/shared';
 import { patchFieldValues, postObjectsQuery } from '../lib/apiClient.js';
 
 import type { QueryResult } from '../lib/apiClient.js';
-import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
+import type { QueryKey, UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 export function useObjectsQuery(
   workspaceId: string,
@@ -22,16 +22,93 @@ interface SetFieldValuesVariables {
   values: Record<string, unknown>;
 }
 
+export interface OptimisticContext {
+  objectId: string;
+  changedKeys: string[];
+  previousValues: Record<string, unknown>;
+}
+
 export function useSetFieldValuesMutation(
   workspaceId: string,
-): UseMutationResult<Awaited<ReturnType<typeof patchFieldValues>>, Error, SetFieldValuesVariables> {
+): UseMutationResult<
+  Awaited<ReturnType<typeof patchFieldValues>>,
+  Error,
+  SetFieldValuesVariables,
+  OptimisticContext
+> {
   const queryClient = useQueryClient();
+  const objectsQueryKey: QueryKey = ['objects', workspaceId];
 
   return useMutation({
     mutationFn: ({ objectId, values }: SetFieldValuesVariables) =>
       patchFieldValues(workspaceId, objectId, values),
+    onMutate: async ({ objectId, values }) => {
+      await queryClient.cancelQueries({ queryKey: objectsQueryKey });
+
+      // Only the previous values of the specific keys this mutation is
+      // about to change are captured — never a whole-query snapshot. Two
+      // edits on different fields of the same object can be in flight at
+      // once (e.g. two Table cells committed in quick succession); a
+      // whole-snapshot rollback in onError would silently erase the other,
+      // still-pending edit's optimistic write. A per-field revert only ever
+      // touches what *this* mutation itself wrote.
+      let previousValues: Record<string, unknown> = {};
+      for (const [, data] of queryClient.getQueriesData<QueryResult>({
+        queryKey: objectsQueryKey,
+      })) {
+        if (data === undefined || !('objects' in data)) {
+          continue;
+        }
+        const found = data.objects.find((object) => object.id === objectId);
+        if (found !== undefined) {
+          previousValues = found.fieldValues;
+          break;
+        }
+      }
+
+      queryClient.setQueriesData<QueryResult>({ queryKey: objectsQueryKey }, (old) => {
+        if (old === undefined || !('objects' in old)) {
+          return old;
+        }
+        return {
+          ...old,
+          objects: old.objects.map((object) =>
+            object.id === objectId
+              ? { ...object, fieldValues: { ...object.fieldValues, ...values } }
+              : object,
+          ),
+        };
+      });
+
+      return { objectId, changedKeys: Object.keys(values), previousValues };
+    },
+    onError: (_error, _variables, context) => {
+      if (context === undefined) {
+        return;
+      }
+      const { objectId, changedKeys, previousValues } = context;
+
+      queryClient.setQueriesData<QueryResult>({ queryKey: objectsQueryKey }, (old) => {
+        if (old === undefined || !('objects' in old)) {
+          return old;
+        }
+        return {
+          ...old,
+          objects: old.objects.map((object) => {
+            if (object.id !== objectId) {
+              return object;
+            }
+            const revertedFieldValues = { ...object.fieldValues };
+            for (const key of changedKeys) {
+              revertedFieldValues[key] = previousValues[key];
+            }
+            return { ...object, fieldValues: revertedFieldValues };
+          }),
+        };
+      });
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['objects', workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: objectsQueryKey });
     },
   });
 }

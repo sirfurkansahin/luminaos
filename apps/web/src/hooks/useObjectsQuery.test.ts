@@ -162,3 +162,125 @@ describe('useSetFieldValuesMutation', () => {
     expect(filters?.queryKey?.[1]).toBe(workspaceId);
   });
 });
+
+/**
+ * Contract under test for the next increment (not yet implemented):
+ * useSetFieldValuesMutation must apply a TanStack Query optimistic-update
+ * pattern:
+ *   - onMutate: synchronously write the new field values into any cached
+ *     ['objects', workspaceId, ...] query results (before the network call
+ *     resolves), and return the previous cache snapshot as context so it
+ *     can be restored on failure.
+ *   - onError: restore the cache to the snapshot captured in onMutate.
+ *   - onSuccess/onSettled: keep invalidating ['objects', workspaceId, ...]
+ *     as before (regression — must not be dropped when optimistic update is
+ *     added).
+ * This is a red/TDD test block: it is expected to fail until the
+ * implementer adds onMutate/onError to the hook.
+ */
+describe('useSetFieldValuesMutation — optimistic updates', () => {
+  const workspaceId = 'ws-1';
+  const objectId = 'obj-1';
+  const querySpec: QuerySpec = { objectType: 'task', filters: [] };
+  const queryKey = ['objects', workspaceId, querySpec] as const;
+  const originalFieldValues = { status: 'todo' };
+  const newValues = { status: 'done' };
+
+  function seedCache(queryClient: QueryClient): QueryResult {
+    const payload: QueryResult = {
+      objects: [
+        { id: objectId, fieldValues: originalFieldValues } as unknown as ObjectWithFieldValues,
+      ],
+    };
+    queryClient.setQueryData(queryKey, payload);
+    return payload;
+  }
+
+  it('optimistically merges the new field values into the cached objects list in onMutate, before the mutation resolves', async () => {
+    let resolvePatch: (value: { object: ObjectWithFieldValues }) => void = () => {
+      throw new Error('resolvePatch called before assignment');
+    };
+    const pending = new Promise<{ object: ObjectWithFieldValues }>((resolve) => {
+      resolvePatch = resolve;
+    });
+    mockedPatchFieldValues.mockReturnValueOnce(pending);
+
+    const { queryClient, Wrapper } = createWrapper();
+    seedCache(queryClient);
+
+    const { result } = renderHook(() => useSetFieldValuesMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ objectId, values: newValues });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(true);
+    });
+
+    const cached = queryClient.getQueryData<QueryResult>(queryKey);
+    const cachedObject = (cached as { objects: ObjectWithFieldValues[] }).objects.find(
+      (obj) => obj.id === objectId,
+    );
+    expect(cachedObject?.fieldValues).toEqual({ ...originalFieldValues, ...newValues });
+
+    // Resolve so the pending mutation doesn't leak into subsequent tests.
+    await act(async () => {
+      resolvePatch({
+        object: { id: objectId, fieldValues: newValues } as unknown as ObjectWithFieldValues,
+      });
+      await pending;
+    });
+  });
+
+  it('rolls back the cache to its pre-mutation snapshot in onError when patchFieldValues rejects', async () => {
+    const error = new Error('network down');
+    mockedPatchFieldValues.mockRejectedValueOnce(error);
+
+    const { queryClient, Wrapper } = createWrapper();
+    const original = seedCache(queryClient);
+
+    const { result } = renderHook(() => useSetFieldValuesMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ objectId, values: newValues });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    expect(queryClient.getQueryData(queryKey)).toEqual(original);
+  });
+
+  it('still invalidates cached ["objects", workspaceId, ...] queries after a successful optimistic mutation (regression)', async () => {
+    mockedPatchFieldValues.mockResolvedValueOnce({
+      object: { id: objectId, fieldValues: newValues } as unknown as ObjectWithFieldValues,
+    });
+
+    const { queryClient, Wrapper } = createWrapper();
+    seedCache(queryClient);
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useSetFieldValuesMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ objectId, values: newValues });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(invalidateSpy).toHaveBeenCalled();
+    const [filters] = invalidateSpy.mock.calls[0] as [{ queryKey?: unknown[] } | undefined];
+    expect(filters?.queryKey?.[0]).toBe('objects');
+    expect(filters?.queryKey?.[1]).toBe(workspaceId);
+  });
+});
