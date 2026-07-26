@@ -29,7 +29,7 @@
 
 - [ ] `pnpm dev` ile açılan tarayıcıda gerçek bir workspace'te List/Board/Table görünümleri arasında geçiş yapılabilir.
 - [ ] 10.000 satırlık test verisinde List görünümü sanallaştırma sayesinde akıcı kaydırma sağlar (performans testi/ölçümü).
-- [ ] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir (entegrasyon/E2E testi — Playwright).
+- [ ] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir. **Not:** Playwright altyapısı repoda henüz yok (bkz. `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`, PR3 sırasında açıldı) — bu kriter PR3'te birim seviyesinde (dnd-kit `onDragEnd` handler'ı doğrudan tetiklenerek + klavye a11y `@testing-library/user-event` ile) karşılanır; gerçek tarayıcıda pointer-tabanlı E2E doğrulaması F0-T9 tamamlanınca eklenecek.
 - [x] Table görünümünde bir hücreyi düzenlemek API'ye yazar ve optimistic UI güncellemesi çalışır (PR2, testli — onMutate/onError optimistic+rollback).
 - [ ] Her üç görünüm de klavye erişilebilir (F0-T7'nin a11y standardına uyar).
 - [ ] Boş/yükleniyor/hata durumları her görünümde doğru render edilir (testli).
