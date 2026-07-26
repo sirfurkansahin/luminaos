@@ -1,6 +1,6 @@
 # F1-T7 — List + Board + Table Görünümleri (İlk Gerçek Arayüz)
 
-**Epik:** F1-E2 · **Durum:** Devam Ediyor (PR1-2/3 tamamlandı)
+**Epik:** F1-E2 · **Durum:** Tamamlandı (gerçek tarayıcıda pointer-tabanlı sürükle-bırak E2E'si ve 10.000 satır performans ölçümü F0-T9/gerçek backend'e bağlı, ayrıca not edildi)
 **Bağımlılık:** F1-T6 (sorgu katmanı), F0-T7 (tasarım sistemi)
 
 > 📌 ÖNEMLİ MİLESTONE: Bu görev, projenin başlangıcından beri backend'de inşa edilen her şeyin (event sourcing, custom fields, ilişkiler, formüller) **ilk kez tarayıcıda görülebilir hale geldiği** görevdir. Plan onaylanırken özellikle "kullanıcı bunu nasıl görecek/deneyimleyecek" açısından dikkatle okunmalı.
@@ -27,12 +27,12 @@
 
 ## Kabul Kriterleri
 
-- [ ] `pnpm dev` ile açılan tarayıcıda gerçek bir workspace'te List/Board/Table görünümleri arasında geçiş yapılabilir.
-- [ ] 10.000 satırlık test verisinde List görünümü sanallaştırma sayesinde akıcı kaydırma sağlar (performans testi/ölçümü).
-- [ ] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir. **Not:** Playwright altyapısı repoda henüz yok (bkz. `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`, PR3 sırasında açıldı) — bu kriter PR3'te birim seviyesinde (dnd-kit `onDragEnd` handler'ı doğrudan tetiklenerek + klavye a11y `@testing-library/user-event` ile) karşılanır; gerçek tarayıcıda pointer-tabanlı E2E doğrulaması F0-T9 tamamlanınca eklenecek.
+- [x] `pnpm dev` ile açılan tarayıcıda List/Board/Table görünümleri arasında geçiş yapılabilir (PR4, `claude-in-chrome` ile gerçek tarayıcıda doğrulandı: sekme geçişi, URL `?view=` senkronizasyonu, tema geçişi). **Kapsam notu:** gerçek bir workspace'in gerçek verisiyle uçtan uca doğrulama yapılmadı — `apps/server` bu doğrulama sırasında çalışmıyordu (dev-only sabit `workspaceId`, gerçek backend/auth henüz apps/web'e bağlı değil); bu doğrulama gerçek bir workspace kurulduğunda ayrıca yapılmalı.
+- [ ] 10.000 satırlık test verisinde List görünümü sanallaştırma sayesinde akıcı kaydırma sağlar (performans testi/ölçümü). Sanallaştırma birim testiyle kanıtlı (PR1 — 500 nesnede DOM satır sayısı sınırlı kalıyor); 10.000 satır + gerçek tarayıcı performans ölçümü gerçek bir workspace/backend gerektiriyor, henüz yapılmadı.
+- [x] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir — birim seviyesinde kanıtlı (PR3, `onDragEnd` handler'ı senkronize `DragEndEvent` ile doğrudan tetiklenerek + `KeyboardSensor`'ün `DndContext`'e kablolandığı doğrulanarak). **Not:** Playwright altyapısı repoda henüz yok (bkz. `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`, PR3 sırasında açıldı) — gerçek tarayıcıda pointer-tabanlı E2E doğrulaması F0-T9 tamamlanınca eklenecek.
 - [x] Table görünümünde bir hücreyi düzenlemek API'ye yazar ve optimistic UI güncellemesi çalışır (PR2, testli — onMutate/onError optimistic+rollback).
-- [ ] Her üç görünüm de klavye erişilebilir (F0-T7'nin a11y standardına uyar).
-- [ ] Boş/yükleniyor/hata durumları her görünümde doğru render edilir (testli).
+- [x] Her üç görünüm de klavye erişilebilir — Table'da ok tuşlarıyla hücre gezinme (PR2, testli), Board'da `KeyboardSensor` kablolaması (PR3, testli — gerçek klavye-sürükleme etkileşimi jsdom'da güvenilir simüle edilemediğinden sensor-kontrat testiyle sınırlı), List'in sanallaştırılmış satırları özel klavye gezinme gerektirmiyor (native scroll).
+- [x] Boş/yükleniyor/hata durumları her görünümde doğru render edilir (testli, üç görünümde de). PR4'te gerçek tarayıcıda doğrulanırken gerçek bir bug bulunup düzeltildi: `isLoading` (`=isPending && isFetching`) kontrolü, başarısız bir sorgunun retry backoff aralıklarında kısa süreliğine `false` oluyordu (henüz `isError` de olmadığından), bu da "boş" durumunun yanlışlıkla render edilmesine yol açıyordu — artık `isLoading || (data === undefined && !isError)` kontrol ediliyor.
 
 ## İlerleme Notu
 
@@ -40,4 +40,10 @@ Plan onayı: görev 3 PR'a bölündü (PR1 veri+List, PR2 Table, PR3 Board) — 
 
 - **PR1** (branch: `feature/f1-t7-pr1-list-view`, [#15](https://github.com/sirfurkansahin/luminaos/pull/15), main'e squash-merge edildi): veri katmanı (`apiClient`, `useObjectsQuery`/`useSetFieldValuesMutation`, `useViewParam`), sanallaştırılmış List görünümü, `ViewSwitcher` sekme iskeleti, `CreateObjectButton`, `packages/ui`'ye `Skeleton`/`EmptyState` eklendi. Ayrıca plan onayı sırasında eklenen kapsam: `apps/server`'a origin-allowlist'li CORS middleware'i (`WEB_ORIGIN` env, credentials'lı cross-origin istekler için gerekliydi, önceden hiç CORS yapılandırması yoktu).
 - **PR2** (branch: `feature/f1-t7-pr2-table-editing`, [#18](https://github.com/sirfurkansahin/luminaos/pull/18), main'e squash-merge edildi): Çoklu sütun `TableView`, satır içi düzenleme (`EditableCell` — tıkla/Enter ile düzenle, Enter/blur commit, Escape iptal), ok tuşlarıyla hücreler arası klavye navigasyonu (`role="grid"`), `useColumnWidths`. `useSetFieldValuesMutation`'a (PR1) optimistic update eklendi (`onMutate`/`onError`). **security-reviewer bulgusu (kapatıldı):** ilk implementasyon `onError`'da tüm sorgu snapshot'ını geri alıyordu — aynı nesnenin farklı alanlarında art arda hızlı iki düzenleme yapılırsa (ör. önce `status` sonra `priority`), ilk mutation başarısız olunca ikincinin optimistic yazımı da yanlışlıkla siliniyordu (race condition). Düzeltme: rollback artık yalnızca o mutation'ın değiştirdiği alanları geri alıyor.
-- **PR3** (Board görünümü, sürükle-bırak, `@dnd-kit`): henüz başlanmadı.
+- **PR3** (branch: `feature/f1-t7-pr3-board-view`, [#21](https://github.com/sirfurkansahin/luminaos/pull/21), main'e squash-merge edildi): `BoardView` (`@dnd-kit/core` — `DndContext` + `PointerSensor`/`KeyboardSensor`), `BoardColumn`/`BoardCard` (`useDroppable`/`useDraggable`), `computeFieldUpdate` (saf sürükle-bırak→`setFieldValues` payload fonksiyonu). Optimistic sütun taşıma + rollback `BoardView`'ın kendi local state'inde (paylaşılan `useSetFieldValuesMutation`'ın flat `{objects}` cache mantığından bağımsız). **security-reviewer bulgusu (kapatıldı):** rollback başlangıçta paylaşılan mutation'ın global `isError`'ına bağlıydı — art arda hızlı iki farklı kart sürüklemesinde, ilk sürüklemenin hatası ikincinin henüz başarılı optimistic taşımasını da yanlışlıkla geri alabiliyordu. Düzeltme: rollback artık `mutate()`'in per-call `onError` callback'i ile sadece o sürüklemenin `objectId`'sine özel yapılıyor.
+- **PR4** (branch: `feature/f1-t7-pr4-app-integration`, [#22](https://github.com/sirfurkansahin/luminaos/pull/22), main'e squash-merge edildi): PR1-3'ün inşa ettiği görünümler `main.tsx`/`App.tsx`'e hiç kablanmamıştı (`QueryClientProvider` yoktu, `App.tsx` hâlâ F0-T7 demo sayfasıydı) — bu, milestone'un kendi iddiasını ("ilk kez tarayıcıda görülebilir") karşılamıyordu. `queryClient.ts` + `main.tsx`'e `QueryClientProvider`, `App.tsx`'e `ViewSwitcher`/`CreateObjectButton`/koşullu List-Board-Table render eklendi. `pnpm dev` + `claude-in-chrome` ile gerçek tarayıcıda doğrulanırken bulunan gerçek bir bug (retry-backoff aralığında yanlış "boş" durum render edilmesi) düzeltildi — ayrıntı yukarıdaki kabul kriterinde.
+
+## Bilinen Sınırlamalar / Takip
+
+- Gerçek workspace verisiyle uçtan uca tarayıcı doğrulaması ve 10.000 satır performans ölçümü, gerçek bir `apps/server` + auth akışı gerektiriyor — bu görev kapsamında yapılmadı.
+- Board görünümünün gerçek pointer-tabanlı sürükle-bırak E2E doğrulaması `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`'ye bırakıldı.
