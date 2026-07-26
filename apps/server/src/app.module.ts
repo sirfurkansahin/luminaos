@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
+import { corsMiddleware } from './common/cors.middleware.js';
 import { DbModule } from './db/db.module.js';
 import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -48,6 +49,6 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(cookieParser()).forRoutes('*');
+    consumer.apply(corsMiddleware, cookieParser()).forRoutes('*');
   }
 }

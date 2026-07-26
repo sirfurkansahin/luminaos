@@ -1,0 +1,28 @@
+.base {
+  display: block;
+  background-color: var(--color-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.text {
+  border-radius: var(--space-1);
+  height: 1em;
+}
+
+.rect {
+  border-radius: var(--space-1);
+}
+
+.circle {
+  border-radius: 999px;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

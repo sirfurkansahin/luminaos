@@ -121,6 +121,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       redisUrl: 'unused',
       aiTokenQuotaPerWorkspace: 1_000_000,
       aiRefreshDebounceMs: 5_000,
+      webOrigin: 'http://localhost:5173',
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 

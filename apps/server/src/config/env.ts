@@ -19,6 +19,8 @@ export interface Env {
   aiTokenQuotaPerWorkspace: number;
   /** `AIRefreshScheduler`'s debounce window in milliseconds (F1-T5 PR-C). Absent/blank -> default (matches `AIRefreshScheduler`'s own pure default); present-but-invalid -> fatal. */
   aiRefreshDebounceMs: number;
+  /** CORS allowlist origin for `apps/web` (F1-T7). Absent -> Vite's default dev origin; present -> used as-is, no shape validation (a malformed origin just fails every preflight, which is self-evident at request time). */
+  webOrigin: string;
 }
 
 /**
@@ -66,7 +68,19 @@ function readEnv(): Env {
       'AI_REFRESH_DEBOUNCE_MS',
       DEFAULT_AI_REFRESH_DEBOUNCE_MS,
     ),
+    webOrigin: readWebOrigin(),
   };
+}
+
+/** `WEB_ORIGIN`: absent/blank -> Vite's default dev origin (`http://localhost:5173`), matching `readLogLevel`'s "absence is not a misconfiguration" style. */
+function readWebOrigin(): string {
+  const rawWebOrigin = process.env['WEB_ORIGIN'];
+
+  if (rawWebOrigin === undefined || rawWebOrigin.trim() === '') {
+    return 'http://localhost:5173';
+  }
+
+  return rawWebOrigin;
 }
 
 function readLogLevel(): LogLevel {
