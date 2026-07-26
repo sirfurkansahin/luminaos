@@ -26,6 +26,9 @@ export type {
   DialogCloseProps,
 } from './components/Dialog/Dialog.js';
 
+export { EmptyState } from './components/EmptyState/EmptyState.js';
+export type { EmptyStateProps } from './components/EmptyState/EmptyState.js';
+
 export {
   DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -40,6 +43,9 @@ export type {
 
 export { Input } from './components/Input/Input.js';
 export type { InputProps } from './components/Input/Input.js';
+
+export { Skeleton } from './components/Skeleton/Skeleton.js';
+export type { SkeletonProps, SkeletonVariant } from './components/Skeleton/Skeleton.js';
 
 export {
   SelectRoot,
