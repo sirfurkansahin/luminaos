@@ -1,6 +1,6 @@
 # F1-T7 — List + Board + Table Görünümleri (İlk Gerçek Arayüz)
 
-**Epik:** F1-E2 · **Durum:** Devam Ediyor (PR1/3 tamamlandı)
+**Epik:** F1-E2 · **Durum:** Devam Ediyor (PR1-2/3 tamamlandı)
 **Bağımlılık:** F1-T6 (sorgu katmanı), F0-T7 (tasarım sistemi)
 
 > 📌 ÖNEMLİ MİLESTONE: Bu görev, projenin başlangıcından beri backend'de inşa edilen her şeyin (event sourcing, custom fields, ilişkiler, formüller) **ilk kez tarayıcıda görülebilir hale geldiği** görevdir. Plan onaylanırken özellikle "kullanıcı bunu nasıl görecek/deneyimleyecek" açısından dikkatle okunmalı.
@@ -30,7 +30,7 @@
 - [ ] `pnpm dev` ile açılan tarayıcıda gerçek bir workspace'te List/Board/Table görünümleri arasında geçiş yapılabilir.
 - [ ] 10.000 satırlık test verisinde List görünümü sanallaştırma sayesinde akıcı kaydırma sağlar (performans testi/ölçümü).
 - [ ] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir (entegrasyon/E2E testi — Playwright).
-- [ ] Table görünümünde bir hücreyi düzenlemek API'ye yazar ve optimistic UI güncellemesi çalışır.
+- [x] Table görünümünde bir hücreyi düzenlemek API'ye yazar ve optimistic UI güncellemesi çalışır (PR2, testli — onMutate/onError optimistic+rollback).
 - [ ] Her üç görünüm de klavye erişilebilir (F0-T7'nin a11y standardına uyar).
 - [ ] Boş/yükleniyor/hata durumları her görünümde doğru render edilir (testli).
 
@@ -39,4 +39,5 @@
 Plan onayı: görev 3 PR'a bölündü (PR1 veri+List, PR2 Table, PR3 Board) — her biri kendi test-writer → implementer → security-reviewer turunu aldı.
 
 - **PR1** (branch: `feature/f1-t7-pr1-list-view`, [#15](https://github.com/sirfurkansahin/luminaos/pull/15), main'e squash-merge edildi): veri katmanı (`apiClient`, `useObjectsQuery`/`useSetFieldValuesMutation`, `useViewParam`), sanallaştırılmış List görünümü, `ViewSwitcher` sekme iskeleti, `CreateObjectButton`, `packages/ui`'ye `Skeleton`/`EmptyState` eklendi. Ayrıca plan onayı sırasında eklenen kapsam: `apps/server`'a origin-allowlist'li CORS middleware'i (`WEB_ORIGIN` env, credentials'lı cross-origin istekler için gerekliydi, önceden hiç CORS yapılandırması yoktu).
-- **PR2** (Table görünümü) ve **PR3** (Board görünümü, sürükle-bırak): henüz başlanmadı.
+- **PR2** (branch: `feature/f1-t7-pr2-table-editing`, [#18](https://github.com/sirfurkansahin/luminaos/pull/18), main'e squash-merge edildi): Çoklu sütun `TableView`, satır içi düzenleme (`EditableCell` — tıkla/Enter ile düzenle, Enter/blur commit, Escape iptal), ok tuşlarıyla hücreler arası klavye navigasyonu (`role="grid"`), `useColumnWidths`. `useSetFieldValuesMutation`'a (PR1) optimistic update eklendi (`onMutate`/`onError`). **security-reviewer bulgusu (kapatıldı):** ilk implementasyon `onError`'da tüm sorgu snapshot'ını geri alıyordu — aynı nesnenin farklı alanlarında art arda hızlı iki düzenleme yapılırsa (ör. önce `status` sonra `priority`), ilk mutation başarısız olunca ikincinin optimistic yazımı da yanlışlıkla siliniyordu (race condition). Düzeltme: rollback artık yalnızca o mutation'ın değiştirdiği alanları geri alıyor.
+- **PR3** (Board görünümü, sürükle-bırak, `@dnd-kit`): henüz başlanmadı.
