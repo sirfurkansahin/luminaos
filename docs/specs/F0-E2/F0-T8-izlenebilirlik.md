@@ -1,6 +1,6 @@
 # F0-T8 — İzlenebilirlik (Log, Trace, Hata Takibi)
 
-**Epik:** F0-E2 · **Durum:** Yapılacak
+**Epik:** F0-E2 · **Durum:** Tamamlandı
 **Bağımlılık:** F0-T5
 
 ## Amaç
@@ -22,7 +22,11 @@ Sistemde ne olup bittiğinin her zaman görülebilmesini sağlamak: yapılandır
 
 ## Kabul Kriterleri
 
-- [ ] Bir API isteğinin logları tek `requestId` ile uçtan uca takip edilebilir (testle kanıtlı).
-- [ ] Log çıktısında e-posta/şifre/token asla düz görünmez (bilerek loglanmaya çalışılır, maskelendiği kanıtlanır).
-- [ ] Bilerek fırlatılan hata: server'da 500 + yapılandırılmış log; web'de ErrorBoundary ekranı.
-- [ ] `/health` DB kapalıyken `degraded` döner (Testcontainers ile kanıtlı).
+- [x] Bir API isteğinin logları tek `requestId` ile uçtan uca takip edilebilir (testle kanıtlı).
+- [x] Log çıktısında e-posta/şifre/token asla düz görünmez (bilerek loglanmaya çalışılır, maskelendiği kanıtlanır).
+- [x] Bilerek fırlatılan hata: server'da 500 + yapılandırılmış log; web'de ErrorBoundary ekranı.
+- [x] `/health` DB kapalıyken `degraded` döner (Testcontainers ile kanıtlı).
+
+## Tamamlanma Notu
+
+PR #6 (branch: `feature/f0-t8-izlenebilirlik`) ile üç dilimde uygulandı: **PR-A** (72295ee) pino yapılandırılmış log + requestId + PII maskeleme; **PR-B** (4ceb786) OpenTelemetry elle span'ler (HTTP + DB izleri); **PR-C** (e03da58) Redis + genişletilmiş `/health` + web ErrorBoundary.

@@ -1,6 +1,6 @@
 # F0-T6 — Event Store (Olay Günlüğü) Altyapısı
 
-**Epik:** F0-E2 · **Durum:** Yapılacak
+**Epik:** F0-E2 · **Durum:** Tamamlandı
 **Bağımlılık:** F0-T5 (Postgres mevcut)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu görev tüm sistemin temelini kurar (PLAN.md "Mimari Değişmezler": tek doğruluk kaynağı olay günlüğüdür). Plan aşamasında en güçlü model kullanılmalı; plan insan tarafından dikkatle okunmadan onaylanmamalı.
@@ -25,8 +25,12 @@ Tüm veri değişikliklerinin değişmez (immutable) olaylar olarak kaydedildiğ
 
 ## Kabul Kriterleri
 
-- [ ] Aynı stream'e eşzamanlı iki yazımda biri version çakışmasıyla reddedilir (testle kanıtlı).
-- [ ] Aynı event.id ile ikinci append no-op olur (idempotency testi).
-- [ ] Olaylar occurredAt/version sırasıyla okunur; workspace yalıtımı korunur.
-- [ ] Örnek projeksiyon `rebuild` ile sıfırdan aynı sonucu üretir (determinizm testi).
-- [ ] ADR-0002 yazıldı ve onaylandı; kapsam ≥ %90.
+- [x] Aynı stream'e eşzamanlı iki yazımda biri version çakışmasıyla reddedilir (testle kanıtlı).
+- [x] Aynı event.id ile ikinci append no-op olur (idempotency testi).
+- [x] Olaylar occurredAt/version sırasıyla okunur; workspace yalıtımı korunur.
+- [x] Örnek projeksiyon `rebuild` ile sıfırdan aynı sonucu üretir (determinizm testi).
+- [x] ADR-0002 yazıldı ve onaylandı; kapsam ≥ %90.
+
+## Tamamlanma Notu
+
+PR #4 (branch: `feature/f0-t6-event-store`) ile iki dilimde uygulandı: **PR-A** (5a0bf70) olay sözleşmesi + append-only event store çekirdeği; **PR-B** (cf345e6) event bus + projeksiyon çatısı + örnek projeksiyon + `docs/adr/ADR-0002-event-store.md`. F1-T1'den itibaren tüm domain paketlerinin üzerine kurulduğu temel budur.
