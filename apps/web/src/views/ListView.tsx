@@ -47,7 +47,12 @@ export function ListView({ workspaceId, querySpec }: ListViewProps) {
     },
   });
 
-  if (isLoading) {
+  // Not just `isLoading` (= isPending && isFetching): between a failed
+  // fetch's retry attempts, TanStack Query briefly clears `isFetching`
+  // while still holding no data and not yet `isError` — checking `isLoading`
+  // alone would flash the empty state during that gap. `data === undefined
+  // && !isError` covers those retry-backoff windows too.
+  if (isLoading || (data === undefined && !isError)) {
     return (
       <div data-testid="list-view-loading">
         <Skeleton height={48} />

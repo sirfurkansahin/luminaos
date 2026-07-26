@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,10 +55,15 @@ function mockMatchMedia(matches: boolean): void {
 }
 
 function renderApp() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -65,9 +71,17 @@ beforeEach(() => {
   mockMatchMedia(false); // system preference: light, nothing persisted yet
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
+  // App now renders real views (ListView by default) backed by apiClient's
+  // fetch calls — stub a benign empty response so these theme-focused tests
+  // don't depend on network/backend availability.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ objects: [] }) }),
+  );
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -105,5 +119,18 @@ describe('App', () => {
 
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+  });
+
+  it('renders the view switcher and defaults to the List view', async () => {
+    renderApp();
+
+    expect(screen.getByTestId('view-tab-list')).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByTestId('list-view-empty')).toBeInTheDocument();
+  });
+
+  it('renders the create-object button', () => {
+    renderApp();
+
+    expect(screen.getByTestId('create-object-button')).toBeInTheDocument();
   });
 });

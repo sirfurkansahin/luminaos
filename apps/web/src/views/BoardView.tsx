@@ -99,7 +99,9 @@ export function BoardView({ workspaceId, querySpec }: BoardViewProps) {
 
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor));
 
-  if (isLoading) {
+  // See ListView.tsx's comment: `isLoading` alone misses the gap between
+  // retry attempts (isFetching briefly false, isError not yet true).
+  if (isLoading || (data === undefined && !isError)) {
     return (
       <div data-testid="board-view-loading">
         <Skeleton height={200} />
