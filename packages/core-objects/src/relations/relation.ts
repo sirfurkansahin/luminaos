@@ -4,7 +4,7 @@
  * F1-T2's `FieldDefinition`), with its own event stream
  * (`RelationCreated`/`RelationRemoved`).
  */
-export type RelationKind = 'parentChild' | 'reference' | 'dependency';
+export type RelationKind = 'parentChild' | 'reference' | 'dependency' | 'recurrenceOf';
 
 export type RelationStatus = 'active' | 'removed';
 
@@ -17,4 +17,5 @@ export interface Relation {
   status: RelationStatus;
   createdAt: Date;
   updatedAt: Date;
+  causationEventId?: string;
 }

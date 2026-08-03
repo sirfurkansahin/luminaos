@@ -3,7 +3,12 @@ import type { DomainEvent } from '@luminaos/shared';
 
 import type { Relation, RelationKind } from './relation.js';
 
-const KNOWN_RELATION_KINDS: readonly RelationKind[] = ['parentChild', 'reference', 'dependency'];
+const KNOWN_RELATION_KINDS: readonly RelationKind[] = [
+  'parentChild',
+  'reference',
+  'dependency',
+  'recurrenceOf',
+];
 
 function isKnownRelationKind(kind: unknown): kind is RelationKind {
   return typeof kind === 'string' && (KNOWN_RELATION_KINDS as readonly string[]).includes(kind);
@@ -57,6 +62,9 @@ function applyRelationCreated(event: DomainEvent): Relation {
     throw new InvalidObjectStateError('RelationCreated event has an invalid or unknown kind');
   }
 
+  const causationEventId =
+    typeof event.payload.causationEventId === 'string' ? event.payload.causationEventId : undefined;
+
   return {
     id: relationId,
     workspaceId,
@@ -66,6 +74,7 @@ function applyRelationCreated(event: DomainEvent): Relation {
     status: 'active',
     createdAt: event.occurredAt,
     updatedAt: event.occurredAt,
+    ...(causationEventId !== undefined ? { causationEventId } : {}),
   };
 }
 

@@ -4,7 +4,12 @@ import { findDependencyCycle, findParentCycle } from './relation-graph.js';
 
 import type { Relation, RelationKind } from './relation.js';
 
-const KNOWN_RELATION_KINDS: readonly RelationKind[] = ['parentChild', 'reference', 'dependency'];
+const KNOWN_RELATION_KINDS: readonly RelationKind[] = [
+  'parentChild',
+  'reference',
+  'dependency',
+  'recurrenceOf',
+];
 
 function isKnownRelationKind(kind: string): kind is RelationKind {
   return (KNOWN_RELATION_KINDS as readonly string[]).includes(kind);
@@ -26,6 +31,7 @@ export interface CreateRelationInput {
   fromId: string;
   toId: string;
   kind: RelationKind;
+  causationEventId?: string;
 }
 
 export function createRelation(
@@ -103,6 +109,9 @@ export function createRelation(
         fromId: input.fromId,
         toId: input.toId,
         kind: input.kind,
+        ...(input.causationEventId !== undefined
+          ? { causationEventId: input.causationEventId }
+          : {}),
       },
     },
   ];
