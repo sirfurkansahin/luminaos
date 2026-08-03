@@ -1,5 +1,5 @@
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { QuerySpec } from '@luminaos/shared';
 import {
@@ -36,6 +36,16 @@ import type { DragEndEvent } from '@dnd-kit/core';
 export interface CalendarViewProps {
   workspaceId: string;
   objectType: string;
+  // F1-T9 PR2: seeds the initially-selected date field (restoring a saved
+  // view's stored `dateField`) instead of always defaulting to
+  // `candidates[0]`. Optional, defaults to `undefined` (today's exact
+  // pre-F1-T9 behavior).
+  initialDateField?: string;
+  // F1-T9 PR2: reports the currently-resolved date field (whether seeded via
+  // `initialDateField`, defaulted to `candidates[0]`, or changed by the user
+  // via the in-view Select) up to the caller, so "save current view" can
+  // capture what's actually live instead of a stale/manually-retyped value.
+  onDateFieldChange?: (dateField: string | undefined) => void;
 }
 
 type CalendarMode = 'month' | 'week';
@@ -51,7 +61,12 @@ function extractISODay(value: unknown): string | undefined {
   return value.slice(0, 10);
 }
 
-export function CalendarView({ workspaceId, objectType }: CalendarViewProps) {
+export function CalendarView({
+  workspaceId,
+  objectType,
+  initialDateField,
+  onDateFieldChange,
+}: CalendarViewProps) {
   // Bootstrap: an unfiltered, limited page used only to derive which
   // fieldValues keys look like date/datetime values (no schema endpoint
   // exists yet — same "derive shape from the first page" trick TableView.tsx
@@ -70,8 +85,12 @@ export function CalendarView({ workspaceId, objectType }: CalendarViewProps) {
     return detectDateFieldCandidates(objects);
   }, [bootstrapQuery.data]);
 
-  const [selectedDateField, setSelectedDateField] = useState<string | undefined>(undefined);
+  const [selectedDateField, setSelectedDateField] = useState<string | undefined>(initialDateField);
   const dateField = selectedDateField ?? candidates[0];
+
+  useEffect(() => {
+    onDateFieldChange?.(dateField);
+  }, [dateField, onDateFieldChange]);
 
   const [mode, setMode] = useState<CalendarMode>('month');
   const [anchor, setAnchor] = useState<Date>(() => {

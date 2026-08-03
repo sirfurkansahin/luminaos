@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { QuerySpec } from '@luminaos/shared';
 import {
@@ -28,6 +28,17 @@ import type { KeyboardEvent } from 'react';
 export interface TimelineViewProps {
   workspaceId: string;
   objectType: string;
+  // F1-T9 PR2: seed the initially-selected start/end fields (restoring a
+  // saved view's stored `startField`/`endField`) instead of always
+  // defaulting to `candidates[0]`/`candidates[1]`. Optional, default
+  // `undefined` (today's exact pre-F1-T9 behavior).
+  initialStartField?: string;
+  initialEndField?: string;
+  // F1-T9 PR2: reports the currently-resolved start/end fields (seeded,
+  // defaulted, or user-changed) up to the caller, mirroring CalendarView's
+  // `onDateFieldChange` — so "save current view" captures what's live.
+  onStartFieldChange?: (startField: string | undefined) => void;
+  onEndFieldChange?: (endField: string | undefined) => void;
 }
 
 // Fixed-width navigable window (see PR2 plan's "yorum kararı"): a true
@@ -38,7 +49,14 @@ export interface TimelineViewProps {
 const WINDOW_DAYS = 30;
 const PX_PER_DAY = 40;
 
-export function TimelineView({ workspaceId, objectType }: TimelineViewProps) {
+export function TimelineView({
+  workspaceId,
+  objectType,
+  initialStartField,
+  initialEndField,
+  onStartFieldChange,
+  onEndFieldChange,
+}: TimelineViewProps) {
   // Bootstrap: same "derive shape from the first page" trick CalendarView
   // uses — no schema endpoint exists yet to know which fields are date-like.
   const bootstrapQuerySpec = useMemo<QuerySpec>(
@@ -54,10 +72,20 @@ export function TimelineView({ workspaceId, objectType }: TimelineViewProps) {
     return detectDateFieldCandidates(objects);
   }, [bootstrapQuery.data]);
 
-  const [selectedStartField, setSelectedStartField] = useState<string | undefined>(undefined);
-  const [selectedEndField, setSelectedEndField] = useState<string | undefined>(undefined);
+  const [selectedStartField, setSelectedStartField] = useState<string | undefined>(
+    initialStartField,
+  );
+  const [selectedEndField, setSelectedEndField] = useState<string | undefined>(initialEndField);
   const startField = selectedStartField ?? candidates[0];
   const endField = selectedEndField ?? candidates[1];
+
+  useEffect(() => {
+    onStartFieldChange?.(startField);
+  }, [startField, onStartFieldChange]);
+
+  useEffect(() => {
+    onEndFieldChange?.(endField);
+  }, [endField, onEndFieldChange]);
 
   const [anchor, setAnchor] = useState<Date>(() => {
     const now = new Date();
