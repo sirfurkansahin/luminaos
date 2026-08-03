@@ -404,8 +404,11 @@ describe('Field Definitions (real Postgres + real HTTP, via Testcontainers + sup
       .post(fieldsUrl(workspaceId, 'task'))
       .set('Cookie', adminCookie)
       .send({
-        key: 'priority',
-        label: 'Priority',
+        // NOT `'priority'`: workspace creation now auto-seeds a `priority`
+        // field for `task` (F1-T10 PR1) — a distinct key avoids a spurious
+        // 409 conflict with that seeded field.
+        key: 'priorityLevel',
+        label: 'Priority Level',
         fieldType: 'text',
         config: {},
         permissions: EDIT_ALL_PERMISSIONS,
@@ -421,7 +424,7 @@ describe('Field Definitions (real Postgres + real HTTP, via Testcontainers + sup
     const keys = (listResponse.body as FieldDefinitionListEnvelope).fieldDefinitions.map(
       (fd) => fd.key,
     );
-    expect(keys).toContain('priority');
+    expect(keys).toContain('priorityLevel');
   });
 
   it('full lifecycle: PATCH updates a field definition (read-your-writes); archive removes it from GET / list', async () => {
@@ -431,10 +434,19 @@ describe('Field Definitions (real Postgres + real HTTP, via Testcontainers + sup
       .post(fieldsUrl(workspaceId, 'task'))
       .set('Cookie', cookie)
       .send({
-        key: 'status',
+        // NOT `'status'`: workspace creation now auto-seeds a `status`
+        // field for `task` (F1-T10 PR1) — a distinct key avoids a spurious
+        // 409 conflict with that seeded field.
+        key: 'workflowStatus',
         label: 'Status',
         fieldType: 'select',
-        config: { options: ['todo', 'doing', 'done'] },
+        config: {
+          options: [
+            { value: 'todo', label: 'To Do' },
+            { value: 'doing', label: 'Doing' },
+            { value: 'done', label: 'Done', isDone: true },
+          ],
+        },
         defaultValue: 'todo',
         permissions: EDIT_ALL_PERMISSIONS,
       });
@@ -699,7 +711,12 @@ describe('Field Definitions (real Postgres + real HTTP, via Testcontainers + sup
         key: 'select-bad-default',
         label: 'Select',
         fieldType: 'select',
-        config: { options: ['a', 'b'] },
+        config: {
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+          ],
+        },
         defaultValue: 'not-an-option',
         permissions: EDIT_ALL_PERMISSIONS,
       });

@@ -678,7 +678,13 @@ describe('Lumina Object query endpoint: remaining 8 field types (real Postgres +
         key: 'tags',
         label: 'Tags',
         fieldType: 'multiSelect',
-        config: { options: ['red', 'green', 'blue'] },
+        config: {
+          options: [
+            { value: 'red', label: 'Red' },
+            { value: 'green', label: 'Green' },
+            { value: 'blue', label: 'Blue' },
+          ],
+        },
         permissions: EDIT_ALL_PERMISSIONS,
       });
 
@@ -712,7 +718,13 @@ describe('Lumina Object query endpoint: remaining 8 field types (real Postgres +
         key: 'tags',
         label: 'Tags',
         fieldType: 'multiSelect',
-        config: { options: ['red', 'green', 'blue'] },
+        config: {
+          options: [
+            { value: 'red', label: 'Red' },
+            { value: 'green', label: 'Green' },
+            { value: 'blue', label: 'Blue' },
+          ],
+        },
         permissions: EDIT_ALL_PERMISSIONS,
       });
 
@@ -747,7 +759,13 @@ describe('Lumina Object query endpoint: remaining 8 field types (real Postgres +
         key: 'tags',
         label: 'Tags',
         fieldType: 'multiSelect',
-        config: { options: ['red', 'green', 'blue'] },
+        config: {
+          options: [
+            { value: 'red', label: 'Red' },
+            { value: 'green', label: 'Green' },
+            { value: 'blue', label: 'Blue' },
+          ],
+        },
         permissions: EDIT_ALL_PERMISSIONS,
       });
 

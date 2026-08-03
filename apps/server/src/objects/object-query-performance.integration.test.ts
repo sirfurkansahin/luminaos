@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -174,6 +175,19 @@ describe('Lumina Object query endpoint: 10,000-object performance (real Postgres
       .send({ name: 'Query Performance Workspace' });
     expect(workspaceResponse.status).toBe(201);
     workspaceId = (workspaceResponse.body as WorkspaceEnvelope).workspace.id;
+
+    // Workspace creation now auto-seeds `status`/`priority` field
+    // definitions for `task` via the real event-sourced path (F1-T10 PR1).
+    // This file's own directly-inserted field definitions below use those
+    // same keys with different configs/types, so remove the seeded rows
+    // first to avoid violating the `(workspace_id, object_type, key)`
+    // unique index -- consistent with this file's own "bypassing HTTP"
+    // strategy (see header).
+    await rawDb
+      .delete(fieldDefinitions)
+      .where(
+        and(eq(fieldDefinitions.workspaceId, workspaceId), eq(fieldDefinitions.objectType, 'task')),
+      );
 
     // --- 2. Field definitions, inserted directly (bypassing HTTP -- see
     // this file's header). ---

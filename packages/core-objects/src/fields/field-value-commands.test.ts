@@ -47,7 +47,12 @@ function buildFieldDefinitionState(overrides: Partial<FieldDefinition> = {}): Fi
     key: 'status',
     label: 'Status',
     fieldType: 'select',
-    config: { options: ['todo', 'done'] },
+    config: {
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    },
     defaultValue: undefined,
     permissions: VALID_PERMISSIONS,
     lifecycle: 'active',
@@ -105,7 +110,12 @@ describe('setFieldValues', () => {
     id: '01ARZ3NDEKTSV4RRFFQ69G5FA1',
     key: 'status',
     fieldType: 'select',
-    config: { options: ['todo', 'done'] },
+    config: {
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    },
   });
   const textDef = buildFieldDefinitionState({
     id: '01ARZ3NDEKTSV4RRFFQ69G5FA2',
@@ -173,7 +183,12 @@ describe('applyDefaultFieldValues', () => {
       id: '01ARZ3NDEKTSV4RRFFQ69G5FB1',
       key: 'status',
       fieldType: 'select',
-      config: { options: ['todo', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'Todo' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       defaultValue: 'todo',
       lifecycle: 'active',
     });

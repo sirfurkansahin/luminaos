@@ -459,9 +459,12 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
       config: {},
       permissions: EDIT_ALL_PERMISSIONS,
     });
+    // NOT `'priority'`: workspace creation now auto-seeds a `priority`
+    // field for `task` (F1-T10 PR1) — a distinct key avoids a spurious 409
+    // conflict with that seeded field.
     await defineField(cookie, workspaceId, 'task', {
-      key: 'priority',
-      label: 'Priority',
+      key: 'urgencyLevel',
+      label: 'Urgency Level',
       fieldType: 'ai',
       config: {
         promptTemplate: `Classify urgency: {description}\n${returnDirective('medium')}`,
@@ -476,10 +479,12 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
     const created = await createObject(cookie, workspaceId, 'task', 'Manual select refresh task');
     await setFieldValues(cookie, workspaceId, created.id, { description: 'server is on fire' });
 
-    const refreshResponse = await refreshField(cookie, workspaceId, created.id, 'priority');
+    const refreshResponse = await refreshField(cookie, workspaceId, created.id, 'urgencyLevel');
 
     expect(refreshResponse.status).toBe(200);
-    expect((refreshResponse.body as ObjectEnvelope).object.fieldValues['priority']).toBe('medium');
+    expect((refreshResponse.body as ObjectEnvelope).object.fieldValues['urgencyLevel']).toBe(
+      'medium',
+    );
   });
 
   // -------------------------------------------------------------------------
