@@ -1,8 +1,8 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
-export type ViewKind = 'list' | 'board' | 'table' | 'calendar';
+export type ViewKind = 'list' | 'board' | 'table' | 'calendar' | 'timeline';
 
-const VIEW_KINDS: ViewKind[] = ['list', 'board', 'table', 'calendar'];
+const VIEW_KINDS: ViewKind[] = ['list', 'board', 'table', 'calendar', 'timeline'];
 
 function isViewKind(value: string | null): value is ViewKind {
   return value !== null && (VIEW_KINDS as string[]).includes(value);
