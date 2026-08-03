@@ -7,6 +7,7 @@ export * from './object-type-registry.js';
 export * from './lifecycle.js';
 export * from './id.js';
 export * from './commands.js';
+export * from './checklist-commands.js';
 export * from './replay.js';
 export * from './fields/field-permissions.js';
 export * from './fields/field-type-registry.js';

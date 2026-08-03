@@ -7,6 +7,13 @@ export type ObjectType = 'task' | 'doc' | 'note';
 
 export type Lifecycle = 'active' | 'archived' | 'deleted';
 
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  order: number;
+}
+
 export interface LuminaObject {
   id: string;
   type: ObjectType;
@@ -16,4 +23,5 @@ export interface LuminaObject {
   createdAt: Date;
   updatedAt: Date;
   lifecycle: Lifecycle;
+  checklist: ChecklistItem[];
 }
