@@ -24,6 +24,9 @@ export function ViewSwitcher() {
         <TabsTrigger value="table" data-testid="view-tab-table">
           Tablo
         </TabsTrigger>
+        <TabsTrigger value="calendar" data-testid="view-tab-calendar">
+          Takvim
+        </TabsTrigger>
       </TabsList>
     </TabsRoot>
   );

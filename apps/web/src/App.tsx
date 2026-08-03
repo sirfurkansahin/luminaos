@@ -3,6 +3,7 @@ import { Button, useTheme } from '@luminaos/ui';
 
 import { useViewParam } from './hooks/useViewParam';
 import { BoardView } from './views/BoardView';
+import { CalendarView } from './views/CalendarView';
 import { ListView } from './views/ListView';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { TableView } from './views/TableView';
@@ -35,6 +36,9 @@ export function App() {
       {view === 'list' && <ListView workspaceId={DEV_WORKSPACE_ID} querySpec={flatQuerySpec} />}
       {view === 'table' && <TableView workspaceId={DEV_WORKSPACE_ID} querySpec={flatQuerySpec} />}
       {view === 'board' && <BoardView workspaceId={DEV_WORKSPACE_ID} querySpec={boardQuerySpec} />}
+      {view === 'calendar' && (
+        <CalendarView workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
+      )}
     </main>
   );
 }
