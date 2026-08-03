@@ -17,6 +17,7 @@
     "@luminaos/ui": "workspace:*",
     "@tanstack/react-query": "^5.90.5",
     "@tanstack/react-virtual": "^3.13.12",
+    "lucide-react": "^1.28.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

@@ -170,4 +170,53 @@ describe('TimelineView', () => {
 
     expect(screen.queryByTestId('timeline-today-marker')).not.toBeInTheDocument();
   });
+
+  /**
+   * F1-T9 PR2 addition: optional `initialStartField`/`initialEndField` props
+   * seed the initially-selected start/end fields (used to restore a saved
+   * view's stored `startField`/`endField` instead of always defaulting to
+   * `candidates[0]`/`candidates[1]`). Three distinct date-like candidates are
+   * seeded here (`begin`/`due`/`finish`, alphabetically `begin` < `due` <
+   * `finish`) so the default (`candidates[0]`/`candidates[1]` ===
+   * `begin`/`due`) and explicit overrides (`finish`/`begin`) are observably
+   * different.
+   */
+  function makeThreeFieldObject(id: string): ObjectWithFieldValues {
+    return {
+      id,
+      title: `Object ${id}`,
+      fieldValues: { begin: '2026-01-01', due: '2026-01-03', finish: '2026-01-05' },
+    } as unknown as ObjectWithFieldValues;
+  }
+
+  it("regression: with no initialStartField/initialEndField props, defaults to candidates[0]/candidates[1] (today's exact default behavior)", () => {
+    const obj = makeThreeFieldObject('obj-1');
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+
+    render(<TimelineView workspaceId={workspaceId} objectType={objectType} />);
+
+    const spec = lastMainQuerySpec();
+    expect(spec?.filters[0]?.field).toBe('begin');
+    expect(spec?.filters[1]?.field).toBe('due');
+  });
+
+  it('seeds the initially-selected start/end fields from initialStartField/initialEndField props', () => {
+    const obj = makeThreeFieldObject('obj-1');
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+
+    render(
+      <TimelineView
+        workspaceId={workspaceId}
+        objectType={objectType}
+        initialStartField="finish"
+        initialEndField="begin"
+      />,
+    );
+
+    const spec = lastMainQuerySpec();
+    expect(spec?.filters[0]?.field).toBe('finish');
+    expect(spec?.filters[1]?.field).toBe('begin');
+    expect(screen.getByTestId('timeline-start-field-select')).toHaveTextContent('finish');
+    expect(screen.getByTestId('timeline-end-field-select')).toHaveTextContent('begin');
+  });
 });

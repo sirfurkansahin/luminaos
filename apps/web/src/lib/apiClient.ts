@@ -1,8 +1,40 @@
-import type { LuminaObject } from '@luminaos/core-objects';
+import type { LuminaObject, SavedView } from '@luminaos/core-objects';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
 export class ApiError extends AppError {}
+
+/**
+ * Create input for `POST /workspaces/:workspaceId/views` (mirrors
+ * apps/server's `create-saved-view.schema.ts`). Deliberately has NO
+ * `ownerId` key at the type level — the server always derives ownership
+ * from the session (`shared: true` -> null, `shared: false` -> caller's own
+ * id); the client must be structurally incapable of forwarding one (F1-T9
+ * plan's security decision).
+ */
+export interface SavedViewCreateInput {
+  name: string;
+  icon: string;
+  viewType: SavedView['viewType'];
+  objectType: string;
+  querySpec: SavedView['querySpec'];
+  dateField?: string;
+  startField?: string;
+  endField?: string;
+  shared: boolean;
+}
+
+/**
+ * Update input for `PATCH /workspaces/:workspaceId/views/:savedViewId`
+ * (mirrors apps/server's `update-saved-view.schema.ts`) — objectType/
+ * shared/ownerId/viewType are NOT patchable.
+ */
+export type SavedViewUpdateInput = Partial<
+  Pick<
+    SavedViewCreateInput,
+    'name' | 'icon' | 'querySpec' | 'dateField' | 'startField' | 'endField'
+  >
+>;
 
 export interface ObjectWithFieldValues extends LuminaObject {
   fieldValues: Record<string, unknown>;
@@ -15,6 +47,8 @@ export type QueryResult =
 interface ServerErrorBody {
   error: { code: string; message: string };
 }
+
+const HTTP_STATUS_NO_CONTENT = 204;
 
 function isServerErrorBody(value: unknown): value is ServerErrorBody {
   if (typeof value !== 'object' || value === null || !('error' in value)) {
@@ -42,6 +76,14 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
       throw new ApiError(body.error.message, body.error.code, response.status);
     }
     throw new ApiError('Beklenmeyen bir sunucu hatası oluştu', 'UNKNOWN_ERROR', response.status);
+  }
+
+  // 204 No Content (e.g. deleteSavedView) has no body to parse — calling
+  // response.json() on it would reject. Every other caller of request<T>()
+  // always gets a body-bearing response, so this early return never affects
+  // them.
+  if (response.status === HTTP_STATUS_NO_CONTENT) {
+    return undefined as T;
   }
 
   return (await response.json()) as T;
@@ -78,5 +120,49 @@ export function createObject(
       method: 'POST',
       body: JSON.stringify(input),
     },
+  );
+}
+
+export function getSavedViews(
+  workspaceId: string,
+  objectType: string,
+): Promise<{ savedViews: SavedView[] }> {
+  return request<{ savedViews: SavedView[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/views?objectType=${encodeURIComponent(objectType)}`,
+    { method: 'GET' },
+  );
+}
+
+export function createSavedView(
+  workspaceId: string,
+  input: SavedViewCreateInput,
+): Promise<{ savedView: SavedView }> {
+  return request<{ savedView: SavedView }>(`/workspaces/${encodeURIComponent(workspaceId)}/views`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateSavedView(
+  workspaceId: string,
+  savedViewId: string,
+  input: SavedViewUpdateInput,
+): Promise<{ savedView: SavedView }> {
+  return request<{ savedView: SavedView }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/views/${encodeURIComponent(savedViewId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
+  // No explicit `<void>` type argument (would trip
+  // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —
+  // `T` is inferred as `void` from this function's own declared return type.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/views/${encodeURIComponent(savedViewId)}`,
+    { method: 'DELETE' },
   );
 }

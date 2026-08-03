@@ -239,4 +239,48 @@ describe('CalendarView', () => {
 
     expect(screen.getByTestId('calendar-date-field-select')).toBeInTheDocument();
   });
+
+  /**
+   * F1-T9 PR2 addition: an optional `initialDateField` prop seeds the
+   * initially-selected date field (used to restore a saved view's stored
+   * `dateField` instead of always defaulting to `candidates[0]`). Two
+   * distinct date-like candidates are seeded here (`completedAt`/`dueDate`,
+   * alphabetically `completedAt` < `dueDate`) so the default
+   * (`candidates[0]` === 'completedAt') and an explicit `initialDateField`
+   * (`'dueDate'`) are observably different.
+   */
+  function makeTwoFieldObject(id: string): ObjectWithFieldValues {
+    return {
+      id,
+      title: `Object ${id}`,
+      fieldValues: { completedAt: '2026-01-01', dueDate: '2026-01-05' },
+    } as unknown as ObjectWithFieldValues;
+  }
+
+  it("regression: with no initialDateField prop, defaults to candidates[0] (today's exact default behavior)", () => {
+    const obj = makeTwoFieldObject('obj-1');
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+    mockMutation();
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    const lastCall = mockedUseObjectsQuery.mock.calls[mockedUseObjectsQuery.mock.calls.length - 1];
+    const querySpec = lastCall?.[1] as QuerySpec;
+    expect(querySpec.filters[0]?.field).toBe('completedAt');
+  });
+
+  it('seeds the initially-selected date field from an initialDateField prop instead of candidates[0]', () => {
+    const obj = makeTwoFieldObject('obj-1');
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+    mockMutation();
+
+    render(
+      <CalendarView workspaceId={workspaceId} objectType={objectType} initialDateField="dueDate" />,
+    );
+
+    const lastCall = mockedUseObjectsQuery.mock.calls[mockedUseObjectsQuery.mock.calls.length - 1];
+    const querySpec = lastCall?.[1] as QuerySpec;
+    expect(querySpec.filters[0]?.field).toBe('dueDate');
+    expect(screen.getByTestId('calendar-date-field-select')).toHaveTextContent('dueDate');
+  });
 });
