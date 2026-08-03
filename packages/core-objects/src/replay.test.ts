@@ -177,3 +177,171 @@ describe('replayObject', () => {
     expect(result.updatedAt).toEqual(restored.occurredAt);
   });
 });
+
+describe('replayObject: checklist events', () => {
+  it('applies ChecklistItemAdded: appends a checklist item and bumps updatedAt', () => {
+    const created = createdEvent();
+    const added = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 0 },
+    });
+
+    const result = replayObject([created, added]);
+
+    expect(result.checklist).toEqual([{ id: 'item-1', text: 'Buy milk', done: false, order: 0 }]);
+    expect(result.updatedAt).toEqual(added.occurredAt);
+  });
+
+  it('throws when ChecklistItemAdded has an invalid itemId', () => {
+    const created = createdEvent();
+    const added = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: '', text: 'Buy milk', order: 0 },
+    });
+
+    expect(() => replayObject([created, added])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when ChecklistItemAdded has an invalid text', () => {
+    const created = createdEvent();
+    const added = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 42, order: 0 },
+    });
+
+    expect(() => replayObject([created, added])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when ChecklistItemAdded has an invalid order', () => {
+    const created = createdEvent();
+    const added = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 'zero' },
+    });
+
+    expect(() => replayObject([created, added])).toThrow(InvalidObjectStateError);
+  });
+
+  it('applies ChecklistItemToggled: flips the matched item, leaves others untouched', () => {
+    const created = createdEvent();
+    const added1 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 0 },
+    });
+    const added2 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-2', text: 'Buy eggs', order: 1 },
+    });
+    const toggled = buildEvent({
+      type: 'ChecklistItemToggled',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', done: true },
+    });
+
+    const result = replayObject([created, added1, added2, toggled]);
+
+    expect(result.checklist).toEqual([
+      { id: 'item-1', text: 'Buy milk', done: true, order: 0 },
+      { id: 'item-2', text: 'Buy eggs', done: false, order: 1 },
+    ]);
+    expect(result.updatedAt).toEqual(toggled.occurredAt);
+  });
+
+  it('throws when ChecklistItemToggled has an invalid itemId', () => {
+    const created = createdEvent();
+    const toggled = buildEvent({
+      type: 'ChecklistItemToggled',
+      payload: { objectId: OBJECT_ID, itemId: '', done: true },
+    });
+
+    expect(() => replayObject([created, toggled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when ChecklistItemToggled has an invalid done', () => {
+    const created = createdEvent();
+    const toggled = buildEvent({
+      type: 'ChecklistItemToggled',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', done: 'yes' },
+    });
+
+    expect(() => replayObject([created, toggled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('applies ChecklistItemRemoved: drops the matched item', () => {
+    const created = createdEvent();
+    const added1 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 0 },
+    });
+    const added2 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-2', text: 'Buy eggs', order: 1 },
+    });
+    const removed = buildEvent({
+      type: 'ChecklistItemRemoved',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1' },
+    });
+
+    const result = replayObject([created, added1, added2, removed]);
+
+    expect(result.checklist).toEqual([{ id: 'item-2', text: 'Buy eggs', done: false, order: 1 }]);
+    expect(result.updatedAt).toEqual(removed.occurredAt);
+  });
+
+  it('throws when ChecklistItemRemoved has an invalid itemId', () => {
+    const created = createdEvent();
+    const removed = buildEvent({
+      type: 'ChecklistItemRemoved',
+      payload: { objectId: OBJECT_ID, itemId: '' },
+    });
+
+    expect(() => replayObject([created, removed])).toThrow(InvalidObjectStateError);
+  });
+
+  it('applies ChecklistItemReordered: resequences order to match the new array position', () => {
+    const created = createdEvent();
+    const added1 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 0 },
+    });
+    const added2 = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-2', text: 'Buy eggs', order: 1 },
+    });
+    const reordered = buildEvent({
+      type: 'ChecklistItemReordered',
+      payload: { objectId: OBJECT_ID, orderedItemIds: ['item-2', 'item-1'] },
+    });
+
+    const result = replayObject([created, added1, added2, reordered]);
+
+    expect(result.checklist).toEqual([
+      { id: 'item-2', text: 'Buy eggs', done: false, order: 0 },
+      { id: 'item-1', text: 'Buy milk', done: false, order: 1 },
+    ]);
+    expect(result.updatedAt).toEqual(reordered.occurredAt);
+  });
+
+  it('throws when ChecklistItemReordered has an invalid orderedItemIds', () => {
+    const created = createdEvent();
+    const reordered = buildEvent({
+      type: 'ChecklistItemReordered',
+      payload: { objectId: OBJECT_ID, orderedItemIds: 'not-an-array' },
+    });
+
+    expect(() => replayObject([created, reordered])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when ChecklistItemReordered references an unknown itemId', () => {
+    const created = createdEvent();
+    const added = buildEvent({
+      type: 'ChecklistItemAdded',
+      payload: { objectId: OBJECT_ID, itemId: 'item-1', text: 'Buy milk', order: 0 },
+    });
+    const reordered = buildEvent({
+      type: 'ChecklistItemReordered',
+      payload: { objectId: OBJECT_ID, orderedItemIds: ['not-a-real-item'] },
+    });
+
+    expect(() => replayObject([created, added, reordered])).toThrow(InvalidObjectStateError);
+  });
+});

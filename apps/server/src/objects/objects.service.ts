@@ -1058,6 +1058,7 @@ export class ObjectsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       lifecycle: row.lifecycle as LuminaObject['lifecycle'],
+      checklist: [],
     };
   }
 
