@@ -1,0 +1,75 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.windowLabel {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  min-width: 10rem;
+  text-align: center;
+}
+
+.canvas {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-background);
+}
+
+.axis {
+  position: relative;
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.axisTick {
+  flex: 0 0 auto;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-foreground);
+  text-align: center;
+}
+
+.todayMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--color-primary);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.rowTrack {
+  position: relative;
+  min-height: 2.5rem;
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  padding: var(--space-1) var(--space-2);
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.barClamped {
+  border-color: var(--color-primary);
+}

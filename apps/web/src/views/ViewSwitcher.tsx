@@ -27,6 +27,9 @@ export function ViewSwitcher() {
         <TabsTrigger value="calendar" data-testid="view-tab-calendar">
           Takvim
         </TabsTrigger>
+        <TabsTrigger value="timeline" data-testid="view-tab-timeline">
+          Zaman Çizelgesi
+        </TabsTrigger>
       </TabsList>
     </TabsRoot>
   );
