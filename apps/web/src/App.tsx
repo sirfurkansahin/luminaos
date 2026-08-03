@@ -7,6 +7,7 @@ import { CalendarView } from './views/CalendarView';
 import { ListView } from './views/ListView';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { TableView } from './views/TableView';
+import { TimelineView } from './views/TimelineView';
 import { ViewSwitcher } from './views/ViewSwitcher';
 
 // Auth/workspace-switcher (F0-T5 hazır ama apps/web tarafında henüz
@@ -38,6 +39,9 @@ export function App() {
       {view === 'board' && <BoardView workspaceId={DEV_WORKSPACE_ID} querySpec={boardQuerySpec} />}
       {view === 'calendar' && (
         <CalendarView workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
+      )}
+      {view === 'timeline' && (
+        <TimelineView workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
       )}
     </main>
   );
