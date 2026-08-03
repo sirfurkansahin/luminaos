@@ -15,6 +15,7 @@ import { LoggingModule } from './observability/logging.module.js';
 import { TracingModule } from './observability/tracing.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { RelationsModule } from './relations/relations.module.js';
+import { SavedViewsModule } from './saved-views/saved-views.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -40,6 +41,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     ObjectsModule,
     FieldsModule,
     RelationsModule,
+    SavedViewsModule,
   ],
   controllers: [AppController],
   providers: [
