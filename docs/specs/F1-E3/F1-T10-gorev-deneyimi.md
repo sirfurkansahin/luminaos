@@ -1,6 +1,6 @@
 # F1-T10 — Görev Deneyimi (Durum, Öncelik, Kontrol Listesi, Yinelenen, Hatırlatıcı)
 
-**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Yapılacak
+**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Devam Ediyor (PR1 + PR2 tamamlandı; yinelenen görev/hatırlatıcı/UI kalan işler)
 **Bağımlılık:** F1-T1 (varlık çekirdeği), F1-T2 (custom fields), F1-T3 (ilişki sistemi), F1-T6 (sorgu katmanı)
 
 ## Amaç
@@ -25,8 +25,14 @@
 
 ## Kabul Kriterleri
 
-- [ ] Yeni workspace oluşturulduğunda `task` tipi için `status`/`priority` alanları otomatik var olur (entegrasyon testli); seed ikinci kez çalıştırılırsa yinelenmez (idempotent, testli).
-- [ ] Kontrol listesi: ekleme/işaretleme/silme/yeniden sıralama olayları `replayObject` ile doğru sırayla katlandığı property-based testle kanıtlı.
+- [x] Yeni workspace oluşturulduğunda `task` tipi için `status`/`priority` alanları otomatik var olur (entegrasyon testli); seed ikinci kez çalıştırılırsa yinelenmez (idempotent, testli). (PR1, #34)
+- [ ] Kontrol listesi: ekleme/işaretleme/silme/yeniden sıralama olayları `replayObject` ile doğru sırayla katlandığı property-based testle kanıtlı. Komut katmanı + `replayObject` katlama PR2'de (#35) birim testleriyle kanıtlandı; kriterin talep ettiği property-based (fast-check) kapsam henüz eklenmedi, bu yüzden kutu kapatılmadı.
 - [ ] `status` alanı `isDone=true` seçeneğine geçince tam olarak bir yeni yinelenen görev üretildiği, önceki göreve `recurrence-of` ilişkisiyle bağlandığı testli; aynı tamamlanma olayının iki kez işlenmesi ikinci nesneyi üretmediği (idempotency) testli.
 - [ ] Hatırlatıcı: `remindAt` geçmiş ve `remindAcknowledged=false` olan görevler sorgu katmanından doğru döner; kullanıcı gördükten sonra `ReminderAcknowledged` olayı üretilip tekrar listelenmediği testli.
 - [ ] F1-T7 Board görünümü, ek kod gerekmeden `status` alanına göre gruplayabildiği regresyon testiyle doğrulanır.
+
+## İlerleme Notu
+
+- **PR1** (branch: `feature/f1-t10-pr1-status-priority-fields`, [#34](https://github.com/sirfurkansahin/luminaos/pull/34), main'e squash-merge edildi): `status`/`priority` select alanlarının otomatik idempotent seed'i + seçenek şemasına `isDone` bayrağı.
+- **PR2** (branch: `feature/f1-t10-pr2-checklist-item`, [#35](https://github.com/sirfurkansahin/luminaos/pull/35), main'e squash-merge edildi): `packages/core-objects`'e gömülü `ChecklistItem` değer tipi + `addChecklistItem`/`toggleChecklistItem`/`removeChecklistItem`/`reorderChecklistItem` komutları + `replayObject` katlama desteği (200 öğe üst sınırı, silinmiş nesne guard'i, yinelenen `itemId` reddi, reorder permütasyon doğrulaması). security-reviewer 3 bulgu (yinelenen id, tip guard eksikliği, hata mesajında ham girdi) raporladı, hepsi aynı PR içinde kapatıldı. `apps/server/src/objects/objects.service.ts`'deki `toLuminaObject` read-projeksiyonu `checklist: []` placeholder'ıyla güncellendi (bu yol `objects_view`'dan okuyor, checklist henüz projeksiyona dahil değil — komut yürütme yolu zaten `replayObject` kullanıyor, dolayısıyla etkilenmiyor).
+- **Kalan:** madde 2'nin property-based test kapsamı, madde 4 (yinelenen görev üretimi, ADR-0010'da tasarımı zaten yazılı), madde 5 (hatırlatıcı), madde 6 (UI widget'ları), Board regresyon testi.
