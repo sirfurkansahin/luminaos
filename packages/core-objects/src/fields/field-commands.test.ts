@@ -59,7 +59,12 @@ function buildFieldDefinitionState(overrides: Partial<FieldDefinition> = {}): Fi
     key: 'status',
     label: 'Status',
     fieldType: 'select',
-    config: { options: ['todo', 'done'] },
+    config: {
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    },
     defaultValue: undefined,
     permissions: VALID_PERMISSIONS,
     lifecycle: 'active',
@@ -77,7 +82,12 @@ describe('defineField', () => {
     key: 'status',
     label: 'Status',
     fieldType: 'select' as FieldType,
-    config: { options: ['todo', 'done'] },
+    config: {
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    },
     permissions: VALID_PERMISSIONS,
   };
 
@@ -93,7 +103,12 @@ describe('defineField', () => {
       key: 'status',
       label: 'Status',
       fieldType: 'select',
-      config: { options: ['todo', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'Todo' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       permissions: VALID_PERMISSIONS,
     });
   });
@@ -200,12 +215,20 @@ describe('updateField', () => {
     const state = buildFieldDefinitionState();
 
     expect(() =>
-      updateField(state, { config: { options: ['todo', 'in-progress', 'done'] } }),
+      updateField(state, {
+        config: {
+          options: [
+            { value: 'todo', label: 'Todo' },
+            { value: 'in-progress', label: 'In progress' },
+            { value: 'done', label: 'Done' },
+          ],
+        },
+      }),
     ).not.toThrow();
   });
 
   it('re-validates a provided defaultValue against the registry, throwing ValidationError if invalid', () => {
-    const state = buildFieldDefinitionState(); // options: ['todo', 'done']
+    const state = buildFieldDefinitionState(); // options: [{value:'todo',...}, {value:'done',...}]
 
     expect(() => updateField(state, { defaultValue: 'not-an-option' })).toThrow(ValidationError);
   });

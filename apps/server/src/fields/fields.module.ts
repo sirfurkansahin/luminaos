@@ -11,5 +11,6 @@ import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.gua
   imports: [EventStoreModule, DbModule, AuthModule],
   controllers: [FieldsController],
   providers: [FieldDefinitionsService, WorkspaceMembershipGuard],
+  exports: [FieldDefinitionsService],
 })
 export class FieldsModule {}

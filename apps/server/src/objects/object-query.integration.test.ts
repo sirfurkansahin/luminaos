@@ -365,7 +365,9 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
   /** Defines the standard `task` field set this file's field-type-coverage,
    * sorting, and grouping describes share: `notes` (text), `score`
-   * (number), `dueDate` (date), `status` (select), `urgent` (checkbox),
+   * (number), `dueDate` (date), `workStatus` (select; NOT `status` --
+   * workspace creation now auto-seeds a `status` field for `task`, F1-T10
+   * PR1 -- a distinct key avoids a spurious 409 conflict), `urgent` (checkbox),
    * `doubledScore` (formula, `{score} * 2`, only ever computed once `score`
    * is written -- never has a value on a freshly-created object). */
   async function defineStandardTaskFields(cookie: string, workspaceId: string): Promise<void> {
@@ -394,10 +396,16 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
     });
 
     await defineField(cookie, workspaceId, 'task', {
-      key: 'status',
+      key: 'workStatus',
       label: 'Status',
       fieldType: 'select',
-      config: { options: ['todo', 'doing', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'To Do' },
+          { value: 'doing', label: 'Doing' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       permissions: EDIT_ALL_PERMISSIONS,
     });
 
@@ -508,7 +516,13 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
         key: 'tags',
         label: 'Tags',
         fieldType: 'multiSelect',
-        config: { options: ['a', 'b', 'c'] },
+        config: {
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+            { value: 'c', label: 'C' },
+          ],
+        },
         permissions: EDIT_ALL_PERMISSIONS,
       });
 
@@ -601,7 +615,7 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
-        filters: [{ field: 'status', operator: 'in', value: 'todo' }],
+        filters: [{ field: 'workStatus', operator: 'in', value: 'todo' }],
       });
 
       expectValidationError(response);
@@ -613,7 +627,7 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
-        filters: [{ field: 'status', operator: 'notIn', value: 'todo' }],
+        filters: [{ field: 'workStatus', operator: 'notIn', value: 'todo' }],
       });
 
       expectValidationError(response);
@@ -711,7 +725,7 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
-        filters: [{ field: 'status', operator: 'in', value: ['todo', 42] }],
+        filters: [{ field: 'workStatus', operator: 'in', value: ['todo', 42] }],
       });
 
       expectValidationError(response);
@@ -724,7 +738,7 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
         filters: [
-          { field: 'status', operator: 'in', value: Array.from({ length: 101 }, () => 'todo') },
+          { field: 'workStatus', operator: 'in', value: Array.from({ length: 101 }, () => 'todo') },
         ],
       });
 
@@ -895,23 +909,23 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
     });
   });
 
-  describe('filtering behavior: select field ("status")', () => {
+  describe('filtering behavior: select field ("workStatus")', () => {
     it('"in" matches any of the listed options; "equals" matches exactly one', async () => {
       const { cookie, workspaceId } = await registerOwnerWithWorkspace();
       await defineStandardTaskFields(cookie, workspaceId);
 
       const todoObject = await createObject(cookie, workspaceId, 'task', 'Todo task');
-      await setFieldValues(cookie, workspaceId, todoObject.id, { status: 'todo' });
+      await setFieldValues(cookie, workspaceId, todoObject.id, { workStatus: 'todo' });
 
       const doingObject = await createObject(cookie, workspaceId, 'task', 'Doing task');
-      await setFieldValues(cookie, workspaceId, doingObject.id, { status: 'doing' });
+      await setFieldValues(cookie, workspaceId, doingObject.id, { workStatus: 'doing' });
 
       const doneObject = await createObject(cookie, workspaceId, 'task', 'Done task');
-      await setFieldValues(cookie, workspaceId, doneObject.id, { status: 'done' });
+      await setFieldValues(cookie, workspaceId, doneObject.id, { workStatus: 'done' });
 
       const inResponse = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
-        filters: [{ field: 'status', operator: 'in', value: ['todo', 'doing'] }],
+        filters: [{ field: 'workStatus', operator: 'in', value: ['todo', 'doing'] }],
       });
       expect(inResponse.status).toBe(200);
       expect((inResponse.body as QueryFlatEnvelope).objects.map((o) => o.id).sort()).toEqual(
@@ -920,7 +934,7 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
 
       const equalsResponse = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
-        filters: [{ field: 'status', operator: 'equals', value: 'done' }],
+        filters: [{ field: 'workStatus', operator: 'equals', value: 'done' }],
       });
       expect(equalsResponse.status).toBe(200);
       expect((equalsResponse.body as QueryFlatEnvelope).objects.map((o) => o.id)).toEqual([
@@ -1186,28 +1200,28 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
       await defineStandardTaskFields(cookie, workspaceId);
 
       const todoOne = await createObject(cookie, workspaceId, 'task', 'Todo one');
-      await setFieldValues(cookie, workspaceId, todoOne.id, { status: 'todo' });
+      await setFieldValues(cookie, workspaceId, todoOne.id, { workStatus: 'todo' });
       const todoTwo = await createObject(cookie, workspaceId, 'task', 'Todo two');
-      await setFieldValues(cookie, workspaceId, todoTwo.id, { status: 'todo' });
+      await setFieldValues(cookie, workspaceId, todoTwo.id, { workStatus: 'todo' });
 
       const doingOne = await createObject(cookie, workspaceId, 'task', 'Doing one');
-      await setFieldValues(cookie, workspaceId, doingOne.id, { status: 'doing' });
+      await setFieldValues(cookie, workspaceId, doingOne.id, { workStatus: 'doing' });
       const doingTwo = await createObject(cookie, workspaceId, 'task', 'Doing two');
-      await setFieldValues(cookie, workspaceId, doingTwo.id, { status: 'doing' });
+      await setFieldValues(cookie, workspaceId, doingTwo.id, { workStatus: 'doing' });
       const doingThree = await createObject(cookie, workspaceId, 'task', 'Doing three');
-      await setFieldValues(cookie, workspaceId, doingThree.id, { status: 'doing' });
+      await setFieldValues(cookie, workspaceId, doingThree.id, { workStatus: 'doing' });
 
       const doneOne = await createObject(cookie, workspaceId, 'task', 'Done one');
-      await setFieldValues(cookie, workspaceId, doneOne.id, { status: 'done' });
+      await setFieldValues(cookie, workspaceId, doneOne.id, { workStatus: 'done' });
 
-      // Never has `status` set at all -- must not appear in any group.
+      // Never has `workStatus` set at all -- must not appear in any group.
       const neverSet = await createObject(cookie, workspaceId, 'task', 'Never set status');
       void neverSet;
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
         filters: [],
-        group: 'status',
+        group: 'workStatus',
       });
 
       expect(response.status).toBe(200);
@@ -1241,21 +1255,27 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
       await defineStandardTaskFields(cookie, workspaceId);
 
       const todoUrgent = await createObject(cookie, workspaceId, 'task', 'Todo urgent');
-      await setFieldValues(cookie, workspaceId, todoUrgent.id, { status: 'todo', urgent: true });
+      await setFieldValues(cookie, workspaceId, todoUrgent.id, {
+        workStatus: 'todo',
+        urgent: true,
+      });
 
       const todoNotUrgent = await createObject(cookie, workspaceId, 'task', 'Todo not urgent');
       await setFieldValues(cookie, workspaceId, todoNotUrgent.id, {
-        status: 'todo',
+        workStatus: 'todo',
         urgent: false,
       });
 
       const doingUrgent = await createObject(cookie, workspaceId, 'task', 'Doing urgent');
-      await setFieldValues(cookie, workspaceId, doingUrgent.id, { status: 'doing', urgent: true });
+      await setFieldValues(cookie, workspaceId, doingUrgent.id, {
+        workStatus: 'doing',
+        urgent: true,
+      });
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
         filters: [{ field: 'urgent', operator: 'equals', value: true }],
-        group: 'status',
+        group: 'workStatus',
       });
 
       expect(response.status).toBe(200);
@@ -1281,14 +1301,14 @@ describe('Lumina Object query/filter/sort/group endpoint (real Postgres + real H
       const created: ObjectBody[] = [];
       for (let i = 0; i < 5; i += 1) {
         const object = await createObject(cookie, workspaceId, 'task', `Grouped ${String(i)}`);
-        await setFieldValues(cookie, workspaceId, object.id, { status: 'todo' });
+        await setFieldValues(cookie, workspaceId, object.id, { workStatus: 'todo' });
         created.push(object);
       }
 
       const response = await queryObjects(cookie, workspaceId, {
         objectType: 'task',
         filters: [],
-        group: 'status',
+        group: 'workStatus',
         limit: 2,
       });
 

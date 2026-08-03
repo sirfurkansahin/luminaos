@@ -337,11 +337,20 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
   it("AC #4: POST create applies an active field definition's defaultValue immediately, no extra call needed", async () => {
     const { cookie, workspaceId } = await registerOwnerWithWorkspace();
 
+    // NOT `'priority'`: workspace creation now auto-seeds a `priority`
+    // field for `task` (F1-T10 PR1) — a distinct key avoids a spurious 409
+    // conflict with that seeded field.
     await defineField(cookie, workspaceId, 'task', {
-      key: 'priority',
-      label: 'Priority',
+      key: 'priorityChoice',
+      label: 'Priority Choice',
       fieldType: 'select',
-      config: { options: ['low', 'medium', 'high'] },
+      config: {
+        options: [
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+        ],
+      },
       defaultValue: 'medium',
       permissions: EDIT_ALL_PERMISSIONS,
     });
@@ -349,7 +358,7 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
     const object = await createObject(cookie, workspaceId, 'task', 'Ship the release');
 
     expect(object.fieldValues).toBeDefined();
-    expect(object.fieldValues['priority']).toBe('medium');
+    expect(object.fieldValues['priorityChoice']).toBe('medium');
   });
 
   it('AC #4: a field definition with no defaultValue contributes nothing; fieldValues is still present (empty object) when there is no default at all', async () => {
@@ -372,11 +381,20 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
   it('AC #4: defaults survive a subsequent GET (replay-durable, not just a create-response artifact)', async () => {
     const { cookie, workspaceId } = await registerOwnerWithWorkspace();
 
+    // NOT `'status'`: workspace creation now auto-seeds a `status` field
+    // for `task` (F1-T10 PR1) — a distinct key avoids a spurious 409
+    // conflict with that seeded field.
     await defineField(cookie, workspaceId, 'task', {
-      key: 'status',
-      label: 'Status',
+      key: 'stage',
+      label: 'Stage',
       fieldType: 'select',
-      config: { options: ['todo', 'doing', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'To Do' },
+          { value: 'doing', label: 'Doing' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       defaultValue: 'todo',
       permissions: EDIT_ALL_PERMISSIONS,
     });
@@ -385,7 +403,7 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
 
     const getResponse = await getObject(cookie, workspaceId, created.id);
     expect(getResponse.status).toBe(200);
-    expect((getResponse.body as ObjectEnvelope).object.fieldValues['status']).toBe('todo');
+    expect((getResponse.body as ObjectEnvelope).object.fieldValues['stage']).toBe('todo');
   });
 
   // -------------------------------------------------------------------------
@@ -494,7 +512,13 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
       key: 'stage',
       label: 'Stage',
       fieldType: 'select',
-      config: { options: ['todo', 'doing', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'To Do' },
+          { value: 'doing', label: 'Doing' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       permissions: EDIT_ALL_PERMISSIONS,
     });
 
@@ -709,7 +733,13 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
       key: 'workflowStage',
       label: 'Workflow Stage',
       fieldType: 'select',
-      config: { options: ['todo', 'doing', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'To Do' },
+          { value: 'doing', label: 'Doing' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       permissions: EDIT_ALL_PERMISSIONS,
     });
 
@@ -726,7 +756,15 @@ describe('Lumina Object field VALUES + role-based read filtering (real Postgres 
     const updateDefinitionResponse = await request(server)
       .patch(`${fieldsUrl(workspaceId, 'task')}/${fieldDefinition.id}`)
       .set('Cookie', cookie)
-      .send({ config: { options: ['todo', 'in-progress', 'done'] } });
+      .send({
+        config: {
+          options: [
+            { value: 'todo', label: 'To Do' },
+            { value: 'in-progress', label: 'In Progress' },
+            { value: 'done', label: 'Done' },
+          ],
+        },
+      });
 
     expect(updateDefinitionResponse.status).toBe(200);
 

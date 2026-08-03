@@ -58,7 +58,12 @@ function definedEvent(overrides: Partial<DomainEvent> = {}): DomainEvent {
       key: 'status',
       label: 'Status',
       fieldType: 'select',
-      config: { options: ['todo', 'done'] },
+      config: {
+        options: [
+          { value: 'todo', label: 'Todo' },
+          { value: 'done', label: 'Done' },
+        ],
+      },
       permissions: VALID_PERMISSIONS,
     },
     ...overrides,
@@ -90,7 +95,12 @@ describe('replayFieldDefinition', () => {
     expect(result.key).toBe('status');
     expect(result.label).toBe('Status');
     expect(result.fieldType).toBe('select');
-    expect(result.config).toEqual({ options: ['todo', 'done'] });
+    expect(result.config).toEqual({
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    });
     expect(result.permissions).toEqual(VALID_PERMISSIONS);
     expect(result.lifecycle).toBe('active');
     expect(result.createdAt).toEqual(created.occurredAt);
@@ -108,7 +118,12 @@ describe('replayFieldDefinition', () => {
 
     expect(result.label).toBe('New label');
     // Untouched fields survive the partial update.
-    expect(result.config).toEqual({ options: ['todo', 'done'] });
+    expect(result.config).toEqual({
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'done', label: 'Done' },
+      ],
+    });
     expect(result.permissions).toEqual(VALID_PERMISSIONS);
     expect(result.updatedAt).toEqual(updated.occurredAt);
     expect(result.createdAt).toEqual(created.occurredAt);
@@ -120,13 +135,25 @@ describe('replayFieldDefinition', () => {
       type: 'FieldUpdated',
       payload: {
         fieldDefinitionId: FIELD_DEFINITION_ID,
-        config: { options: ['todo', 'in-progress', 'done'] },
+        config: {
+          options: [
+            { value: 'todo', label: 'Todo' },
+            { value: 'in-progress', label: 'In progress' },
+            { value: 'done', label: 'Done' },
+          ],
+        },
       },
     });
 
     const result = replayFieldDefinition([created, updated]);
 
-    expect(result.config).toEqual({ options: ['todo', 'in-progress', 'done'] });
+    expect(result.config).toEqual({
+      options: [
+        { value: 'todo', label: 'Todo' },
+        { value: 'in-progress', label: 'In progress' },
+        { value: 'done', label: 'Done' },
+      ],
+    });
     expect(result.label).toBe('Status');
   });
 

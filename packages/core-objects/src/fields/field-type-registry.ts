@@ -80,14 +80,26 @@ const numberConfigSchema = z
 const MAX_OPTIONS_COUNT = 500;
 const MAX_OPTION_LENGTH = 200;
 
+const optionSchema = z
+  .object({
+    value: z.string().min(1).max(MAX_OPTION_LENGTH),
+    label: z.string().min(1).max(MAX_OPTION_LENGTH),
+    isDone: z.boolean().optional(),
+  })
+  .strict();
+
 const optionsConfigSchema = z
   .object({
-    options: z.array(z.string().min(1).max(MAX_OPTION_LENGTH)).min(1).max(MAX_OPTIONS_COUNT),
+    options: z.array(optionSchema).min(1).max(MAX_OPTIONS_COUNT),
   })
   .strict()
-  .refine((config) => new Set(config.options).size === config.options.length, {
-    message: 'options must not contain duplicate entries',
-  });
+  .refine(
+    (config) =>
+      new Set(config.options.map((option) => option.value)).size === config.options.length,
+    {
+      message: 'options must not contain duplicate "value" entries',
+    },
+  );
 
 const currencyConfigSchema = z
   .object({
@@ -243,11 +255,11 @@ function buildValueSchema(fieldType: FieldType, config: unknown): z.ZodType {
     }
     case 'select': {
       const parsed = parseConfig(optionsConfigSchema, fieldType, config);
-      return z.enum(parsed.options);
+      return z.enum(parsed.options.map((option) => option.value));
     }
     case 'multiSelect': {
       const parsed = parseConfig(optionsConfigSchema, fieldType, config);
-      return z.array(z.enum(parsed.options));
+      return z.array(z.enum(parsed.options.map((option) => option.value)));
     }
     case 'currency': {
       parseConfig(currencyConfigSchema, fieldType, config);

@@ -98,11 +98,19 @@ describe('validateFieldConfig', () => {
     });
   });
 
-  describe('select / multiSelect config', () => {
+  describe('select / multiSelect config (F1-T10 PR1: option-object shape {value, label, isDone?})', () => {
     const types: FieldType[] = ['select', 'multiSelect'];
 
-    it.each(types)('%s accepts non-empty unique options', (fieldType) => {
-      expect(() => validateFieldConfig(fieldType, { options: ['a', 'b', 'c'] })).not.toThrow();
+    it.each(types)('%s accepts non-empty unique option objects', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, {
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+            { value: 'c', label: 'C' },
+          ],
+        }),
+      ).not.toThrow();
     });
 
     it.each(types)('%s rejects a config with options missing entirely', (fieldType) => {
@@ -117,10 +125,87 @@ describe('validateFieldConfig', () => {
       expect(() => validateFieldConfig(fieldType, { options: 'a,b,c' })).toThrow(ValidationError);
     });
 
-    it.each(types)('%s rejects duplicate option entries', (fieldType) => {
-      expect(() => validateFieldConfig(fieldType, { options: ['a', 'a', 'b'] })).toThrow(
-        ValidationError,
-      );
+    it.each(types)(
+      '%s rejects the old plain-string-array shape (breaking change, no back-compat shim)',
+      (fieldType) => {
+        expect(() => validateFieldConfig(fieldType, { options: ['a', 'b', 'c'] })).toThrow(
+          ValidationError,
+        );
+      },
+    );
+
+    it.each(types)('%s accepts an option with isDone: true', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, {
+          options: [
+            { value: 'todo', label: 'Yapılacak' },
+            { value: 'done', label: 'Bitti', isDone: true },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it.each(types)('%s accepts an option without isDone (it is optional)', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, { options: [{ value: 'a', label: 'A' }] }),
+      ).not.toThrow();
+    });
+
+    it.each(types)('%s rejects duplicate option "value"s', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, {
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'a', label: 'A duplicate value' },
+            { value: 'b', label: 'B' },
+          ],
+        }),
+      ).toThrow(ValidationError);
+    });
+
+    it.each(types)(
+      '%s allows two options with the SAME "label" but different "value"s (uniqueness is value-only, not label)',
+      (fieldType) => {
+        expect(() =>
+          validateFieldConfig(fieldType, {
+            options: [
+              { value: 'a', label: 'Same Label' },
+              { value: 'b', label: 'Same Label' },
+            ],
+          }),
+        ).not.toThrow();
+      },
+    );
+
+    it.each(types)('%s rejects an option missing "value"', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, { options: [{ label: 'A' } as unknown as string] }),
+      ).toThrow(ValidationError);
+    });
+
+    it.each(types)('%s rejects an option missing "label"', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, { options: [{ value: 'a' } as unknown as string] }),
+      ).toThrow(ValidationError);
+    });
+
+    it.each(types)(
+      '%s rejects an option with an extra unknown key (.strict() per item)',
+      (fieldType) => {
+        expect(() =>
+          validateFieldConfig(fieldType, {
+            options: [{ value: 'a', label: 'A', extra: 'nope' } as unknown as string],
+          }),
+        ).toThrow(ValidationError);
+      },
+    );
+
+    it.each(types)('%s rejects an option whose isDone is not a boolean', (fieldType) => {
+      expect(() =>
+        validateFieldConfig(fieldType, {
+          options: [{ value: 'a', label: 'A', isDone: 'yes' } as unknown as string],
+        }),
+      ).toThrow(ValidationError);
     });
   });
 
@@ -247,9 +332,15 @@ describe('validateFieldValue (AC #1: >=3 scenarios per type, mixing valid + inva
   });
 
   describe('select', () => {
-    const config = { options: ['a', 'b', 'c'] };
+    const config = {
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+        { value: 'c', label: 'C' },
+      ],
+    };
 
-    it('accepts a value present in the configured options', () => {
+    it('accepts a value present in the configured options\' "value"s', () => {
       expect(() => validateFieldValue('select', config, 'a')).not.toThrow();
     });
 
@@ -260,12 +351,33 @@ describe('validateFieldValue (AC #1: >=3 scenarios per type, mixing valid + inva
     it('rejects a non-string value', () => {
       expect(() => validateFieldValue('select', config, 1)).toThrow(ValidationError);
     });
+
+    it(
+      'validates the stored value against options\' "value"s, not "label"s: a value equal to an ' +
+        "option's value is valid, the same option's label is not",
+      () => {
+        const labelVsValueConfig = {
+          options: [{ value: 'todo', label: 'Yapılacak' }],
+        };
+
+        expect(() => validateFieldValue('select', labelVsValueConfig, 'todo')).not.toThrow();
+        expect(() => validateFieldValue('select', labelVsValueConfig, 'Yapılacak')).toThrow(
+          ValidationError,
+        );
+      },
+    );
   });
 
   describe('multiSelect', () => {
-    const config = { options: ['a', 'b', 'c'] };
+    const config = {
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+        { value: 'c', label: 'C' },
+      ],
+    };
 
-    it('accepts an array of valid options', () => {
+    it('accepts an array of valid option "value"s', () => {
       expect(() => validateFieldValue('multiSelect', config, ['a', 'b'])).not.toThrow();
     });
 
@@ -281,6 +393,17 @@ describe('validateFieldValue (AC #1: >=3 scenarios per type, mixing valid + inva
 
     it('rejects a non-array value', () => {
       expect(() => validateFieldValue('multiSelect', config, 'a')).toThrow(ValidationError);
+    });
+
+    it('validates stored values against options\' "value"s, not "label"s', () => {
+      const labelVsValueConfig = {
+        options: [{ value: 'todo', label: 'Yapılacak' }],
+      };
+
+      expect(() => validateFieldValue('multiSelect', labelVsValueConfig, ['todo'])).not.toThrow();
+      expect(() => validateFieldValue('multiSelect', labelVsValueConfig, ['Yapılacak'])).toThrow(
+        ValidationError,
+      );
     });
   });
 
