@@ -6,6 +6,7 @@ export * from './events.js';
 export * from './objects-view.js';
 export * from './field-definitions.js';
 export * from './relations-view.js';
+export * from './saved-views.js';
 export * from './projection-checkpoints.js';
 export * from './projection-workspace-event-counts.js';
 export * from './ai-usage.js';
