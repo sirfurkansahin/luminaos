@@ -10,6 +10,9 @@ export type { CardProps } from './components/Card/Card.js';
 export { Checkbox } from './components/Checkbox/Checkbox.js';
 export type { CheckboxProps } from './components/Checkbox/Checkbox.js';
 
+export { DateTimePicker } from './components/DateTimePicker/DateTimePicker.js';
+export type { DateTimePickerProps } from './components/DateTimePicker/DateTimePicker.js';
+
 export {
   DialogRoot,
   DialogTrigger,
