@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, ne, sql } from 'drizzle-orm';
 
 import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
@@ -58,6 +58,7 @@ import {
   FIXED_COLUMN_OPERATORS,
   isFixedColumnKey,
 } from './query-builder.js';
+import { detectStatusDoneTransition } from './status-done-transition.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AIUsageProjection } from '../ai/ai-usage.projection.js';
@@ -69,6 +70,7 @@ import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
+import { TaskRecurrenceService } from '../recurrence/task-recurrence.service.js';
 
 import type { Database } from '../db/client.js';
 import type { SQL } from 'drizzle-orm';
@@ -149,12 +151,15 @@ export class ObjectsService {
   /** Same "single, stable instance" reasoning as `projection` above, for the `ai_usage_records` read model (F1-T5 PR-C). */
   private readonly aiUsageProjection = new AIUsageProjection();
 
+  private readonly logger = new Logger(ObjectsService.name);
+
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
     private readonly eventStore: EventStoreService,
     private readonly projectionRunner: ProjectionRunner,
     private readonly aiRefreshScheduler: AIRefreshScheduler,
     @Inject(AI_PROVIDER) private readonly aiProvider: AIProvider,
+    private readonly taskRecurrenceService: TaskRecurrenceService,
   ) {}
 
   async create(
@@ -599,6 +604,13 @@ export class ObjectsService {
     // changes must be visible to recompute even though they haven't been
     // appended yet).
     const workingFieldValues = replayFieldValues(priorEvents);
+
+    // Captured BEFORE the loop below mutates `workingFieldValues` -- the
+    // `status` value as it stood immediately before THIS write, per
+    // ADR-0010 §(f)'s false->true transition detection (`undefined` if
+    // `status` was never set, which `detectStatusDoneTransition` treats as
+    // `isDone: false`).
+    const priorStatusValue = workingFieldValues.status;
     const changedKeys: string[] = [];
 
     for (const draft of drafts) {
@@ -628,6 +640,45 @@ export class ObjectsService {
     const object = replayObject([...priorEvents, ...appended]);
     const fieldValues = replayFieldValues([...priorEvents, ...appended]);
 
+    // ADR-0010 §"(d) Orkestrasyon yeri"/"(f) Tetikleyici tespiti": ONLY
+    // reachable after this method's own `append` above has resolved
+    // successfully (a write that never durably lands must never trigger
+    // recurrence generation). For every entry THIS caller submitted for
+    // `fieldKey === 'status'` (never a formula-recompute entry -- those never
+    // touch `status`), detects a genuine `isDone` false->true transition
+    // against the PRIOR `status` value and, on a genuine transition, calls
+    // `TaskRecurrenceService` with the causation event's OWN id (the
+    // `status` `FieldValueChanged` event THIS entry produced, never any
+    // other event in the same append batch).
+    //
+    // Wrapped in try/catch (security-review finding, F1-T10 PR4): per
+    // ADR-0010 §(e), this side effect may fail without rolling back the main
+    // write -- but by the time we're here, this method's own `append` has
+    // ALREADY durably committed the `status` change. Letting an exception
+    // from here propagate would turn an already-successful write into a
+    // misleading failed HTTP response to the caller (and to any retry
+    // logic). Log-and-continue is the correct isolation, mirroring why
+    // `scheduleOnSourceChangeAIRefreshes` below is fire-and-forget for the
+    // exact same reason.
+    try {
+      await this.triggerTaskRecurrenceOnStatusDoneTransitions(
+        workspaceId,
+        objectId,
+        actor,
+        entries,
+        userEvents,
+        definitions,
+        priorStatusValue,
+        object.title,
+        fieldValues,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Task recurrence generation failed for object ${objectId} (workspace ${workspaceId}); the field write itself already succeeded.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
     // `onSourceChange` AI-refresh scheduling -- ONLY reachable from this
     // USER-triggered write path, never from `refreshAIField`'s own internal
     // `FieldValueChanged` write. This is what structurally prevents
@@ -649,6 +700,100 @@ export class ObjectsService {
     return {
       ...object,
       fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
+    };
+  }
+
+  /**
+   * `setFieldValues`'s own ADR-0010 §(d)/(f) wiring, extracted only to keep
+   * `setFieldValues` itself readable. `entries[index]` and `userEvents[index]`
+   * are guaranteed 1:1 (`setFieldValuesCommand`/`wrapDrafts` both preserve
+   * input order, one draft per entry), which is what lets this read
+   * `userEvents[index].id` as the exact `FieldValueChanged` event THIS entry
+   * produced -- never a formula-recompute event appended in the same batch
+   * (those live in `systemEvents`, never `userEvents`).
+   */
+  private async triggerTaskRecurrenceOnStatusDoneTransitions(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    entries: SetFieldValueEntry[],
+    userEvents: NewDomainEvent[],
+    definitions: FieldDefinition[],
+    priorStatusValue: unknown,
+    title: string,
+    fieldValues: Record<string, unknown>,
+  ): Promise<void> {
+    for (const [index, entry] of entries.entries()) {
+      if (entry.fieldKey !== 'status') {
+        continue;
+      }
+
+      const isGenuineTransition = detectStatusDoneTransition({
+        fieldKey: entry.fieldKey,
+        definitions,
+        previousValue: priorStatusValue,
+        newValue: entry.value,
+      });
+
+      if (!isGenuineTransition) {
+        continue;
+      }
+
+      const causationEvent = userEvents[index];
+
+      if (!causationEvent) {
+        // Unreachable given the 1:1 `entries`/`userEvents` invariant this
+        // method's own doc comment documents -- defensive only.
+        continue;
+      }
+
+      await this.taskRecurrenceService.generateNextOccurrence({
+        workspaceId,
+        actor,
+        sourceObjectId: objectId,
+        causationEventId: causationEvent.id,
+        nextOccurrence: {
+          title,
+          fieldValues: this.buildNextOccurrenceFieldValues(fieldValues, definitions),
+        },
+      });
+    }
+  }
+
+  /**
+   * The generated next occurrence's own `fieldValues`, per ADR-0010 §(g):
+   * every OTHER custom field value is copied as-is from this write's
+   * resulting `fieldValues`, but `status` is reset to the first option in
+   * the active `status` field definition's `config.options` that does NOT
+   * carry `isDone: true` -- a fresh, non-done starting point for the new
+   * occurrence's own lifecycle.
+   */
+  private buildNextOccurrenceFieldValues(
+    fieldValues: Record<string, unknown>,
+    definitions: FieldDefinition[],
+  ): Record<string, unknown> {
+    const statusDefinition = definitions.find(
+      (definition) =>
+        definition.key === 'status' &&
+        definition.fieldType === 'select' &&
+        definition.lifecycle === 'active',
+    );
+
+    if (!statusDefinition) {
+      // Unreachable in practice -- `detectStatusDoneTransition` already
+      // requires an active `status` select definition to ever return `true`
+      // in the first place. Defensive fallback only.
+      return { ...fieldValues };
+    }
+
+    const { options } = statusDefinition.config as {
+      options: { value: string; isDone?: boolean }[];
+    };
+    const firstNonDoneOption = options.find((option) => option.isDone !== true);
+
+    return {
+      ...fieldValues,
+      ...(firstNonDoneOption ? { status: firstNonDoneOption.value } : {}),
     };
   }
 

@@ -3,7 +3,7 @@ import type { DomainEvent } from '@luminaos/shared';
 
 import { isKnownObjectType } from './object-type-registry.js';
 
-import type { ChecklistItem, Lifecycle, LuminaObject } from './lumina-object.js';
+import type { ChecklistItem, Lifecycle, LuminaObject, RecurrenceRule } from './lumina-object.js';
 
 /**
  * Per ADR-0003 "Komut -> olay -> replay": a pure fold, no wall clock /
@@ -128,6 +128,49 @@ function applyEvent(state: LuminaObject, event: DomainEvent): LuminaObject {
         checklist: state.checklist.filter((item) => item.id !== itemId),
         updatedAt: event.occurredAt,
       };
+    }
+    case 'RecurrenceRuleSet': {
+      const { frequency, interval, byWeekday, endDate } = event.payload;
+
+      if (frequency !== 'daily' && frequency !== 'weekly' && frequency !== 'monthly') {
+        throw new InvalidObjectStateError(
+          'RecurrenceRuleSet event has an invalid or unknown frequency',
+        );
+      }
+
+      if (typeof interval !== 'number' || !Number.isInteger(interval)) {
+        throw new InvalidObjectStateError('RecurrenceRuleSet event is missing a valid interval');
+      }
+
+      if (
+        byWeekday !== undefined &&
+        (!Array.isArray(byWeekday) ||
+          !byWeekday.every((day): day is number => typeof day === 'number'))
+      ) {
+        throw new InvalidObjectStateError('RecurrenceRuleSet event has an invalid byWeekday');
+      }
+
+      if (endDate !== undefined && typeof endDate !== 'string') {
+        throw new InvalidObjectStateError('RecurrenceRuleSet event has an invalid endDate');
+      }
+
+      const recurrenceRule: RecurrenceRule = {
+        frequency,
+        interval,
+        ...(byWeekday !== undefined ? { byWeekday } : {}),
+        ...(endDate !== undefined ? { endDate } : {}),
+      };
+
+      return {
+        ...state,
+        recurrenceRule,
+        updatedAt: event.occurredAt,
+      };
+    }
+    case 'RecurrenceRuleCleared': {
+      const next = { ...state, updatedAt: event.occurredAt };
+      delete next.recurrenceRule;
+      return next;
     }
     case 'ChecklistItemReordered': {
       const { orderedItemIds } = event.payload;
