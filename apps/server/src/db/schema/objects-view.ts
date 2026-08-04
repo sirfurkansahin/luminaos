@@ -33,6 +33,15 @@ export const objectsView = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
     lifecycle: varchar('lifecycle', { length: 20 }).notNull(),
     fieldValues: jsonb('field_values').notNull().default({}),
+    // F1-T10 PR6a: `checklist` mirrors `LuminaObject.checklist`'s own
+    // always-an-array (never-null) semantics -- defaults to `[]` so every row
+    // is always well-formed, same reasoning as `fieldValues` above.
+    checklist: jsonb('checklist').notNull().default([]),
+    // `recurrenceRule` mirrors `LuminaObject.recurrenceRule?`'s OPTIONAL-field
+    // semantics -- deliberately nullable with NO default: Postgres `NULL`
+    // means "no recurrence rule set" (folds to `undefined` on read), never an
+    // empty-object placeholder.
+    recurrenceRule: jsonb('recurrence_rule'),
   },
   (table) => [
     index('objects_view_workspace_id_lifecycle_idx').on(table.workspaceId, table.lifecycle),

@@ -43,7 +43,11 @@ import {
 } from '@luminaos/shared';
 import type { Actor, NewDomainEvent, QuerySpec } from '@luminaos/shared';
 
-import { ObjectsViewProjection } from './objects-view.projection.js';
+import {
+  ObjectsViewProjection,
+  parseChecklistColumn,
+  parseRecurrenceRuleColumn,
+} from './objects-view.projection.js';
 import {
   assertOperatorValueShape,
   buildFilterPredicate,
@@ -1193,7 +1197,18 @@ export class ObjectsService {
     }));
   }
 
+  /**
+   * F1-T10 PR6a: `checklist`/`recurrenceRule` now read the REAL folded state
+   * `objects_view.checklist`/`.recurrence_rule` carry (see
+   * `ObjectsViewProjection`) instead of the previous hardcoded `checklist: []`
+   * placeholder. `recurrenceRule` treats a Postgres `NULL` (or `undefined`,
+   * for callers who never had the column at all) as "no rule set" -- mirrors
+   * `LuminaObject.recurrenceRule?`'s own optional-field convention.
+   */
   private toLuminaObject(row: typeof objectsView.$inferSelect): LuminaObject {
+    const checklist = parseChecklistColumn(row.checklist ?? []);
+    const recurrenceRule = parseRecurrenceRuleColumn(row.recurrenceRule);
+
     return {
       id: row.id,
       type: row.type as ObjectType,
@@ -1203,7 +1218,8 @@ export class ObjectsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       lifecycle: row.lifecycle as LuminaObject['lifecycle'],
-      checklist: [],
+      checklist,
+      ...(recurrenceRule !== undefined ? { recurrenceRule } : {}),
     };
   }
 
