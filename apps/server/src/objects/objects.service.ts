@@ -5,6 +5,7 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 
 import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
 import {
+  addChecklistItem as addChecklistItemCommand,
   applyDefaultFieldValues,
   archiveObject,
   assertGroupableField,
@@ -12,6 +13,7 @@ import {
   assertValidFilterCondition,
   canEditField,
   canViewField,
+  clearRecurrenceRule as clearRecurrenceRuleCommand,
   computeAggregate,
   createObject,
   evaluateFormula,
@@ -19,12 +21,16 @@ import {
   isKnownObjectType,
   newObjectId,
   parseFormula,
+  removeChecklistItem as removeChecklistItemCommand,
   renameObject,
+  reorderChecklistItem as reorderChecklistItemCommand,
   replayFieldValues,
   replayObject,
   restoreObject,
   setFieldValues as setFieldValuesCommand,
+  setRecurrenceRule as setRecurrenceRuleCommand,
   softDeleteObject,
+  toggleChecklistItem as toggleChecklistItemCommand,
 } from '@luminaos/core-objects';
 import type {
   AggregateFn,
@@ -33,6 +39,7 @@ import type {
   LuminaObject,
   ObjectEventDraft,
   ObjectType,
+  RecurrenceRule,
   Role,
 } from '@luminaos/core-objects';
 import {
@@ -249,6 +256,84 @@ export class ObjectsService {
 
   async softDelete(workspaceId: string, objectId: string, actor: Actor): Promise<LuminaObject> {
     return this.applyCommand(workspaceId, objectId, actor, (state) => softDeleteObject(state));
+  }
+
+  /**
+   * F1-T10 PR6b: server-generates `itemId` via `newObjectId()` -- the SAME
+   * mechanism `create()` uses for `objectId` itself -- so the caller only
+   * ever supplies `text`, never an id of their own choosing.
+   */
+  async addChecklistItem(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    input: { text: string },
+  ): Promise<ObjectWithFieldValues> {
+    const itemId = newObjectId();
+
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      addChecklistItemCommand(state, { itemId, text: input.text }),
+    );
+  }
+
+  async toggleChecklistItem(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    itemId: string,
+  ): Promise<ObjectWithFieldValues> {
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      toggleChecklistItemCommand(state, itemId),
+    );
+  }
+
+  async removeChecklistItem(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    itemId: string,
+  ): Promise<ObjectWithFieldValues> {
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      removeChecklistItemCommand(state, itemId),
+    );
+  }
+
+  async reorderChecklistItem(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    orderedItemIds: string[],
+  ): Promise<ObjectWithFieldValues> {
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      reorderChecklistItemCommand(state, orderedItemIds),
+    );
+  }
+
+  async setRecurrenceRule(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    input: RecurrenceRule,
+  ): Promise<ObjectWithFieldValues> {
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      setRecurrenceRuleCommand(state, input),
+    );
+  }
+
+  async clearRecurrenceRule(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
+    return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
+      clearRecurrenceRuleCommand(state),
+    );
   }
 
   async get(
@@ -1146,6 +1231,46 @@ export class ObjectsService {
     await this.projectionRunner.catchUp(this.projection);
 
     return replayObject([...priorEvents, ...appended]);
+  }
+
+  /**
+   * F1-T10 PR6b: the checklist/recurrenceRule write path -- mirrors
+   * `applyCommand` exactly (`lookupStreamIdAndType` -> `eventStore.readStream`
+   * -> `replayObject` -> run the pure command -> `wrapDrafts` ->
+   * `eventStore.append` -> `projectionRunner.catchUp` -> `replayObject` again)
+   * but ALSO replays/attaches+role-filters `fieldValues`, the same way
+   * `setFieldValues` does -- so a checklist/recurrenceRule mutation's response
+   * always carries the object's CURRENT `fieldValues` untouched, rather than
+   * silently dropping them. No formula-recompute step: checklist/
+   * recurrenceRule are embedded object state, never a formula input.
+   */
+  private async applyCommandWithFieldValues(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    command: (state: LuminaObject) => ObjectEventDraft[],
+  ): Promise<ObjectWithFieldValues> {
+    const { streamId, objectType } = await this.lookupStreamIdAndType(workspaceId, objectId);
+    const definitions = await this.getActiveFieldDefinitionsForType(workspaceId, objectType);
+
+    const priorEvents = await this.eventStore.readStream(streamId);
+    const state = replayObject(priorEvents);
+
+    const drafts = command(state);
+    const newEvents = this.wrapDrafts(drafts, workspaceId, actor);
+    const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
+
+    await this.projectionRunner.catchUp(this.projection);
+
+    const allEvents = [...priorEvents, ...appended];
+    const object = replayObject(allEvents);
+    const fieldValues = replayFieldValues(allEvents);
+
+    return {
+      ...object,
+      fieldValues: this.filterFieldValuesForRole(fieldValues, definitions, callerRole),
+    };
   }
 
   private async lookupStreamId(workspaceId: string, objectId: string): Promise<string> {
