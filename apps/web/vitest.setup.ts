@@ -34,3 +34,25 @@ if (typeof Element.prototype.scrollIntoView !== 'function') {
     // no-op: see comment above.
   };
 }
+
+// jsdom does not implement the Pointer Events capture APIs (`hasPointerCapture`
+// / `setPointerCapture` / `releasePointerCapture`) — real-browser APIs
+// `@radix-ui/react-select`'s trigger (and `DropdownMenu`'s) call on pointer
+// interactions. Without these no-op polyfills, clicking a `@luminaos/ui`
+// `SelectTrigger` throws `TypeError: target.hasPointerCapture is not a
+// function` (e.g. RecurrenceRulePicker.test.tsx's `selectFrequency` helper,
+// which clicks the trigger then an option). Mirrors
+// packages/ui/vitest.setup.ts's own identical shim.
+if (typeof Element.prototype.hasPointerCapture !== 'function') {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (typeof Element.prototype.setPointerCapture !== 'function') {
+  Element.prototype.setPointerCapture = () => {
+    // no-op: see comment above.
+  };
+}
+if (typeof Element.prototype.releasePointerCapture !== 'function') {
+  Element.prototype.releasePointerCapture = () => {
+    // no-op: see comment above.
+  };
+}

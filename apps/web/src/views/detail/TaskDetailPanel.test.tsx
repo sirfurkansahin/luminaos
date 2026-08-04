@@ -122,6 +122,35 @@ import type { ObjectWithFieldValues } from '../../lib/apiClient.js';
  * otherwise unaffected.
  */
 
+/**
+ * PR6g ADDENDUM — recurrence rule + reminder picker wiring (not exercised by
+ * the PR6c/e/f tests above, which predate this and are left unmodified):
+ * once `useObjectQuery` has resolved successfully, TaskDetailPanel
+ * additionally renders one `RecurrenceRulePicker` (./RecurrenceRulePicker.js,
+ * a NEW component, mocked wholesale below — this file only proves
+ * TaskDetailPanel wires it correctly, not its internals, which are
+ * separately pinned by RecurrenceRulePicker.test.tsx) and one
+ * `ReminderPicker` (./ReminderPicker.js, a NEW component, mocked wholesale
+ * below — internals separately pinned by ReminderPicker.test.tsx), given
+ * props:
+ *
+ *   RecurrenceRulePicker: { workspaceId, objectId: data.object.id,
+ *     currentRule: data.object.recurrenceRule }
+ *   ReminderPicker: { workspaceId, objectId: data.object.id,
+ *     remindAt: data.object.fieldValues.remindAt,
+ *     remindAcknowledged: data.object.fieldValues.remindAcknowledged }
+ *
+ * Like `ChecklistWidget` (and UNLIKE `StatusPrioritySelect`), neither
+ * `RecurrenceRulePicker` nor `ReminderPicker` depends on
+ * `useFieldDefinitionsQuery` — `recurrenceRule` is embedded object state,
+ * and `remindAt`/`remindAcknowledged` are read directly off
+ * `fieldValues` without needing their `FieldDefinition` (no options schema
+ * to narrow, unlike the select-type status/priority fields) — both render
+ * as soon as the object itself has loaded, independent of the
+ * field-definitions query's own loading state. Neither is rendered while
+ * the object is still loading or in the not-found (isError) state.
+ */
+
 vi.mock('../../hooks/useObjectIdParam.js', () => ({
   useObjectIdParam: vi.fn(),
 }));
@@ -167,6 +196,41 @@ vi.mock('./ChecklistWidget.js', () => ({
   ChecklistWidget: (props: CapturedChecklistWidgetProps) => {
     checklistWidgetState.calls.push(props);
     return <div data-testid="checklist-widget" />;
+  },
+}));
+
+interface CapturedRecurrenceRulePickerProps {
+  workspaceId: string;
+  objectId: string;
+  currentRule: ObjectWithFieldValues['recurrenceRule'];
+}
+
+const recurrenceRulePickerState = vi.hoisted(() => ({
+  calls: [] as CapturedRecurrenceRulePickerProps[],
+}));
+
+vi.mock('./RecurrenceRulePicker.js', () => ({
+  RecurrenceRulePicker: (props: CapturedRecurrenceRulePickerProps) => {
+    recurrenceRulePickerState.calls.push(props);
+    return <div data-testid="recurrence-rule-picker" />;
+  },
+}));
+
+interface CapturedReminderPickerProps {
+  workspaceId: string;
+  objectId: string;
+  remindAt: unknown;
+  remindAcknowledged: unknown;
+}
+
+const reminderPickerState = vi.hoisted(() => ({
+  calls: [] as CapturedReminderPickerProps[],
+}));
+
+vi.mock('./ReminderPicker.js', () => ({
+  ReminderPicker: (props: CapturedReminderPickerProps) => {
+    reminderPickerState.calls.push(props);
+    return <div data-testid="reminder-picker" />;
   },
 }));
 
@@ -268,6 +332,8 @@ beforeEach(() => {
   mockFieldDefinitionsNotLoaded();
   statusPrioritySelectState.calls = [];
   checklistWidgetState.calls = [];
+  recurrenceRulePickerState.calls = [];
+  reminderPickerState.calls = [];
 });
 
 afterEach(() => {
@@ -627,6 +693,120 @@ describe('TaskDetailPanel', () => {
         objectId: 'obj-1',
         items: checklist,
       });
+    });
+  });
+
+  describe('recurrence rule + reminder picker wiring (PR6g)', () => {
+    function mockOpenPanelWithRecurrenceAndReminder(
+      overrides: Partial<ObjectWithFieldValues> = {},
+    ): void {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: {
+          object: makeObject({
+            recurrenceRule: { frequency: 'weekly', interval: 1, byWeekday: [1, 3] },
+            fieldValues: { remindAt: '2026-08-10T09:00', remindAcknowledged: true },
+            ...overrides,
+          }),
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      });
+    }
+
+    it('does not render a RecurrenceRulePicker or ReminderPicker while the object itself is still loading', () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(screen.queryByTestId('recurrence-rule-picker')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reminder-picker')).not.toBeInTheDocument();
+    });
+
+    it('does not render a RecurrenceRulePicker or ReminderPicker in the not-found (isError) state', async () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'missing-obj',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: Object.assign(new Error('Not found'), { code: 'NOT_FOUND', status: 404 }),
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('task-detail-panel-not-found');
+
+      expect(screen.queryByTestId('recurrence-rule-picker')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reminder-picker')).not.toBeInTheDocument();
+    });
+
+    it('renders a RecurrenceRulePicker and a ReminderPicker once the object has loaded, independent of field-definitions loading state', async () => {
+      mockOpenPanelWithRecurrenceAndReminder();
+      // Deliberately left NOT loaded (mockFieldDefinitionsNotLoaded, the
+      // beforeEach default) — neither picker waits on
+      // useFieldDefinitionsQuery the way StatusPrioritySelect does:
+      // recurrenceRule is embedded object state, and remindAt/
+      // remindAcknowledged are read directly off fieldValues without
+      // needing their FieldDefinition.
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(await screen.findByTestId('recurrence-rule-picker')).toBeInTheDocument();
+      expect(screen.getByTestId('reminder-picker')).toBeInTheDocument();
+    });
+
+    it('wires RecurrenceRulePicker with the correct props (workspaceId, objectId, currentRule)', async () => {
+      mockOpenPanelWithRecurrenceAndReminder();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('recurrence-rule-picker');
+
+      expect(recurrenceRulePickerState.calls.at(-1)).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+        currentRule: { frequency: 'weekly', interval: 1, byWeekday: [1, 3] },
+      });
+    });
+
+    it('wires ReminderPicker with the correct props (workspaceId, objectId, remindAt, remindAcknowledged)', async () => {
+      mockOpenPanelWithRecurrenceAndReminder();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('reminder-picker');
+
+      expect(reminderPickerState.calls.at(-1)).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+        remindAt: '2026-08-10T09:00',
+        remindAcknowledged: true,
+      });
+    });
+
+    it('wires RecurrenceRulePicker with currentRule: undefined when the loaded object has no recurrenceRule', async () => {
+      mockOpenPanelWithRecurrenceAndReminder({ recurrenceRule: undefined });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('recurrence-rule-picker');
+
+      expect(recurrenceRulePickerState.calls.at(-1)?.currentRule).toBeUndefined();
     });
   });
 });

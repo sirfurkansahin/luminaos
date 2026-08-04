@@ -8,6 +8,8 @@ import {
 } from '@luminaos/ui';
 
 import { ChecklistWidget } from './ChecklistWidget.js';
+import { RecurrenceRulePicker } from './RecurrenceRulePicker.js';
+import { ReminderPicker } from './ReminderPicker.js';
 import { StatusPrioritySelect } from './StatusPrioritySelect.js';
 import { useFieldDefinitionsQuery } from '../../hooks/useFieldDefinitionsQuery.js';
 import { useObjectIdParam } from '../../hooks/useObjectIdParam.js';
@@ -62,6 +64,17 @@ export function TaskDetailPanel({ workspaceId }: TaskDetailPanelProps) {
               workspaceId={workspaceId}
               objectId={data.object.id}
               items={data.object.checklist}
+            />
+            <RecurrenceRulePicker
+              workspaceId={workspaceId}
+              objectId={data.object.id}
+              currentRule={data.object.recurrenceRule}
+            />
+            <ReminderPicker
+              workspaceId={workspaceId}
+              objectId={data.object.id}
+              remindAt={data.object.fieldValues.remindAt}
+              remindAcknowledged={data.object.fieldValues.remindAcknowledged}
             />
             {statusFieldDefinition !== undefined ? (
               <StatusPrioritySelect
