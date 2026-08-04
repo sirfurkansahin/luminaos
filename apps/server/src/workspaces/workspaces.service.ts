@@ -140,6 +140,29 @@ export class WorkspacesService {
       },
       permissions: SEEDED_FIELD_PERMISSIONS,
     });
+
+    // F1-T10 PR5 (spec item 5): `remindAt`/`remindAcknowledged` reuse this
+    // same Custom Fields seeding mechanism — no new query-layer/command/event
+    // code, see this class's header note and
+    // `workspaces.integration.test.ts`'s "F1-T10 PR5 ADDITION" comment for
+    // the full rationale, including why `remindAcknowledged` needs an
+    // explicit `defaultValue: false` (unlike `status`/`priority` above).
+    await this.defineSeedField(workspaceId, {
+      key: 'remindAt',
+      label: 'Remind At',
+      fieldType: 'datetime',
+      config: {},
+      permissions: SEEDED_FIELD_PERMISSIONS,
+    });
+
+    await this.defineSeedField(workspaceId, {
+      key: 'remindAcknowledged',
+      label: 'Reminder Acknowledged',
+      fieldType: 'checkbox',
+      config: {},
+      defaultValue: false,
+      permissions: SEEDED_FIELD_PERMISSIONS,
+    });
   }
 
   /** Wraps a single `FieldDefinitionsService.define()` seed call with the
