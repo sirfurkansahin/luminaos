@@ -78,6 +78,13 @@
       "when": 1785760829927,
       "tag": "0010_wet_toxin",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785851809930,
+      "tag": "0011_pink_goblin_queen",
+      "breakpoints": true
     }
   ]
 }
