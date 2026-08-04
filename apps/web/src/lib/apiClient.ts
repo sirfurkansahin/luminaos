@@ -1,4 +1,9 @@
-import type { FieldDefinition, LuminaObject, SavedView } from '@luminaos/core-objects';
+import type {
+  FieldDefinition,
+  LuminaObject,
+  RecurrenceRule,
+  SavedView,
+} from '@luminaos/core-objects';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
@@ -36,8 +41,17 @@ export type SavedViewUpdateInput = Partial<
   >
 >;
 
-export interface ObjectWithFieldValues extends LuminaObject {
+// `recurrenceRule` is re-declared here (rather than inherited as-is from
+// `LuminaObject`, which types it as a plain optional `recurrenceRule?:
+// RecurrenceRule`) to explicitly include `| undefined` — under this repo's
+// `exactOptionalPropertyTypes`, a plain optional property rejects an EXPLICIT
+// `undefined` assignment (only omitting the key entirely is allowed), which
+// TaskDetailPanel.test.tsx's own `mockOpenPanelWithRecurrenceAndReminder({
+// recurrenceRule: undefined })` override relies on to simulate "object loaded,
+// no recurrence rule set".
+export interface ObjectWithFieldValues extends Omit<LuminaObject, 'recurrenceRule'> {
   fieldValues: Record<string, unknown>;
+  recurrenceRule?: RecurrenceRule | undefined;
 }
 
 export type QueryResult =
@@ -224,6 +238,30 @@ export function reorderChecklistItem(
       method: 'POST',
       body: JSON.stringify({ orderedItemIds }),
     },
+  );
+}
+
+export function setRecurrenceRule(
+  workspaceId: string,
+  objectId: string,
+  rule: RecurrenceRule,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/recurrence-rule`,
+    {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    },
+  );
+}
+
+export function clearRecurrenceRule(
+  workspaceId: string,
+  objectId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/recurrence-rule`,
+    { method: 'DELETE' },
   );
 }
 
