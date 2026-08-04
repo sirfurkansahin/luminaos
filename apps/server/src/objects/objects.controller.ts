@@ -18,19 +18,25 @@ import type { LuminaObject, Role } from '@luminaos/core-objects';
 import { querySpecSchema, ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 import type { Actor, QuerySpec } from '@luminaos/shared';
 
+import { addChecklistItemSchema } from './dto/add-checklist-item.schema.js';
 import { createObjectSchema } from './dto/create-object.schema.js';
 import { listObjectsQuerySchema } from './dto/list-objects.schema.js';
 import { renameObjectSchema } from './dto/rename-object.schema.js';
+import { reorderChecklistSchema } from './dto/reorder-checklist.schema.js';
 import { setFieldValuesSchema } from './dto/set-field-values.schema.js';
+import { setRecurrenceRuleSchema } from './dto/set-recurrence-rule.schema.js';
 import { ObjectsService } from './objects.service.js';
 import { SessionAuthGuard } from '../auth/session-auth.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
+import type { AddChecklistItemInput } from './dto/add-checklist-item.schema.js';
 import type { CreateObjectInput } from './dto/create-object.schema.js';
 import type { ListObjectsQuery } from './dto/list-objects.schema.js';
 import type { RenameObjectInput } from './dto/rename-object.schema.js';
+import type { ReorderChecklistInput } from './dto/reorder-checklist.schema.js';
 import type { SetFieldValuesInput } from './dto/set-field-values.schema.js';
+import type { SetRecurrenceRuleInput } from './dto/set-recurrence-rule.schema.js';
 import type { ObjectWithFieldValues, QueryResult } from './objects.service.js';
 import type { MembershipRole } from '../workspaces/membership.util.js';
 import type { Request } from 'express';
@@ -180,6 +186,154 @@ export class ObjectsController {
     const actor = this.requireActor(req);
 
     const object = await this.objectsService.restore(workspaceId, objectId, actor);
+
+    return { object };
+  }
+
+  /**
+   * F1-T10 PR6b: same `WorkspaceMembershipGuard` + `requireActor`/
+   * `requireRole` pattern as `rename`/`archive`/`restore` -- no extra
+   * permission gate, since checklist/recurrenceRule are embedded object
+   * state, not per-field-permissioned custom fields. All six of these
+   * routes respond 200 with a fresh `{ object }` body (never 201/204), per
+   * this PR's pinned status-code convention.
+   */
+  @Post(':objectId/checklist/items')
+  @HttpCode(HttpStatus.OK)
+  async addChecklistItem(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Body(new ZodValidationPipe(addChecklistItemSchema)) body: AddChecklistItemInput,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.addChecklistItem(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      { text: body.text },
+    );
+
+    return { object };
+  }
+
+  @Post(':objectId/checklist/items/:itemId/toggle')
+  @HttpCode(HttpStatus.OK)
+  async toggleChecklistItem(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Param('itemId') itemId: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.toggleChecklistItem(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      itemId,
+    );
+
+    return { object };
+  }
+
+  @Delete(':objectId/checklist/items/:itemId')
+  @HttpCode(HttpStatus.OK)
+  async removeChecklistItem(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Param('itemId') itemId: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.removeChecklistItem(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      itemId,
+    );
+
+    return { object };
+  }
+
+  @Post(':objectId/checklist/reorder')
+  @HttpCode(HttpStatus.OK)
+  async reorderChecklistItem(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Body(new ZodValidationPipe(reorderChecklistSchema)) body: ReorderChecklistInput,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.reorderChecklistItem(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      body.orderedItemIds,
+    );
+
+    return { object };
+  }
+
+  @Post(':objectId/recurrence-rule')
+  @HttpCode(HttpStatus.OK)
+  async setRecurrenceRule(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Body(new ZodValidationPipe(setRecurrenceRuleSchema)) body: SetRecurrenceRuleInput,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    // `exactOptionalPropertyTypes` -- built conditionally, mirroring
+    // `setRecurrenceRuleCommand`'s own payload-building style, rather than
+    // spreading `body` as-is (zod's `.optional()` types its output as
+    // `T | undefined`, not the plain-optional `T?` shape `RecurrenceRule`
+    // itself declares).
+    const object = await this.objectsService.setRecurrenceRule(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      {
+        frequency: body.frequency,
+        interval: body.interval,
+        ...(body.byWeekday !== undefined ? { byWeekday: body.byWeekday } : {}),
+        ...(body.endDate !== undefined ? { endDate: body.endDate } : {}),
+      },
+    );
+
+    return { object };
+  }
+
+  @Delete(':objectId/recurrence-rule')
+  @HttpCode(HttpStatus.OK)
+  async clearRecurrenceRule(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.clearRecurrenceRule(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+    );
 
     return { object };
   }
