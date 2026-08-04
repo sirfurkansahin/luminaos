@@ -7,6 +7,7 @@ import { Button, useTheme } from '@luminaos/ui';
 import { useViewParam } from './hooks/useViewParam';
 import { BoardView } from './views/BoardView';
 import { CalendarView } from './views/CalendarView';
+import { TaskDetailPanel } from './views/detail/TaskDetailPanel';
 import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
@@ -103,6 +104,7 @@ export function App() {
       </Button>
 
       <ViewSwitcher />
+      <TaskDetailPanel workspaceId={DEV_WORKSPACE_ID} />
       <CreateObjectButton workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
       <SavedViewsList
         workspaceId={DEV_WORKSPACE_ID}

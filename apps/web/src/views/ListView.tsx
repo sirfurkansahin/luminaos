@@ -4,7 +4,10 @@ import { useRef } from 'react';
 import type { QuerySpec } from '@luminaos/shared';
 import { EmptyState, Skeleton } from '@luminaos/ui';
 
+import { useObjectIdParam } from '../hooks/useObjectIdParam.js';
 import { useObjectsQuery } from '../hooks/useObjectsQuery.js';
+
+import type { KeyboardEvent } from 'react';
 
 export interface ListViewProps {
   workspaceId: string;
@@ -13,6 +16,7 @@ export interface ListViewProps {
 
 export function ListView({ workspaceId, querySpec }: ListViewProps) {
   const { data, isLoading, isError } = useObjectsQuery(workspaceId, querySpec);
+  const { openObject } = useObjectIdParam();
   const parentRef = useRef<HTMLDivElement>(null);
   const objects = data !== undefined && 'objects' in data ? data.objects : [];
 
@@ -105,7 +109,21 @@ export function ListView({ workspaceId, querySpec }: ListViewProps) {
                 transform: `translateY(${virtualRow.start.toString()}px)`,
               }}
             >
-              <span>{object.title}</span>
+              <span
+                data-testid="object-row-title"
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  openObject(object.id);
+                }}
+                onKeyDown={(event: KeyboardEvent<HTMLSpanElement>) => {
+                  if (event.key === 'Enter') {
+                    openObject(object.id);
+                  }
+                }}
+              >
+                {object.title}
+              </span>
               {Object.entries(object.fieldValues)
                 .slice(0, 3)
                 .map(([key, value]) => (

@@ -1,4 +1,4 @@
-import type { LuminaObject, SavedView } from '@luminaos/core-objects';
+import type { FieldDefinition, LuminaObject, SavedView } from '@luminaos/core-objects';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
@@ -154,6 +154,26 @@ export function updateSavedView(
       method: 'PATCH',
       body: JSON.stringify(input),
     },
+  );
+}
+
+export function getObject(
+  workspaceId: string,
+  objectId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}`,
+    { method: 'GET' },
+  );
+}
+
+export function getFieldDefinitions(
+  workspaceId: string,
+  objectType: string,
+): Promise<{ fieldDefinitions: FieldDefinition[] }> {
+  return request<{ fieldDefinitions: FieldDefinition[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/object-types/${encodeURIComponent(objectType)}/fields`,
+    { method: 'GET' },
   );
 }
 
