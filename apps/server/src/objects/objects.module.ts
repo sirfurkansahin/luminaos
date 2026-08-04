@@ -8,6 +8,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { env } from '../config/env.js';
 import { DbModule } from '../db/db.module.js';
 import { EventStoreModule } from '../event-store/event-store.module.js';
+import { TaskRecurrenceService } from '../recurrence/task-recurrence.service.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
 @Module({
@@ -15,6 +16,7 @@ import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.gua
   controllers: [ObjectsController],
   providers: [
     ObjectsService,
+    TaskRecurrenceService,
     WorkspaceMembershipGuard,
     // `AIRefreshScheduler`'s constructor takes a plain `number` (its debounce
     // delay), not an injectable class/token -- Nest's DI cannot resolve a

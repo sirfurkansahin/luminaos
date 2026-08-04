@@ -345,3 +345,115 @@ describe('replayObject: checklist events', () => {
     expect(() => replayObject([created, added, reordered])).toThrow(InvalidObjectStateError);
   });
 });
+
+/**
+ * F1-T10 PR4 (RED step) — `recurrenceRule` replay folding, the other half of
+ * `./recurrence-rule-commands.test.ts`'s pinned contract (see that file's
+ * header for the full "why an embedded LuminaObject field, not a Custom
+ * Field" design-decision writeup). `LuminaObject` does not have a
+ * `recurrenceRule` field yet, so EVERY `result.recurrenceRule` access below
+ * is expected to fail TypeScript compilation ("Property 'recurrenceRule'
+ * does not exist on type 'LuminaObject'") — `implementer` must add
+ * `recurrenceRule?: RecurrenceRule` to `./lumina-object.ts`'s `LuminaObject`
+ * interface (plus the `RecurrenceRule` type itself) and fold
+ * `RecurrenceRuleSet`/`RecurrenceRuleCleared` in `./replay.ts`'s
+ * `applyEvent` to turn this green.
+ */
+describe('replayObject: recurrence rule events', () => {
+  it('recurrenceRule is undefined by default after ObjectCreated (no recurrence set yet)', () => {
+    const created = createdEvent();
+
+    const result = replayObject([created]);
+
+    expect(result.recurrenceRule).toBeUndefined();
+  });
+
+  it('applies RecurrenceRuleSet: sets recurrenceRule (all fields) and bumps updatedAt', () => {
+    const created = createdEvent();
+    const set = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: {
+        objectId: OBJECT_ID,
+        frequency: 'weekly',
+        interval: 2,
+        byWeekday: [1, 3, 5],
+        endDate: '2026-12-31',
+      },
+    });
+
+    const result = replayObject([created, set]);
+
+    expect(result.recurrenceRule).toEqual({
+      frequency: 'weekly',
+      interval: 2,
+      byWeekday: [1, 3, 5],
+      endDate: '2026-12-31',
+    });
+    expect(result.updatedAt).toEqual(set.occurredAt);
+  });
+
+  it('applies RecurrenceRuleSet with only the required fields (no byWeekday/endDate)', () => {
+    const created = createdEvent();
+    const set = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'daily', interval: 1 },
+    });
+
+    const result = replayObject([created, set]);
+
+    expect(result.recurrenceRule).toEqual({ frequency: 'daily', interval: 1 });
+  });
+
+  it('a later RecurrenceRuleSet replaces the earlier one entirely', () => {
+    const created = createdEvent();
+    const firstSet = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'daily', interval: 1, byWeekday: [1] },
+    });
+    const secondSet = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'monthly', interval: 3 },
+    });
+
+    const result = replayObject([created, firstSet, secondSet]);
+
+    expect(result.recurrenceRule).toEqual({ frequency: 'monthly', interval: 3 });
+  });
+
+  it('throws when RecurrenceRuleSet has an invalid frequency', () => {
+    const created = createdEvent();
+    const set = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'yearly', interval: 1 },
+    });
+
+    expect(() => replayObject([created, set])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when RecurrenceRuleSet has an invalid interval', () => {
+    const created = createdEvent();
+    const set = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'daily', interval: 'two' },
+    });
+
+    expect(() => replayObject([created, set])).toThrow(InvalidObjectStateError);
+  });
+
+  it('applies RecurrenceRuleCleared: clears recurrenceRule back to undefined and bumps updatedAt', () => {
+    const created = createdEvent();
+    const set = buildEvent({
+      type: 'RecurrenceRuleSet',
+      payload: { objectId: OBJECT_ID, frequency: 'daily', interval: 1 },
+    });
+    const cleared = buildEvent({
+      type: 'RecurrenceRuleCleared',
+      payload: { objectId: OBJECT_ID },
+    });
+
+    const result = replayObject([created, set, cleared]);
+
+    expect(result.recurrenceRule).toBeUndefined();
+    expect(result.updatedAt).toEqual(cleared.occurredAt);
+  });
+});
