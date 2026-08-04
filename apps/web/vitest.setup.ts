@@ -22,3 +22,15 @@ Object.defineProperty(document.body.style, 'pointerEvents', {
     // no-op: see comment above.
   },
 });
+
+// jsdom does not implement `Element.prototype.scrollIntoView` — a real-browser
+// layout API that @radix-ui/react-select's `SelectItem` calls when the
+// content opens, to scroll the currently-selected item into view. Without
+// this no-op polyfill, opening any `@luminaos/ui` Select in a test throws
+// `TypeError: candidate?.scrollIntoView is not a function` (e.g.
+// StatusPrioritySelect.test.tsx's "lists every option ... when opened" case).
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => {
+    // no-op: see comment above.
+  };
+}

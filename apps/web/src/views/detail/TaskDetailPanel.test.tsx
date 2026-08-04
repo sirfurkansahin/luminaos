@@ -1,8 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { FieldDefinition } from '@luminaos/core-objects';
 
 import { TaskDetailPanel } from './TaskDetailPanel.js';
+import { useFieldDefinitionsQuery } from '../../hooks/useFieldDefinitionsQuery.js';
 import { useObjectIdParam } from '../../hooks/useObjectIdParam.js';
 import { useObjectQuery } from '../../hooks/useObjectsQuery.js';
 
@@ -68,6 +71,36 @@ import type { ObjectWithFieldValues } from '../../lib/apiClient.js';
  * ultimately call `closeObject()` via the same `onOpenChange` wiring — no
  * field editors or any other panel content are exercised here (PR6c is
  * infrastructure-only; field editors are a later PR).
+ *
+ * PR6e ADDENDUM — status/priority field-selector wiring (not exercised by
+ * the PR6c tests above, which predate this and are left unmodified): once
+ * `useObjectQuery` has resolved successfully, TaskDetailPanel additionally
+ * calls `useFieldDefinitionsQuery(workspaceId, data.object.type)`
+ * (../../hooks/useFieldDefinitionsQuery.ts, a NEW hook, mocked wholesale
+ * below — this file does not exercise its real react-query internals, that
+ * is useFieldDefinitionsQuery.test.ts's job) — per that hook's own
+ * `objectType: string | undefined` + `enabled` contract, TaskDetailPanel
+ * must call it on EVERY render (rules of hooks), passing `undefined` for
+ * `objectType` whenever `data` is not yet available (loading/error states),
+ * so the hook itself stays disabled until an object has loaded.
+ *
+ * Once BOTH `useObjectQuery` and `useFieldDefinitionsQuery` have
+ * successfully resolved, TaskDetailPanel renders one
+ * `StatusPrioritySelect` (./StatusPrioritySelect.js, a NEW component, mocked
+ * wholesale below — this file only proves TaskDetailPanel wires it
+ * correctly, not its internals, which are separately pinned by
+ * StatusPrioritySelect.test.tsx, the same "mock the child wholesale" style
+ * BoardView.test.tsx uses for BoardColumn) for the `status` field and one
+ * for the `priority` field, each looked up from
+ * `fieldDefinitionsQuery.data.fieldDefinitions` by `key`, and given props:
+ *
+ *   { workspaceId, objectId: data.object.id, fieldKey: 'status' | 'priority',
+ *     fieldDefinition: <the matching FieldDefinition>,
+ *     currentValue: data.object.fieldValues['status' | 'priority'] }
+ *
+ * No `StatusPrioritySelect` is rendered while either query has not yet
+ * resolved (object loading/error, or field definitions still loading) —
+ * PR6c's existing loading/not-found states are otherwise unaffected.
  */
 
 vi.mock('../../hooks/useObjectIdParam.js', () => ({
@@ -78,10 +111,87 @@ vi.mock('../../hooks/useObjectsQuery.js', () => ({
   useObjectQuery: vi.fn(),
 }));
 
+vi.mock('../../hooks/useFieldDefinitionsQuery.js', () => ({
+  useFieldDefinitionsQuery: vi.fn(),
+}));
+
+interface CapturedStatusPrioritySelectProps {
+  workspaceId: string;
+  objectId: string;
+  fieldKey: string;
+  fieldDefinition: FieldDefinition;
+  currentValue: unknown;
+}
+
+const statusPrioritySelectState = vi.hoisted(() => ({
+  calls: [] as CapturedStatusPrioritySelectProps[],
+}));
+
+vi.mock('./StatusPrioritySelect.js', () => ({
+  StatusPrioritySelect: (props: CapturedStatusPrioritySelectProps) => {
+    statusPrioritySelectState.calls.push(props);
+    return <div data-testid={`status-priority-select-${props.fieldKey}`} />;
+  },
+}));
+
 const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 const mockedUseObjectQuery = vi.mocked(useObjectQuery);
+const mockedUseFieldDefinitionsQuery = vi.mocked(useFieldDefinitionsQuery);
 
 const workspaceId = 'ws-1';
+
+function makeFieldDefinitionFixture(overrides: Partial<FieldDefinition> = {}): FieldDefinition {
+  return {
+    id: 'field-status',
+    workspaceId,
+    objectType: 'task',
+    key: 'status',
+    label: 'Durum',
+    fieldType: 'select',
+    config: {
+      options: [
+        { value: 'todo', label: 'Yapılacak' },
+        { value: 'done', label: 'Tamamlandı', isDone: true },
+      ],
+    },
+    permissions: { owner: 'edit', admin: 'edit', member: 'edit', guest: 'view' },
+    lifecycle: 'active',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+const statusFieldDefinition = makeFieldDefinitionFixture();
+const priorityFieldDefinition = makeFieldDefinitionFixture({
+  id: 'field-priority',
+  key: 'priority',
+  label: 'Öncelik',
+  config: {
+    options: [
+      { value: 'low', label: 'Düşük' },
+      { value: 'high', label: 'Yüksek' },
+    ],
+  },
+});
+
+function mockFieldDefinitionsNotLoaded(): void {
+  mockedUseFieldDefinitionsQuery.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
+}
+
+function mockFieldDefinitionsLoaded(): void {
+  mockedUseFieldDefinitionsQuery.mockReturnValue({
+    data: { fieldDefinitions: [statusFieldDefinition, priorityFieldDefinition] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
+}
 
 function makeObject(overrides: Partial<ObjectWithFieldValues> = {}): ObjectWithFieldValues {
   return {
@@ -111,6 +221,17 @@ function mockClosedPanel(): void {
     error: null,
   });
 }
+
+beforeEach(() => {
+  // Safe default for every pre-existing PR6c test below, none of which set
+  // up useFieldDefinitionsQuery themselves — without this, the mocked hook
+  // would return `undefined` by default and TaskDetailPanel's real
+  // implementation (which always calls it, per rules of hooks) would throw
+  // trying to destructure it. Mirrors BoardView.test.tsx's beforeEach
+  // default-mock pattern.
+  mockFieldDefinitionsNotLoaded();
+  statusPrioritySelectState.calls = [];
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -252,5 +373,140 @@ describe('TaskDetailPanel', () => {
     await user.click(document.body);
 
     expect(closeObject).toHaveBeenCalledTimes(1);
+  });
+
+  describe('status/priority field-selector wiring (PR6e)', () => {
+    function mockOpenPanel(objectOverrides: Partial<ObjectWithFieldValues> = {}): void {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: {
+          object: makeObject({
+            fieldValues: { status: 'todo', priority: 'high' },
+            ...objectOverrides,
+          }),
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      });
+    }
+
+    it('does not render any StatusPrioritySelect while the object itself is still loading', () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      });
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(screen.queryByTestId('status-priority-select-status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('status-priority-select-priority')).not.toBeInTheDocument();
+    });
+
+    it('does not render any StatusPrioritySelect while field definitions have not finished loading (object already loaded)', async () => {
+      mockOpenPanel();
+      mockedUseFieldDefinitionsQuery.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByRole('dialog');
+
+      expect(screen.queryByTestId('status-priority-select-status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('status-priority-select-priority')).not.toBeInTheDocument();
+    });
+
+    it('calls useFieldDefinitionsQuery with the workspace id and the loaded object type', async () => {
+      mockOpenPanel();
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByRole('dialog');
+
+      expect(mockedUseFieldDefinitionsQuery).toHaveBeenCalledWith(workspaceId, 'task');
+    });
+
+    it('renders one StatusPrioritySelect for "status" and one for "priority" once both queries have loaded', async () => {
+      mockOpenPanel();
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByRole('dialog');
+
+      expect(await screen.findByTestId('status-priority-select-status')).toBeInTheDocument();
+      expect(screen.getByTestId('status-priority-select-priority')).toBeInTheDocument();
+    });
+
+    it('wires the "status" StatusPrioritySelect with the correct props (workspaceId, objectId, fieldKey, fieldDefinition, currentValue)', async () => {
+      mockOpenPanel();
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('status-priority-select-status');
+
+      const statusCall = statusPrioritySelectState.calls.find((call) => call.fieldKey === 'status');
+      expect(statusCall).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+        fieldKey: 'status',
+        fieldDefinition: statusFieldDefinition,
+        currentValue: 'todo',
+      });
+    });
+
+    it('wires the "priority" StatusPrioritySelect with the correct props (workspaceId, objectId, fieldKey, fieldDefinition, currentValue)', async () => {
+      mockOpenPanel();
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('status-priority-select-priority');
+
+      const priorityCall = statusPrioritySelectState.calls.find(
+        (call) => call.fieldKey === 'priority',
+      );
+      expect(priorityCall).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+        fieldKey: 'priority',
+        fieldDefinition: priorityFieldDefinition,
+        currentValue: 'high',
+      });
+    });
+
+    it('does not render any StatusPrioritySelect in the not-found (isError) state, even if field definitions happen to be cached', async () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'missing-obj',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: Object.assign(new Error('Not found'), { code: 'NOT_FOUND', status: 404 }),
+      });
+      mockFieldDefinitionsLoaded();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('task-detail-panel-not-found');
+
+      expect(screen.queryByTestId('status-priority-select-status')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('status-priority-select-priority')).not.toBeInTheDocument();
+    });
   });
 });
