@@ -177,6 +177,56 @@ export function getFieldDefinitions(
   );
 }
 
+export function addChecklistItem(
+  workspaceId: string,
+  objectId: string,
+  text: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/checklist/items`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    },
+  );
+}
+
+export function toggleChecklistItem(
+  workspaceId: string,
+  objectId: string,
+  itemId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/checklist/items/${encodeURIComponent(itemId)}/toggle`,
+    { method: 'POST' },
+  );
+}
+
+export function removeChecklistItem(
+  workspaceId: string,
+  objectId: string,
+  itemId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/checklist/items/${encodeURIComponent(itemId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function reorderChecklistItem(
+  workspaceId: string,
+  objectId: string,
+  orderedItemIds: string[],
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/checklist/reorder`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ orderedItemIds }),
+    },
+  );
+}
+
 export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
   // No explicit `<void>` type argument (would trip
   // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —

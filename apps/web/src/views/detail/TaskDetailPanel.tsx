@@ -7,6 +7,7 @@ import {
   Skeleton,
 } from '@luminaos/ui';
 
+import { ChecklistWidget } from './ChecklistWidget.js';
 import { StatusPrioritySelect } from './StatusPrioritySelect.js';
 import { useFieldDefinitionsQuery } from '../../hooks/useFieldDefinitionsQuery.js';
 import { useObjectIdParam } from '../../hooks/useObjectIdParam.js';
@@ -57,6 +58,11 @@ export function TaskDetailPanel({ workspaceId }: TaskDetailPanelProps) {
         ) : data !== undefined ? (
           <>
             <DialogTitle>{data.object.title}</DialogTitle>
+            <ChecklistWidget
+              workspaceId={workspaceId}
+              objectId={data.object.id}
+              items={data.object.checklist}
+            />
             {statusFieldDefinition !== undefined ? (
               <StatusPrioritySelect
                 workspaceId={workspaceId}

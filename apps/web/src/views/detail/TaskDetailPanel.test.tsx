@@ -101,6 +101,25 @@ import type { ObjectWithFieldValues } from '../../lib/apiClient.js';
  * No `StatusPrioritySelect` is rendered while either query has not yet
  * resolved (object loading/error, or field definitions still loading) —
  * PR6c's existing loading/not-found states are otherwise unaffected.
+ *
+ * PR6f ADDENDUM — checklist widget wiring (not exercised by the PR6c/PR6e
+ * tests above, which predate this and are left unmodified): once
+ * `useObjectQuery` has resolved successfully, TaskDetailPanel additionally
+ * renders one `ChecklistWidget` (./ChecklistWidget.js, a NEW component,
+ * mocked wholesale below — this file only proves TaskDetailPanel wires it
+ * correctly, not its internals, which are separately pinned by
+ * ChecklistWidget.test.tsx, the same "mock the child wholesale" style used
+ * for `StatusPrioritySelect` above), given props:
+ *
+ *   { workspaceId, objectId: data.object.id, items: data.object.checklist }
+ *
+ * Unlike `StatusPrioritySelect`, `ChecklistWidget` does NOT depend on
+ * `useFieldDefinitionsQuery` at all (checklist is embedded object state, not
+ * a custom field) — it renders as soon as the object itself has loaded,
+ * independent of the field-definitions query's own loading state. No
+ * `ChecklistWidget` is rendered while the object is still loading or in the
+ * not-found (isError) state — PR6c's existing loading/not-found states are
+ * otherwise unaffected.
  */
 
 vi.mock('../../hooks/useObjectIdParam.js', () => ({
@@ -131,6 +150,23 @@ vi.mock('./StatusPrioritySelect.js', () => ({
   StatusPrioritySelect: (props: CapturedStatusPrioritySelectProps) => {
     statusPrioritySelectState.calls.push(props);
     return <div data-testid={`status-priority-select-${props.fieldKey}`} />;
+  },
+}));
+
+interface CapturedChecklistWidgetProps {
+  workspaceId: string;
+  objectId: string;
+  items: ObjectWithFieldValues['checklist'];
+}
+
+const checklistWidgetState = vi.hoisted(() => ({
+  calls: [] as CapturedChecklistWidgetProps[],
+}));
+
+vi.mock('./ChecklistWidget.js', () => ({
+  ChecklistWidget: (props: CapturedChecklistWidgetProps) => {
+    checklistWidgetState.calls.push(props);
+    return <div data-testid="checklist-widget" />;
   },
 }));
 
@@ -231,6 +267,7 @@ beforeEach(() => {
   // default-mock pattern.
   mockFieldDefinitionsNotLoaded();
   statusPrioritySelectState.calls = [];
+  checklistWidgetState.calls = [];
 });
 
 afterEach(() => {
@@ -507,6 +544,89 @@ describe('TaskDetailPanel', () => {
 
       expect(screen.queryByTestId('status-priority-select-status')).not.toBeInTheDocument();
       expect(screen.queryByTestId('status-priority-select-priority')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('checklist widget wiring (PR6f)', () => {
+    const checklist: ObjectWithFieldValues['checklist'] = [
+      { id: 'item-1', text: 'Write tests', done: false, order: 0 },
+      { id: 'item-2', text: 'Ship it', done: true, order: 1 },
+    ];
+
+    function mockOpenPanelWithChecklist(): void {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: { object: makeObject({ checklist }) },
+        isLoading: false,
+        isError: false,
+        error: null,
+      });
+    }
+
+    it('does not render a ChecklistWidget while the object itself is still loading', () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(screen.queryByTestId('checklist-widget')).not.toBeInTheDocument();
+    });
+
+    it('does not render a ChecklistWidget in the not-found (isError) state', async () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'missing-obj',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: Object.assign(new Error('Not found'), { code: 'NOT_FOUND', status: 404 }),
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('task-detail-panel-not-found');
+
+      expect(screen.queryByTestId('checklist-widget')).not.toBeInTheDocument();
+    });
+
+    it('renders a ChecklistWidget once the object has loaded, independent of field-definitions loading state', async () => {
+      mockOpenPanelWithChecklist();
+      // Deliberately left NOT loaded (mockFieldDefinitionsNotLoaded, the
+      // beforeEach default) — ChecklistWidget must not wait on
+      // useFieldDefinitionsQuery the way StatusPrioritySelect does, since
+      // checklist is embedded object state, not a custom field.
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(await screen.findByTestId('checklist-widget')).toBeInTheDocument();
+    });
+
+    it('wires ChecklistWidget with the correct props (workspaceId, objectId, items)', async () => {
+      mockOpenPanelWithChecklist();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('checklist-widget');
+
+      expect(checklistWidgetState.calls.at(-1)).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+        items: checklist,
+      });
     });
   });
 });
