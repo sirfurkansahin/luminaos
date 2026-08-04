@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QuerySpec } from '@luminaos/shared';
 
 import { TableView } from './TableView.js';
+import { useObjectIdParam } from '../hooks/useObjectIdParam.js';
 import { useObjectsQuery, useSetFieldValuesMutation } from '../hooks/useObjectsQuery.js';
 
 import type { OptimisticContext } from '../hooks/useObjectsQuery.js';
@@ -62,6 +63,22 @@ import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
  * actual optimistic-update/invalidation behavior of the mutation itself is
  * pinned by apps/web/src/hooks/useObjectsQuery.test.ts — this file only
  * checks TableView calls `mutate` with the right arguments.
+ *
+ * F1-T10 PR6c addition: each row also gets a NEW, dedicated non-editable
+ * title cell — data-testid="table-title-cell" — rendered as the FIRST cell
+ * of the row, distinct from (and NOT counted among) the per-fieldValue
+ * data-testid="table-cell"/EditableCell cells above. Design reasoning (see
+ * this file's header comment for the general TableView contract): the whole
+ * row can't be made clickable because each fieldValue cell already owns its
+ * own click-to-edit interaction (EditableCell) — a row-level click handler
+ * would fight that. TableView didn't previously render a title column at
+ * all, so adding one dedicated, read-only, keyboard-accessible
+ * (`role="button" tabIndex={0}`, mirroring EditableCell.tsx's display-span
+ * convention) cell is a non-conflicting affordance. It is NOT part of the
+ * ArrowRight/Left/Up/Down grid-navigation cell set (that navigation is
+ * scoped to the per-fieldValue `table-cell`s only, unchanged from before).
+ * Clicking or pressing Enter on it calls `openObject(object.id)` from the
+ * newly-mocked `useObjectIdParam.ts` (../hooks/useObjectIdParam.ts).
  */
 
 function makeObjects(): ObjectWithFieldValues[] {
@@ -89,8 +106,20 @@ vi.mock('../hooks/useObjectsQuery.js', () => ({
   useSetFieldValuesMutation: vi.fn(),
 }));
 
+// F1-T10 PR6c: TableView now also reads `openObject` from
+// useObjectIdParam.ts (mocked wholesale, mirroring useObjectsQuery.js above)
+// so a new, dedicated non-editable title column can open the detail panel —
+// see the "opens the detail panel" describe block below. This is an ADDED
+// dependency; every existing test above must keep passing unchanged, so a
+// default (objectId: undefined) mock return is wired in beforeEach via
+// mockOpenObject().
+vi.mock('../hooks/useObjectIdParam.js', () => ({
+  useObjectIdParam: vi.fn(),
+}));
+
 const mockedUseObjectsQuery = vi.mocked(useObjectsQuery);
 const mockedUseSetFieldValuesMutation = vi.mocked(useSetFieldValuesMutation);
+const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 
 const workspaceId = 'ws-1';
 const querySpec: QuerySpec = { objectType: 'task', filters: [] };
@@ -116,8 +145,19 @@ function mockMutate() {
   return mutate;
 }
 
+function mockOpenObject() {
+  const openObject = vi.fn();
+  mockedUseObjectIdParam.mockReturnValue({
+    objectId: undefined,
+    openObject,
+    closeObject: vi.fn(),
+  });
+  return openObject;
+}
+
 beforeEach(() => {
   mockMutate();
+  mockOpenObject();
 });
 
 afterEach(() => {
@@ -260,6 +300,77 @@ describe('TableView', () => {
         objectId: 'obj-1',
         values: { status: 'in-progress' },
       });
+    });
+  });
+
+  describe('opens the detail panel via the title cell', () => {
+    it('renders one table-title-cell per row, distinct from the fieldValue table-cells', () => {
+      const objects = makeObjects();
+      mockedUseObjectsQuery.mockReturnValue({
+        data: { objects },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as UseQueryResult<QueryResult>);
+
+      render(<TableView workspaceId={workspaceId} querySpec={querySpec} />);
+
+      const titleCells = screen.getAllByTestId('table-title-cell');
+      expect(titleCells).toHaveLength(3);
+      // Still exactly 6 fieldValue cells (3 objects * 2 keys) — the new
+      // title cell does NOT get counted as a "table-cell".
+      expect(screen.getAllByTestId('table-cell')).toHaveLength(6);
+      expect(titleCells.map((cell) => cell.textContent)).toEqual([
+        'Object 1',
+        'Object 2',
+        'Object 3',
+      ]);
+    });
+
+    it('calls openObject(object.id) when a row title cell is clicked', async () => {
+      const openObject = mockOpenObject();
+      const user = userEvent.setup();
+      const objects = makeObjects();
+      mockedUseObjectsQuery.mockReturnValue({
+        data: { objects },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as UseQueryResult<QueryResult>);
+
+      render(<TableView workspaceId={workspaceId} querySpec={querySpec} />);
+
+      const titleCells = screen.getAllByTestId('table-title-cell');
+      const secondTitleCell = titleCells[1];
+      if (secondTitleCell === undefined) {
+        throw new Error('expected at least two table-title-cell elements');
+      }
+      await user.click(secondTitleCell);
+
+      expect(openObject).toHaveBeenCalledWith('obj-2');
+    });
+
+    it('calls openObject(object.id) when Enter is pressed on a focused row title cell', async () => {
+      const openObject = mockOpenObject();
+      const user = userEvent.setup();
+      const objects = makeObjects();
+      mockedUseObjectsQuery.mockReturnValue({
+        data: { objects },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as UseQueryResult<QueryResult>);
+
+      render(<TableView workspaceId={workspaceId} querySpec={querySpec} />);
+
+      const firstTitleCell = screen.getAllByTestId('table-title-cell')[0];
+      if (firstTitleCell === undefined) {
+        throw new Error('expected at least one table-title-cell element');
+      }
+      firstTitleCell.focus();
+      await user.keyboard('{Enter}');
+
+      expect(openObject).toHaveBeenCalledWith('obj-1');
     });
   });
 });

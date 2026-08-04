@@ -3,6 +3,7 @@ import { useMemo, useRef } from 'react';
 import type { QuerySpec } from '@luminaos/shared';
 import { EmptyState, Skeleton } from '@luminaos/ui';
 
+import { useObjectIdParam } from '../hooks/useObjectIdParam.js';
 import { useObjectsQuery, useSetFieldValuesMutation } from '../hooks/useObjectsQuery.js';
 import { EditableCell } from './table/EditableCell.js';
 
@@ -16,6 +17,7 @@ export interface TableViewProps {
 export function TableView({ workspaceId, querySpec }: TableViewProps) {
   const { data, isLoading, isError } = useObjectsQuery(workspaceId, querySpec);
   const { mutate } = useSetFieldValuesMutation(workspaceId);
+  const { openObject } = useObjectIdParam();
   const objects = data !== undefined && 'objects' in data ? data.objects : [];
   const firstObject = objects[0];
   const columnKeys = useMemo(
@@ -96,6 +98,21 @@ export function TableView({ workspaceId, querySpec }: TableViewProps) {
     <div role="grid">
       {objects.map((object, row) => (
         <div key={object.id} role="row" data-testid="table-row">
+          <span
+            data-testid="table-title-cell"
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              openObject(object.id);
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLSpanElement>) => {
+              if (event.key === 'Enter') {
+                openObject(object.id);
+              }
+            }}
+          >
+            {object.title}
+          </span>
           {columnKeys.map((fieldKey, col) => {
             const index = row * columnCount + col;
             return (

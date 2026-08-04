@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { QuerySpec } from '@luminaos/shared';
 
-import { patchFieldValues, postObjectsQuery } from '../lib/apiClient.js';
+import { getObject, patchFieldValues, postObjectsQuery } from '../lib/apiClient.js';
 
-import type { QueryResult } from '../lib/apiClient.js';
+import type { ObjectWithFieldValues, QueryResult } from '../lib/apiClient.js';
 import type { QueryKey, UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 export function useObjectsQuery(
@@ -14,6 +14,34 @@ export function useObjectsQuery(
   return useQuery({
     queryKey: ['objects', workspaceId, querySpec],
     queryFn: () => postObjectsQuery(workspaceId, querySpec),
+  });
+}
+
+// A deliberately narrower shape than the full `UseQueryResult<T>` discriminated
+// union (which has ~20 required properties per member, e.g. `isPending`,
+// `isFetching`, `status`) — TaskDetailPanel.test.tsx's `vi.mock` of this hook
+// returns plain `{ data, isLoading, isError, error }` object literals without
+// casting them, so `vi.mocked(useObjectQuery).mockReturnValue(...)`'s
+// inferred parameter type must structurally accept exactly that. The real
+// runtime value returned below (react-query's actual `UseQueryResult`) always
+// has strictly more properties than this interface requires, so no cast is
+// needed on the `return` side either — only the subset TaskDetailPanel.tsx
+// itself reads (`data`/`isLoading`/`isError`) is part of this public contract.
+export interface ObjectQueryResult {
+  data: { object: ObjectWithFieldValues } | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+}
+
+export function useObjectQuery(
+  workspaceId: string,
+  objectId: string | undefined,
+): ObjectQueryResult {
+  return useQuery({
+    queryKey: ['object', workspaceId, objectId],
+    queryFn: () => getObject(workspaceId, objectId as string),
+    enabled: objectId !== undefined,
   });
 }
 

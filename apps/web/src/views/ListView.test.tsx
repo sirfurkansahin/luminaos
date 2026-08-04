@@ -1,9 +1,11 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { QuerySpec } from '@luminaos/shared';
 
 import { ListView } from './ListView.js';
+import { useObjectIdParam } from '../hooks/useObjectIdParam.js';
 import { useObjectsQuery } from '../hooks/useObjectsQuery.js';
 
 import type { ObjectWithFieldValues, QueryResult } from '../lib/apiClient.js';
@@ -70,12 +72,29 @@ vi.mock('../hooks/useObjectsQuery.js', () => ({
   useObjectsQuery: vi.fn(),
 }));
 
+// ListView now also reads `openObject` from useObjectIdParam.ts (mocked
+// wholesale, mirroring useObjectsQuery.js above) so its title span/row can
+// open the detail panel on click/Enter — see the new "opens the detail
+// panel" describe block below. This is an ADDED dependency, not previously
+// present; every existing test above must still keep passing unchanged, so
+// a default (objectId: undefined) mock return is wired in beforeEach.
+vi.mock('../hooks/useObjectIdParam.js', () => ({
+  useObjectIdParam: vi.fn(),
+}));
+
 const mockedUseObjectsQuery = vi.mocked(useObjectsQuery);
+const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 
 const workspaceId = 'ws-1';
 const querySpec: QuerySpec = { objectType: 'task', filters: [] };
 
 beforeEach(() => {
+  mockedUseObjectIdParam.mockReturnValue({
+    objectId: undefined,
+    openObject: vi.fn(),
+    closeObject: vi.fn(),
+  });
+
   // jsdom has no real layout engine (every element measures 0x0 by
   // default) and no ResizeObserver — @tanstack/react-virtual depends on
   // both to measure its scroll container and compute which rows fall in
@@ -206,5 +225,65 @@ describe('ListView', () => {
 
     expect(screen.getByTestId('list-view-error')).toBeInTheDocument();
     expect(screen.queryAllByTestId('object-row')).toHaveLength(0);
+  });
+
+  // F1-T10 PR6c: rows become clickable-to-open. The row's title span is the
+  // chosen affordance (data-testid="object-row-title", a keyboard-accessible
+  // `role="button" tabIndex={0}` span mirroring EditableCell.tsx's display
+  // span convention) — not the whole row — so a future "click elsewhere in
+  // the row" affordance (e.g. a checkbox) can still be added later without
+  // fighting this handler. `openObject` comes from the now-mocked
+  // useObjectIdParam.ts.
+  describe('opens the detail panel', () => {
+    function mockSingleObject() {
+      const objects = [
+        {
+          id: 'obj-1',
+          title: 'Object 1',
+          fieldValues: { status: 'todo' },
+        } as unknown as ObjectWithFieldValues,
+      ];
+      mockedUseObjectsQuery.mockReturnValue({
+        data: { objects },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as UseQueryResult<QueryResult>);
+    }
+
+    it('calls openObject(object.id) when the row title is clicked', async () => {
+      const openObject = vi.fn();
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: undefined,
+        openObject,
+        closeObject: vi.fn(),
+      });
+      mockSingleObject();
+      const user = userEvent.setup();
+
+      render(<ListView workspaceId={workspaceId} querySpec={querySpec} />);
+
+      await user.click(screen.getByTestId('object-row-title'));
+
+      expect(openObject).toHaveBeenCalledWith('obj-1');
+    });
+
+    it('calls openObject(object.id) when Enter is pressed on the focused row title', async () => {
+      const openObject = vi.fn();
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: undefined,
+        openObject,
+        closeObject: vi.fn(),
+      });
+      mockSingleObject();
+      const user = userEvent.setup();
+
+      render(<ListView workspaceId={workspaceId} querySpec={querySpec} />);
+
+      screen.getByTestId('object-row-title').focus();
+      await user.keyboard('{Enter}');
+
+      expect(openObject).toHaveBeenCalledWith('obj-1');
+    });
   });
 });
