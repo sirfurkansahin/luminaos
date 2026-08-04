@@ -87,6 +87,54 @@ import type { Server } from 'node:http';
  * `onConflictDoNothing` swallow path is unit-tested), not invented here via a
  * fake re-trigger endpoint.
  * ---------------------------------------------------------------------------
+ *
+ * ===========================================================================
+ * F1-T10 PR5 ADDITION (reminder fields, spec item 5 / Kabul Kriterleri bullet
+ * 4): the SAME `seedTaskFields` seeding mechanism, per the spec's own
+ * wording, must ALSO provision `remindAt`/`remindAcknowledged` as two more
+ * Custom Fields (not an embedded `LuminaObject` field like `checklist`/
+ * `recurrenceRule` from PR2/PR4) — verified directly against
+ * `apps/server/src/objects/query-builder.ts` (`isFixedColumnKey`: only
+ * `title`/`createdAt`/`updatedAt` are queryable "fixed columns"; there is no
+ * mechanism to make an arbitrary embedded field queryable without a new
+ * migration/projection change) and
+ * `packages/core-objects/src/fields/query/filter-operators.ts`
+ * (`DATE_OPERATORS` covers `datetime`'s `before`/`after`/`equals`/`between`/
+ * `isEmpty`/`isNotEmpty`; `CHECKBOX_OPERATORS` covers only `equals`) — both
+ * exactly what "`remindAt <= now() AND remindAcknowledged = false`" needs,
+ * with ZERO new query-layer code. `remindAt`: fieldType `'datetime'`, empty
+ * config (per `field-type-registry.ts`'s `emptyConfigSchema`, same as
+ * `date`/`checkbox`). `remindAcknowledged`: fieldType `'checkbox'`, empty
+ * config, and — UNLIKE `status`/`priority`, which seed with no
+ * `defaultValue` — MUST be seeded with `defaultValue: false`. This is a
+ * necessary detail this PR is the first to pin down: per
+ * `packages/core-objects/src/fields/field-value-commands.ts`'s
+ * `applyDefaultFieldValues`, only a field definition with a non-`undefined`
+ * `defaultValue` gets an automatic `FieldValueChanged` at object-creation
+ * time; without `defaultValue: false` here, a freshly created task's
+ * `remindAcknowledged` key would be ABSENT from `field_values` until a
+ * caller explicitly writes it, and `query-builder.ts`'s
+ * `buildCheckboxPredicate` compiles `equals: false` to
+ * `(field_values ->> 'remindAcknowledged')::boolean = false` — which
+ * evaluates to SQL `NULL` (never `true`) when the key is absent, silently
+ * excluding every task whose reminder was never explicitly acknowledged
+ * from the "due reminder" query. That is the exact common-case workflow the
+ * spec describes (user sets `remindAt`, never having touched
+ * `remindAcknowledged` at all, until they see and dismiss the reminder), so
+ * this default is load-bearing, not cosmetic. See
+ * `../objects/reminder-query.integration.test.ts` for the end-to-end query
+ * proof.
+ *
+ * RED STATE (expected, today, for the new test below): `seedTaskFields`
+ * (`./workspaces.service.ts`) only defines `status`/`priority` — it does not
+ * define `remindAt`/`remindAcknowledged` at all, so
+ * `GET .../object-types/task/fields` will not contain either key; the new
+ * test's `.find((fd) => fd.key === 'remindAt')` /
+ * `.find((fd) => fd.key === 'remindAcknowledged')` resolve to `undefined`,
+ * and every subsequent assertion on their shape fails with something like
+ * "Cannot read properties of undefined (reading 'fieldType')" /
+ * "expected undefined to be 'datetime'".
+ * ===========================================================================
  */
 
 const PASSWORD = 'correct-horse-battery-staple';
@@ -105,6 +153,7 @@ interface FieldDefinitionBody {
   label: string;
   fieldType: string;
   config: { options?: FieldOptionBody[] };
+  defaultValue?: unknown;
   lifecycle: string;
 }
 
@@ -256,6 +305,37 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
 
     const priorityLabels = priorityOptions.map((option) => option.label).sort();
     expect(priorityLabels).toEqual(['Acil', 'Düşük', 'Orta', 'Yüksek'].sort());
+  });
+
+  it('POST /workspaces also seeds "remindAt" (datetime, empty config) and "remindAcknowledged" (checkbox, empty config, defaultValue:false) for the "task" object type (F1-T10 PR5, spec item 5)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const listResponse = await request(server).get(fieldsUrl(workspaceId)).set('Cookie', cookie);
+
+    expect(listResponse.status).toBe(200);
+    const { fieldDefinitions } = listResponse.body as FieldDefinitionListEnvelope;
+
+    const remindAtField = fieldDefinitions.find((fd) => fd.key === 'remindAt');
+    const remindAcknowledgedField = fieldDefinitions.find((fd) => fd.key === 'remindAcknowledged');
+
+    expect(remindAtField).toBeDefined();
+    expect(remindAtField?.fieldType).toBe('datetime');
+    expect(remindAtField?.objectType).toBe('task');
+    expect(remindAtField?.config).toEqual({});
+
+    expect(remindAcknowledgedField).toBeDefined();
+    expect(remindAcknowledgedField?.fieldType).toBe('checkbox');
+    expect(remindAcknowledgedField?.objectType).toBe('task');
+    expect(remindAcknowledgedField?.config).toEqual({});
+
+    // Load-bearing, not cosmetic -- see this file's header comment
+    // ("F1-T10 PR5 ADDITION") and `../objects/reminder-query.integration
+    // .test.ts` for the full reasoning: without an explicit
+    // `defaultValue: false`, a freshly created task's `remindAcknowledged`
+    // key never gets auto-populated by `applyDefaultFieldValues`, and the
+    // spec's `remindAcknowledged = false` query leg would silently exclude
+    // every never-touched reminder.
+    expect(remindAcknowledgedField?.defaultValue).toBe(false);
   });
 
   it('the seed is per-workspace: a second, independent workspace (different user) gets its own status/priority fields', async () => {
