@@ -3,7 +3,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 
 import { AppError } from '@luminaos/shared';
 
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { sessions } from '../db/schema/sessions.js';
 import { users } from '../db/schema/users.js';
 
