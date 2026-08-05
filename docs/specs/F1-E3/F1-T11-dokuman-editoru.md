@@ -1,6 +1,6 @@
 # F1-T11 — Doküman Editörü (Blok Tabanlı, Katlanabilir Başlıklar, CRDT İşbirliği)
 
-**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Tamamlandı (Kabul Kriterleri 6/6; iki-sekme gerçek-zamanlı işbirliği tarayıcıda son bir kez elle doğrulanmalı — backend işbirliği entegrasyon testleriyle kanıtlı)
+**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Tamamlandı (Kabul Kriterleri 6/6, otomatik testlerle kanıtlı; tam-UI iki-sekme görsel doğrulaması F0-T5 auth-wiring apps/web'e bağlanınca yapılacak — bkz. aşağıdaki "Kalan elle-adım")
 **Bağımlılık:** F1-T1 (`doc` tipi), F0-T7 (tasarım sistemi), F0-T6 (event store)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Gerçek zamanlı CRDT işbirliği, "tek doğruluk kaynağı olay günlüğüdür" mimari değişmezine (CLAUDE.md) doğrudan dokunuyor — her tuş vuruşunu ayrı bir olay yapmak pratik değil. Bu görev, ADR yazılıp insan onayı alınmadan koda geçmez. Plan aşamasında en güçlü model kullanılmalı.
@@ -47,6 +47,6 @@ Görev, ADR-0011 (mimari-kritik, insan onaylı) + 7 alt-PR ile gerçekleştirild
 - **PR6** ([#60](https://github.com/sirfurkansahin/luminaos/pull/60)): `apps/web` BlockNote editörü + özel `DocGatewayProvider` (gateway'in `/ws/docs?docId=` protokolü, PR4a test istemcisiyle aynı), `withCollaboration` + `y-prosemirror` ile gerçek işbirliği aktivasyonu.
 - **PR7** ([#61](https://github.com/sirfurkansahin/luminaos/pull/61)): `ObjectDetailHost` dispatcher (`doc`→`DocEditorPanel`, aksi→`TaskDetailPanel`), App.tsx entegrasyonu.
 
-**Kalan elle-adım:** `pnpm dev` + iki tarayıcı sekmesiyle aynı dokümanı açıp gerçek-zamanlı birleşme/imleçlerin son görsel doğrulaması (backend işbirliği PR4a/4b entegrasyon testleriyle zaten kanıtlı; frontend wiring birim-testli + build-doğrulanmış).
+**Kalan elle-adım (F0-T5 auth-wiring'e bağımlı):** Tam-UI iki-sekme görsel doğrulama — `pnpm dev` + iki tarayıcı sekmesinde aynı dokümanı açıp gerçek-zamanlı birleşme + awareness imleçlerini görsel teyit — **F0-T5 (auth-wiring) apps/web'e bağlanınca yapılacaktır**. Şu an dev harness bunu desteklemiyor (apps/web'de login akışı yok, `DEV_WORKSPACE_ID` sahte sabit, Vite proxy yok). Bu bekleyen adım F0-T5'in "Sonraki İş" bölümüne de ileri-referansla işlendi (`docs/specs/F0-E2/F0-T5-veritabani-ve-auth.md`) ki auth wiring tamamlanınca unutulmasın. İşbirliğinin kendisi (kayıpsız birleşme + awareness) PR4a/4b entegrasyon testlerinde iki gerçek Yjs istemcisi + gerçek gateway ile zaten kanıtlı; bekleyen yalnızca uçtan-uca tarayıcı görsel teyidi. Frontend wiring birim-testli + build-doğrulanmış.
 
 **İleriye-dönük (F1-T11 kapsamı dışı, planda kayıtlı):** `DocGatewayProvider` reconnect'ine exponential backoff; gerçek kullanıcı kimliği gelince awareness `user.name` XSS doğrulaması; `DocEditor`'ı `React.lazy` ile code-split (BlockNote ~1MB'ı başlangıç bundle'ından çıkarmak); sürüm geçmişi UI'ı (snapshot verisi saklanıyor, gösterilmiyor); çoklu-sunucu-örneği yatay ölçekleme (ADR-0011 §b bilinen sınırlama).

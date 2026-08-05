@@ -36,6 +36,12 @@ security-reviewer denetiminden çıkan, bu görevin kapsamı dışında kalan ve
 - **E-posta enumeration (`POST /auth/register`):** Var olan e-postayla kayıt denemesi `409 ConflictError` ile e-postanın sistemde kayıtlı olduğunu doğrudan doğruluyor. Login akışında aynı sızıntıyı önlemek için zamanlama saldırısına karşı özel önlem (dummy-hash) alınmışken, register akışında bu tutarlılık yok. Karar gerekiyor: jenerik yanıt mı ("e-postanızı kontrol edin"), yoksa rate limiting mi.
 - **Rate limiting eksikliği (`/auth/login`, `/auth/register`):** Hiçbir throttling yok. argon2'nin bilinçli olarak pahalı maliyeti (memoryCost 64 MiB, timeCost 3) hem başarılı hem başarısız denemelerde çalıştığından, kimliksiz bir saldırgan sınırsız sayıda tam maliyetli argon2 doğrulaması tetikleyebilir — brute-force ve CPU/bellek tükenmesi riski. `@nestjs/throttler` veya reverse-proxy/WAF seviyesinde rate limit önerilir.
 
+### apps/web auth-wiring bağımlılığı (F1-T7/F1-T11 tarafından bekleniyor)
+
+F0-T5'in auth'u sunucuda hazır ama **apps/web tarafından henüz tüketilmiyor** — apps/web'de login akışı yok, `DEV_WORKSPACE_ID='dev-workspace'` sahte bir sabit ve Vite proxy yok (relative apiClient çağrıları dev'de :3000'e ulaşamıyor). Bu wiring yapıldığında (login UI + gerçek workspace bağlama + Vite proxy):
+
+- **F1-T11 kalan elle-adımı:** Doküman editörünün tam-UI iki-sekme gerçek-zamanlı işbirliği görsel doğrulaması (aynı dokümanı iki sekmede açıp canlı birleşme + awareness imleçleri) o zaman yapılmalı. F1-T11'in backend işbirliği PR4a/4b entegrasyon testleriyle zaten kanıtlı; bekleyen yalnızca uçtan-uca tarayıcı görsel teyidi. Bkz. `docs/specs/F1-E3/F1-T11-dokuman-editoru.md`.
+
 ## Tamamlanma Notu
 
 - Gerçek Postgres üzerinde Testcontainers ile 4 entegrasyon testi (migration apply/rollback/re-apply + tam auth/tenant-isolation akışı) koşturuldu ve yeşil; ayrıca yerel `docker-compose.yml` yığınına karşı `db:migrate` → `db:migrate:down` → `db:migrate` döngüsü ve canlı `pnpm dev` sunucusuna karşı curl ile register→`/me` akışı manuel doğrulandı.
