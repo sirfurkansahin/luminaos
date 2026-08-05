@@ -1,3 +1,4 @@
+import '@blocknote/mantine/style.css';
 import '@luminaos/ui/tokens.css';
 
 import { QueryClientProvider } from '@tanstack/react-query';
