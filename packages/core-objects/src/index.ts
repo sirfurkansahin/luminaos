@@ -32,3 +32,4 @@ export * from './relations/relation-replay.js';
 export * from './saved-views/saved-view.js';
 export * from './saved-views/saved-view-commands.js';
 export * from './saved-views/saved-view-replay.js';
+export * from './doc/block.js';
