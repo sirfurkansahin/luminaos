@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { documentSnapshots } from '../db/schema/document-snapshots.js';
@@ -21,12 +21,28 @@ export class DocumentReconstructionService {
    * Returns the highest-`version` snapshot for `objectId` with its bytes
    * decoded back to a `Buffer` (byte-equal to the original Yjs update), or
    * `null` if the doc has no snapshot yet.
+   *
+   * When `workspaceId` is supplied (F1-T11 PR4b, the gateway passes the
+   * resolved owning workspace), the lookup is ALSO scoped by `workspace_id` —
+   * defense in depth so a snapshot row can only ever be read within its own
+   * workspace, even though `objectId` is already globally unique. Omitting it
+   * keeps the PR2 single-argument callers working unchanged.
    */
-  async getLatestSnapshot(objectId: string): Promise<{ version: number; snapshot: Buffer } | null> {
+  async getLatestSnapshot(
+    objectId: string,
+    workspaceId?: string,
+  ): Promise<{ version: number; snapshot: Buffer } | null> {
     const [row] = await this.db
       .select({ version: documentSnapshots.version, snapshot: documentSnapshots.snapshot })
       .from(documentSnapshots)
-      .where(eq(documentSnapshots.objectId, objectId))
+      .where(
+        workspaceId === undefined
+          ? eq(documentSnapshots.objectId, objectId)
+          : and(
+              eq(documentSnapshots.objectId, objectId),
+              eq(documentSnapshots.workspaceId, workspaceId),
+            ),
+      )
       .orderBy(desc(documentSnapshots.version))
       .limit(1);
 

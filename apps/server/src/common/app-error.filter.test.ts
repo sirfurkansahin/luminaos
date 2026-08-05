@@ -122,6 +122,10 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       aiTokenQuotaPerWorkspace: 1_000_000,
       aiRefreshDebounceMs: 5_000,
       webOrigin: 'http://localhost:5173',
+      docSnapshotDebounceMs: 10_000,
+      docSnapshotMaxUpdates: 100,
+      docMaxConnectionsPerRoom: 50,
+      docMaxRooms: 1_000,
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 

@@ -21,6 +21,14 @@ export interface Env {
   aiRefreshDebounceMs: number;
   /** CORS allowlist origin for `apps/web` (F1-T7). Absent -> Vite's default dev origin; present -> used as-is, no shape validation (a malformed origin just fails every preflight, which is self-evident at request time). */
   webOrigin: string;
+  /** `DocCollabGateway`'s snapshot debounce window in milliseconds (F1-T11 PR4b): idle time after the last client edit before a room's `Y.Doc` is flushed to a `DocumentContentSnapshotted` event. Absent/blank -> default; present-but-invalid -> fatal. */
+  docSnapshotDebounceMs: number;
+  /** `DocCollabGateway`'s per-room accumulated-update threshold (F1-T11 PR4b): once this many client updates land since the last snapshot, the room is flushed immediately regardless of the debounce timer. Absent/blank -> default; present-but-invalid -> fatal. */
+  docSnapshotMaxUpdates: number;
+  /** `DocCollabGateway`'s DoS cap on concurrent connections to a single doc room (F1-T11 PR4b): upgrades beyond this for the same doc are rejected `503`. Absent/blank -> default; present-but-invalid -> fatal. */
+  docMaxConnectionsPerRoom: number;
+  /** `DocCollabGateway`'s DoS cap on the number of distinct live doc rooms (F1-T11 PR4b): an upgrade that would create a new room beyond this is rejected `503`. Absent/blank -> default; present-but-invalid -> fatal. */
+  docMaxRooms: number;
 }
 
 /**
@@ -69,6 +77,19 @@ function readEnv(): Env {
       DEFAULT_AI_REFRESH_DEBOUNCE_MS,
     ),
     webOrigin: readWebOrigin(),
+    docSnapshotDebounceMs: readPositiveIntegerEnv(
+      'DOC_SNAPSHOT_DEBOUNCE_MS',
+      DEFAULT_DOC_SNAPSHOT_DEBOUNCE_MS,
+    ),
+    docSnapshotMaxUpdates: readPositiveIntegerEnv(
+      'DOC_SNAPSHOT_MAX_UPDATES',
+      DEFAULT_DOC_SNAPSHOT_MAX_UPDATES,
+    ),
+    docMaxConnectionsPerRoom: readPositiveIntegerEnv(
+      'DOC_MAX_CONNECTIONS_PER_ROOM',
+      DEFAULT_DOC_MAX_CONNECTIONS_PER_ROOM,
+    ),
+    docMaxRooms: readPositiveIntegerEnv('DOC_MAX_ROOMS', DEFAULT_DOC_MAX_ROOMS),
   };
 }
 
@@ -124,6 +145,18 @@ const DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE = 1_000_000;
 
 /** `AI_REFRESH_DEBOUNCE_MS`'s own default — matches `AIRefreshScheduler`'s pure default so `new AIRefreshScheduler(env.aiRefreshDebounceMs)` and `new AIRefreshScheduler()` behave identically when this env var is unset. */
 const DEFAULT_AI_REFRESH_DEBOUNCE_MS = 5000;
+
+/** `DOC_SNAPSHOT_DEBOUNCE_MS`'s own default (F1-T11 PR4b) — ADR-0011 §(c)'s "10 sn hareketsizlik" debounce window. */
+const DEFAULT_DOC_SNAPSHOT_DEBOUNCE_MS = 10_000;
+
+/** `DOC_SNAPSHOT_MAX_UPDATES`'s own default (F1-T11 PR4b) — the "art arda N update" ceiling that forces a snapshot before the debounce timer fires. */
+const DEFAULT_DOC_SNAPSHOT_MAX_UPDATES = 100;
+
+/** `DOC_MAX_CONNECTIONS_PER_ROOM`'s own default (F1-T11 PR4b) — per-room concurrent-connection DoS cap. */
+const DEFAULT_DOC_MAX_CONNECTIONS_PER_ROOM = 50;
+
+/** `DOC_MAX_ROOMS`'s own default (F1-T11 PR4b) — live-room-count DoS cap. */
+const DEFAULT_DOC_MAX_ROOMS = 1000;
 
 /**
  * Shared "absent = default, present-but-invalid = fatal" reader for the
