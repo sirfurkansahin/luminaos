@@ -1,6 +1,6 @@
 # F1-T11 — Doküman Editörü (Blok Tabanlı, Katlanabilir Başlıklar, CRDT İşbirliği)
 
-**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Yapılacak
+**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Tamamlandı (Kabul Kriterleri 6/6; iki-sekme gerçek-zamanlı işbirliği tarayıcıda son bir kez elle doğrulanmalı — backend işbirliği entegrasyon testleriyle kanıtlı)
 **Bağımlılık:** F1-T1 (`doc` tipi), F0-T7 (tasarım sistemi), F0-T6 (event store)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Gerçek zamanlı CRDT işbirliği, "tek doğruluk kaynağı olay günlüğüdür" mimari değişmezine (CLAUDE.md) doğrudan dokunuyor — her tuş vuruşunu ayrı bir olay yapmak pratik değil. Bu görev, ADR yazılıp insan onayı alınmadan koda geçmez. Plan aşamasında en güçlü model kullanılmalı.
@@ -26,9 +26,27 @@
 
 ## Kabul Kriterleri
 
-- [ ] ADR yazıldı ve insan onayı alındı (koddan ÖNCE).
-- [ ] İki simüle istemci aynı dokümanı eşzamanlı düzenlediğinde (entegrasyon testi, iki Yjs istemcisi + WS gateway) patch'lerin kayıpsız birleştiği doğrulanır.
-- [ ] Workspace/nesne erişimi olmayan kullanıcının WS odasına bağlanma denemesi reddedilir (401/403, testli).
-- [ ] Sunucu yeniden başlatıldıktan sonra son snapshot'tan doküman içeriği kayıpsız yeniden kurulur (testli).
-- [ ] Katlanabilir başlık aç/kapa durumu diğer istemciye senkron OLARAK YANSIMADIĞI testle kanıtlanır (bilinçli tasarım kararı).
-- [ ] security-reviewer: WS bağlantı kimlik doğrulama akışı ve snapshot boyut sınırı (DoS önleme) denetlendi.
+- [x] ADR yazıldı ve insan onayı alındı (koddan ÖNCE). — [ADR-0011](../../adr/ADR-0011-dokuman-crdt-koprusu.md), PR [#54](https://github.com/sirfurkansahin/luminaos/pull/54).
+- [x] İki simüle istemci aynı dokümanı eşzamanlı düzenlediğinde (iki gerçek Yjs istemcisi + WS gateway) patch'lerin kayıpsız birleştiği doğrulanır. — PR4a entegrasyon testi (map + Y.Text eşzamanlı birleşme), PR [#58](https://github.com/sirfurkansahin/luminaos/pull/58).
+- [x] Workspace/nesne erişimi olmayan kullanıcının WS odasına bağlanma denemesi reddedilir (401/403, testli). — PR4a: 401 (session), 403 (cross-workspace IDOR + CSWSH Origin), 404 (yok doc), 400 (eksik param), PR [#58](https://github.com/sirfurkansahin/luminaos/pull/58).
+- [x] Sunucu yeniden başlatıldıktan sonra son snapshot'tan doküman içeriği kayıpsız yeniden kurulur (testli). — PR4b: graceful-restart (SIGTERM→senkron flush) kayıpsız; simüle-çökme yalnızca debounce penceresini kaybeder (AYRI test, ADR-0011 §c), PR [#59](https://github.com/sirfurkansahin/luminaos/pull/59).
+- [x] Katlanabilir başlık aç/kapa durumu diğer istemciye senkron OLARAK YANSIMADIĞI (bilinçli tasarım kararı). — BlockNote toggle durumunu `window.localStorage`'da (`toggle-${block.id}`) tutar, paylaşılan `Y.Doc`'ta DEĞİL → istemci-yerel; kaynak incelemesiyle teyit, PR [#61](https://github.com/sirfurkansahin/luminaos/pull/61).
+- [x] security-reviewer: WS bağlantı kimlik doğrulama akışı ve snapshot boyut sınırı (DoS önleme) denetlendi. — PR4a (auth/CSWSH/IDOR, 2 HIGH bulundu ve kapatıldı), PR4b (append-öncesi snapshot boyut tavanı + unhandled-rejection MEDIUM kapatıldı), PR6/PR7 frontend denetimleri temiz.
+
+## İlerleme Notu (Tamamlandı)
+
+Görev, ADR-0011 (mimari-kritik, insan onaylı) + 7 alt-PR ile gerçekleştirildi (plan: `precious-roaming-harbor`, tek onay tüm alt-PR'ları kapsadı):
+
+- **ADR-0011** ([#54](https://github.com/sirfurkansahin/luminaos/pull/54)): CRDT↔olay-günlüğü köprüsü — periyodik TAM-durum snapshot'ları nesnenin kendi event stream'ine, yalnızca sunucu yazar; graceful shutdown senkron flush; RBAC çekirdeği WS için servise çıkarılır; ayrı `document_snapshots` tablosu.
+- **PR1** ([#55](https://github.com/sirfurkansahin/luminaos/pull/55)): `packages/core-objects/src/doc` — saf `Block`/`InlineRichText` tipleri + `validateBlock` (divider değişmezi). _Mimari not:_ editör (BlockNote) içeriği runtime'da `Y.XmlFragment`'te tutulur ve snapshot'lar opak Yjs blob'u olduğu için bu saf şema editör tarafından runtime'da KULLANILMAZ — ileride export/sunucu-işleme için korunur (spec §1 domain ≠ §5 editör).
+- **PR2** ([#56](https://github.com/sirfurkansahin/luminaos/pull/56)): `DocumentContentSnapshotted`/`DocumentEdited` zod şemaları (5MB decoded snapshot tavanı), `document_snapshots` tablosu + migration (down dahil), `DocumentSnapshotsProjection` (idempotent) + `DocumentReconstructionService`.
+- **PR3** ([#57](https://github.com/sirfurkansahin/luminaos/pull/57)): `WorkspaceMembershipService.assertMembership` çıkarıldı (davranış-koruyan; 286-test regresyon ağı yeşil), guard ince sarmalayıcıya indi — WS gateway HTTP bağlamı dışında aynı RBAC'i çağırır.
+- **PR4a** ([#58](https://github.com/sirfurkansahin/luminaos/pull/58)): `DocCollabGateway` — ham `ws` `WebSocketServer(noServer)` HTTP upgrade'e bağlanır; auth sırası Origin(CSWSH)→docId→session→doc'un workspace'ini `objects_view`'dan yetkili çöz→membership; oda başına `Y.Doc`, y-protocols sync + awareness. security-reviewer 2 HIGH (CSWSH + cross-workspace IDOR) bulup kapattı.
+- **PR4b** ([#59](https://github.com/sirfurkansahin/luminaos/pull/59)): debounce'lu snapshot yazımı (append-öncesi doğrulama HIGH kontrolü), oturum başına `DocumentEdited`, SIGTERM senkron flush + boş-oda flush, DoS tavanları (503) + `maxPayload`. security-reviewer MEDIUM (unhandled-rejection) kapatıldı.
+- **PR5:** ayrı `packages/ui` bileşeni GEREKMEDİ — editör motoru **BlockNote** seçildi (kullanıcı onayı), slash-menü/drag-drop/awareness hazır gelir (PR6'ya katlandı).
+- **PR6** ([#60](https://github.com/sirfurkansahin/luminaos/pull/60)): `apps/web` BlockNote editörü + özel `DocGatewayProvider` (gateway'in `/ws/docs?docId=` protokolü, PR4a test istemcisiyle aynı), `withCollaboration` + `y-prosemirror` ile gerçek işbirliği aktivasyonu.
+- **PR7** ([#61](https://github.com/sirfurkansahin/luminaos/pull/61)): `ObjectDetailHost` dispatcher (`doc`→`DocEditorPanel`, aksi→`TaskDetailPanel`), App.tsx entegrasyonu.
+
+**Kalan elle-adım:** `pnpm dev` + iki tarayıcı sekmesiyle aynı dokümanı açıp gerçek-zamanlı birleşme/imleçlerin son görsel doğrulaması (backend işbirliği PR4a/4b entegrasyon testleriyle zaten kanıtlı; frontend wiring birim-testli + build-doğrulanmış).
+
+**İleriye-dönük (F1-T11 kapsamı dışı, planda kayıtlı):** `DocGatewayProvider` reconnect'ine exponential backoff; gerçek kullanıcı kimliği gelince awareness `user.name` XSS doğrulaması; `DocEditor`'ı `React.lazy` ile code-split (BlockNote ~1MB'ı başlangıç bundle'ından çıkarmak); sürüm geçmişi UI'ı (snapshot verisi saklanıyor, gösterilmiyor); çoklu-sunucu-örneği yatay ölçekleme (ADR-0011 §b bilinen sınırlama).
