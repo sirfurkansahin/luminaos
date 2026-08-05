@@ -12,6 +12,10 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
+  // Ensure `OnModuleDestroy` hooks fire on SIGTERM/SIGINT so the doc-collab
+  // gateway can flush/close cleanly (PR4b adds the synchronous snapshot flush).
+  app.enableShutdownHooks();
+
   await app.listen(3000);
 }
 
