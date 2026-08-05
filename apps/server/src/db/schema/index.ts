@@ -4,6 +4,7 @@ export * from './workspaces.js';
 export * from './memberships.js';
 export * from './events.js';
 export * from './objects-view.js';
+export * from './document-snapshots.js';
 export * from './field-definitions.js';
 export * from './relations-view.js';
 export * from './saved-views.js';
