@@ -1,70 +1,34 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { Injectable } from '@nestjs/common';
 
-import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
+import { WorkspaceMembershipService } from './workspace-membership.service.js';
 
-import { DATABASE_CONNECTION } from '../db/db.module.js';
-import { memberships } from '../db/schema/memberships.js';
-
-import type { Database } from '../db/client.js';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
-
-// Matches the shape Drizzle's own `uuid()` column type / Postgres's `uuid`
-// type expect (any of the RFC 4122 versions, case-insensitive). Guards run
-// *before* Nest's parameter pipes (so a `ParseUUIDPipe` on the controller
-// param runs too late to protect this guard's own query), so this same
-// check is duplicated here as the first line of defense: a malformed
-// `workspaceId` must never reach the database query below, where `pg`
-// would reject it with a raw driver exception instead of a clean `AppError`.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Must run *after* `SessionAuthGuard` in a controller's `@UseGuards(...)`
  * array — it relies on `req.user` already being populated.
  *
- * Resolves `req.params.workspaceId` + `req.user.id` against the
- * `(workspaceId, userId)` composite unique index on `memberships`. No
- * matching row means the caller is authenticated but not a member of this
- * workspace, which is a 403 (not a 401 — "who you are" and "what you can
- * access" are different failure modes, per `session-auth.guard.ts`'s own
- * comment on the same distinction).
+ * Thin HTTP adapter over `WorkspaceMembershipService`: it pulls
+ * `req.params.workspaceId` + `req.user.id` out of the Express request,
+ * delegates the actual check to the service, and mirrors the result onto
+ * `request.membership`. A missing `req.user` surfaces as an empty-string
+ * `userId`, which the service maps to `UnauthorizedError` — preserving the
+ * previous fail-closed behavior.
  */
 @Injectable()
 export class WorkspaceMembershipGuard implements CanActivate {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: Database) {}
+  constructor(private readonly membershipService: WorkspaceMembershipService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const workspaceId = request.params['workspaceId'];
-    const userId = request.user?.id;
+    const workspaceIdParam = request.params['workspaceId'];
+    const workspaceId = typeof workspaceIdParam === 'string' ? workspaceIdParam : '';
+    const userId = request.user?.id ?? '';
 
-    // No `req.user` means `SessionAuthGuard` didn't run (misconfiguration)
-    // or somehow let an unauthenticated request through — fail closed as
-    // "unauthenticated" rather than silently treating it as "not a member".
-    if (typeof userId !== 'string' || userId.length === 0) {
-      throw new UnauthorizedError();
-    }
+    const { role } = await this.membershipService.assertMembership(userId, workspaceId);
 
-    // A malformed value (not a well-formed UUID) can never match a real
-    // workspace, so it's treated identically to "not a member" (403) rather
-    // than let it reach the query below, where `pg` would raise a raw
-    // driver exception instead of a clean `AppError`.
-    if (typeof workspaceId !== 'string' || !UUID_PATTERN.test(workspaceId)) {
-      throw new ForbiddenError();
-    }
-
-    const [membership] = await this.db
-      .select({ role: memberships.role })
-      .from(memberships)
-      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, userId)))
-      .limit(1);
-
-    if (!membership) {
-      throw new ForbiddenError();
-    }
-
-    request.membership = { workspaceId, role: membership.role };
+    request.membership = { workspaceId, role };
 
     return true;
   }
