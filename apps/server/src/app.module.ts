@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
 import { DbModule } from './db/db.module.js';
+import { DocsModule } from './docs/docs.module.js';
 import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
 import { ObjectsModule } from './objects/objects.module.js';
@@ -39,6 +40,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     AuthModule,
     WorkspacesModule,
     ObjectsModule,
+    DocsModule,
     FieldsModule,
     RelationsModule,
     SavedViewsModule,
