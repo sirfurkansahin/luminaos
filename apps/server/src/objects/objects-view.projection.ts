@@ -207,6 +207,45 @@ export function parseRecurrenceRuleColumn(value: unknown): RecurrenceRule | unde
 }
 
 /**
+ * The same `start`/`end` validation `TimeBlockScheduled`'s domain-side
+ * command mirrors -- extracted only to keep the `apply()` switch case for
+ * this event small, same rationale as `parseRecurrenceRulePayload` above.
+ *
+ * Re-validates ISO-8601 shape and `end > start` here too (not just
+ * non-empty-string), mirroring the defense-in-depth fix applied to
+ * `packages/core-objects/src/replay.ts`'s own `TimeBlockScheduled` fold
+ * (F1-T12 PR2 security review): this projection must not TRUST that every
+ * event in the log went through `scheduleTimeBlock`'s own validation --
+ * a corrupted/malformed event must not silently become an `Invalid Date`
+ * or an inverted range in `objects_view`.
+ */
+function parseTimeBlockSchedulePayload(event: DomainEvent): { start: string; end: string } {
+  const start = requireStringPayloadField(event, 'start');
+  const end = requireStringPayloadField(event, 'end');
+
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+
+  if (Number.isNaN(startMs)) {
+    throw new InvalidObjectStateError(
+      '"TimeBlockScheduled" event has an invalid "start" payload field',
+    );
+  }
+
+  if (Number.isNaN(endMs)) {
+    throw new InvalidObjectStateError(
+      '"TimeBlockScheduled" event has an invalid "end" payload field',
+    );
+  }
+
+  if (endMs <= startMs) {
+    throw new InvalidObjectStateError('"TimeBlockScheduled" event has "end" <= "start"');
+  }
+
+  return { start, end };
+}
+
+/**
  * `objects_view` read-model projection (ADR-0003 "Okuma modeli ve
  * projeksiyon tazeliği"): maps a Lumina Object's `id` (ULID) to its event
  * stream's `streamId` (UUID) and mirrors its current, derived state
@@ -238,6 +277,8 @@ export class ObjectsViewProjection implements Projection {
     'ChecklistItemReordered',
     'RecurrenceRuleSet',
     'RecurrenceRuleCleared',
+    'TimeBlockScheduled',
+    'TimeBlockCleared',
   ];
 
   /**
@@ -474,6 +515,29 @@ export class ObjectsViewProjection implements Projection {
         await dbTx
           .update(objectsView)
           .set({ recurrenceRule: null, updatedAt: event.occurredAt })
+          .where(eq(objectsView.id, objectId));
+        return;
+      }
+      case 'TimeBlockScheduled': {
+        const objectId = requireStringPayloadField(event, 'objectId');
+        const { start, end } = parseTimeBlockSchedulePayload(event);
+
+        await dbTx
+          .update(objectsView)
+          .set({
+            timeBlockStart: new Date(start),
+            timeBlockEnd: new Date(end),
+            updatedAt: event.occurredAt,
+          })
+          .where(eq(objectsView.id, objectId));
+        return;
+      }
+      case 'TimeBlockCleared': {
+        const objectId = requireStringPayloadField(event, 'objectId');
+
+        await dbTx
+          .update(objectsView)
+          .set({ timeBlockStart: null, timeBlockEnd: null, updatedAt: event.occurredAt })
           .where(eq(objectsView.id, objectId));
         return;
       }

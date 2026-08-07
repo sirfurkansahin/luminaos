@@ -434,6 +434,81 @@ describe('createRelation', () => {
   });
 });
 
+/**
+ * F1-T12 PR3 (RED step) — ADR-0012 §e "zaman bloklarının görevi
+ * bloklaması": a `timeblock` LuminaObject "blocks time for" a task via a
+ * NEW `RelationKind`, `'blocks-time-for'` (`fromId` = the timeblock's
+ * object id, `toId` = the task it blocks time for).
+ *
+ * Designed contract (must be matched exactly by implementer):
+ *
+ *   - `./relation.ts`'s `RelationKind` union gains `'blocks-time-for'`.
+ *   - `KNOWN_RELATION_KINDS` (this module) gains `'blocks-time-for'`.
+ *   - `createRelation` needs NO special-case validation block for this kind
+ *     (unlike `parentChild`'s uniqueness+cycle check, `dependency`'s cycle
+ *     check, or `reference`'s duplicate check) — a single task may have
+ *     MULTIPLE `blocks-time-for` relations pointing at it (one per
+ *     timeblock instance blocking time for it), so no uniqueness/duplicate
+ *     constraint applies. It only needs to pass `isKnownRelationKind` so
+ *     `createRelation` does not throw "unknown relation kind" for it.
+ *
+ * EXPECTED RED STATE today: `'blocks-time-for'` is not yet a member of
+ * `RelationKind`, so every literal `kind: 'blocks-time-for'` below fails
+ * TypeScript compilation ("Type '"blocks-time-for"' is not assignable to
+ * type 'RelationKind'"). Once `RelationKind` gains the member but
+ * `KNOWN_RELATION_KINDS` does not yet list it, these tests would instead
+ * fail at runtime with a thrown `ValidationError` ("unknown relation
+ * kind") on the `.not.toThrow()` assertions below.
+ */
+describe('createRelation — blocks-time-for (F1-T12 PR3)', () => {
+  it('succeeds with no special-case validation and produces a RelationCreated draft with kind "blocks-time-for"', () => {
+    const drafts = createRelation(
+      {
+        relationId: RELATION_ID,
+        workspaceId: WORKSPACE_ID,
+        fromId: 'obj-timeblock-1',
+        toId: 'obj-task',
+        kind: 'blocks-time-for',
+      },
+      [],
+    );
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.type).toBe('RelationCreated');
+    expect(drafts[0]?.payload).toEqual({
+      relationId: RELATION_ID,
+      workspaceId: WORKSPACE_ID,
+      fromId: 'obj-timeblock-1',
+      toId: 'obj-task',
+      kind: 'blocks-time-for',
+    });
+  });
+
+  it('allows MULTIPLE blocks-time-for relations against the SAME toId (task) from different timeblocks — no uniqueness constraint', () => {
+    const existing = [
+      buildRelation({
+        fromId: 'obj-timeblock-1',
+        toId: 'obj-task',
+        kind: 'blocks-time-for',
+        status: 'active',
+      }),
+    ];
+
+    expect(() =>
+      createRelation(
+        {
+          relationId: RELATION_ID,
+          workspaceId: WORKSPACE_ID,
+          fromId: 'obj-timeblock-2',
+          toId: 'obj-task',
+          kind: 'blocks-time-for',
+        },
+        existing,
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe('removeRelation', () => {
   it('returns a single RelationRemoved draft with the expected payload when state is active', () => {
     const state = buildRelation({ status: 'active' });

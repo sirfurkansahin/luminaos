@@ -4,7 +4,8 @@
  * F1-T2's `FieldDefinition`), with its own event stream
  * (`RelationCreated`/`RelationRemoved`).
  */
-export type RelationKind = 'parentChild' | 'reference' | 'dependency' | 'recurrenceOf';
+export type RelationKind =
+  'parentChild' | 'reference' | 'dependency' | 'recurrenceOf' | 'blocks-time-for';
 
 export type RelationStatus = 'active' | 'removed';
 

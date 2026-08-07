@@ -42,6 +42,16 @@ export const objectsView = pgTable(
     // means "no recurrence rule set" (folds to `undefined` on read), never an
     // empty-object placeholder.
     recurrenceRule: jsonb('recurrence_rule'),
+    // ADR-0012 §e: `timeblock`'ın gömülü `start`/`end` alanları -- mirrors
+    // `recurrenceRule`'s OPTIONAL, nullable-with-no-default convention (NULL
+    // means "no schedule set"), NOT `checklist`'s always-array convention.
+    // Deliberately PLAIN `timestamp with time zone` columns rather than
+    // jsonb: calendar range-queries/conflict-detection (ADR-0012 §g) will
+    // need these indexable later, which a jsonb blob would not support as
+    // cleanly. `time_block_` prefix on both (rather than a bare `end`
+    // column) because `end` is a SQL reserved word.
+    timeBlockStart: timestamp('time_block_start', { withTimezone: true }),
+    timeBlockEnd: timestamp('time_block_end', { withTimezone: true }),
   },
   (table) => [
     index('objects_view_workspace_id_lifecycle_idx').on(table.workspaceId, table.lifecycle),
