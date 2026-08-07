@@ -8,6 +8,8 @@ import { CalendarEventsService } from './calendar-events.service.js';
 import { CalendarSyncPollerService } from './calendar-sync-poller.service.js';
 import { CalendarTokenEncryptionService } from './calendar-token-encryption.service.js';
 import { CalendarTokenRefreshService } from './calendar-token-refresh.service.js';
+import { ConflictDetectionService } from './conflict-detection.service.js';
+import { ConflictsController } from './conflicts.controller.js';
 import { TimeBlockPushService } from './timeblock-push.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { DbModule } from '../db/db.module.js';
@@ -25,13 +27,14 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  */
 @Module({
   imports: [DbModule, AuthModule, CalendarConnectorModule],
-  controllers: [CalendarAccountsController, CalendarEventsController],
+  controllers: [CalendarAccountsController, CalendarEventsController, ConflictsController],
   providers: [
     CalendarTokenEncryptionService,
     CalendarAccountsService,
     CalendarTokenRefreshService,
     CalendarSyncPollerService,
     CalendarEventsService,
+    ConflictDetectionService,
     TimeBlockPushService,
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
