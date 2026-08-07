@@ -1,6 +1,6 @@
 # F1-T12 — Takvim: Google/Outlook Senkronu, Zaman Bloklama v1, Odak/OOO
 
-**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Yapılacak
+**Epik:** F1-E3 (Görev + Doküman + Takvim Çekirdeği) · **Durum:** Tamamlandı (Kabul Kriterleri 6/6)
 **Bağımlılık:** F1-T1 (varlık tipi kayıt defteri), F1-T3 (ilişki sistemi), F1-T8 (Calendar/Timeline görünümü), F0-T5 (auth/secrets deseni)
 
 ## Amaç
@@ -26,9 +26,35 @@ Dış takvimlerle (Google, Outlook) temel senkron, LuminaOS içi zaman bloklama 
 
 ## Kabul Kriterleri
 
-- [ ] Mock OAuth + sahte Google/Outlook istemcisiyle: hesap bağlanır, dış etkinlikler Calendar görünümünde salt-okunur görünür (entegrasyon testli).
-- [ ] Zaman bloğu oluşturulduğunda karşılık gelen dış etkinliğin (mock adaptör üzerinden) oluştuğu testli; güncelleme/silme de dışa yansır.
-- [ ] Token süresi dolduğunda otomatik yenileme akışı testli; yenileme başarısızsa kullanıcıya tanımlı hata/yeniden bağlanma isteği gösterilir.
-- [ ] Çakışan iki zaman bloğu (veya blok + dış etkinlik) Calendar görünümünde uyarı rozetiyle işaretlendiği testli.
-- [ ] Odak/OOO durum değişikliği event log'da izlenebilir; UI'da anlık yansır (testli).
-- [ ] security-reviewer: OAuth token depolama ve scope minimizasyonu denetlendi.
+- [x] Mock OAuth + sahte Google/Outlook istemcisiyle: hesap bağlanır, dış etkinlikler Calendar görünümünde salt-okunur görünür (entegrasyon testli). — PR5a (bağlan, [#69](https://github.com/sirfurkansahin/luminaos/pull/69)), PR5c (polling+cache, [#71](https://github.com/sirfurkansahin/luminaos/pull/71)), PR8a (Calendar UI salt-okunur chip, [#76](https://github.com/sirfurkansahin/luminaos/pull/76)).
+- [x] Zaman bloğu oluşturulduğunda karşılık gelen dış etkinliğin (mock adaptör üzerinden) oluştuğu testli; güncelleme/silme de dışa yansır. — PR5d ([#72](https://github.com/sirfurkansahin/luminaos/pull/72), `TimeBlockPushService`: create→`createEvent`, reschedule→`updateEvent` idempotent, clear→`deleteEvent`).
+- [x] Token süresi dolduğunda otomatik yenileme akışı testli; yenileme başarısızsa kullanıcıya tanımlı hata/yeniden bağlanma isteği gösterilir. — PR5b ([#70](https://github.com/sirfurkansahin/luminaos/pull/70), `CalendarTokenRefreshService.ensureFreshAccessToken` + `CalendarReconnectRequiredError` 409).
+- [x] Çakışan iki zaman bloğu (veya blok + dış etkinlik) Calendar görünümünde uyarı rozetiyle işaretlendiği testli. — PR7 (`ConflictDetectionService`, [#74](https://github.com/sirfurkansahin/luminaos/pull/74)), PR8a (rozet UI, [#76](https://github.com/sirfurkansahin/luminaos/pull/76)).
+- [x] Odak/OOO durum değişikliği event log'da izlenebilir; UI'da anlık yansır (testli). — PR6 (`UserAvailabilityChanged` event-sourced aggregate, [#73](https://github.com/sirfurkansahin/luminaos/pull/73)), PR8b (`AvailabilitySelector`, `onSuccess`'te cache invalidation ile anlık yansıma, [#77](https://github.com/sirfurkansahin/luminaos/pull/77)).
+- [x] security-reviewer: OAuth token depolama ve scope minimizasyonu denetlendi. — PR1 (AES-256-GCM şifreleme primitifi, [#65](https://github.com/sirfurkansahin/luminaos/pull/65)), PR5a (şifreli `text` depolama, token hiçbir response'ta sızmıyor, [#69](https://github.com/sirfurkansahin/luminaos/pull/69)); ADR-0011 §h minimal scope'ları (gerçek adaptörler için) belgeler.
+
+## İlerleme Notu (Tamamlandı)
+
+Görev, ADR-0012 (mimari-kritik, insan onaylı) + 15 alt-PR ile gerçekleştirildi (plan: `precious-roaming-harbor`, tek onay tüm alt-PR'ları kapsadı):
+
+- **ADR-0012** ([#64](https://github.com/sirfurkansahin/luminaos/pull/64)): dış etkinlikler event-sourced DEĞİL — salt-okunur read-through cache (yabancı doğruluk kaynağının izdüşümü); token şifreleme AES-256-GCM; `CalendarConnector` soyutlaması + Mock (gerçek Google/Outlook adaptörleri ayrı göreve ertelendi — kullanıcı kararı); `UserAvailability` deterministik per-user streamId'li aggregate; çakışma tespiti türetilmiş/yalnızca-uyarı.
+- **PR1** ([#65](https://github.com/sirfurkansahin/luminaos/pull/65)): `packages/shared`'a `encryptSecret`/`decryptSecret` (AES-256-GCM).
+- **PR2** ([#66](https://github.com/sirfurkansahin/luminaos/pull/66)): `packages/core-objects`'e `timeblock` tipi + gömülü `start`/`end`.
+- **PR3** ([#67](https://github.com/sirfurkansahin/luminaos/pull/67)): `timeblock` kalıcılığı (`objects_view`) + `blocks-time-for` ilişkisi.
+- **PR4** ([#68](https://github.com/sirfurkansahin/luminaos/pull/68)): `packages/integrations` — `CalendarConnector` soyutlaması + `MockCalendarConnector`.
+- **PR5a** ([#69](https://github.com/sirfurkansahin/luminaos/pull/69)): mock-OAuth hesap bağlama, şifreli token depolama.
+- **PR5b** ([#70](https://github.com/sirfurkansahin/luminaos/pull/70)): `CALENDAR_CONNECTOR` DI + otomatik token yenileme.
+- **PR5c** ([#71](https://github.com/sirfurkansahin/luminaos/pull/71)): dış etkinlik polling + salt-okunur cache.
+- **PR5d** ([#72](https://github.com/sirfurkansahin/luminaos/pull/72)): `timeblock` HTTP route'ları (PR3'te atlanmıştı) + dış takvime tek-yönlü push.
+- **PR6** ([#73](https://github.com/sirfurkansahin/luminaos/pull/73)): `UserAvailability` event-sourced aggregate (Odak/OOO) + `deriveDeterministicUuid` (RFC4122 UUIDv5, `packages/shared`).
+- **PR7** ([#74](https://github.com/sirfurkansahin/luminaos/pull/74)): çakışma tespiti (türetilmiş, yalnızca-uyarı).
+- **PR8a** ([#76](https://github.com/sirfurkansahin/luminaos/pull/76)): Calendar UI salt-okunur dış etkinlik chip'i + çakışma rozeti.
+- **PR8b** ([#77](https://github.com/sirfurkansahin/luminaos/pull/77)): timeblock oluşturma modalı (güne tıkla → form; bkz. "Kapsam DIŞI" — sürükle-bırak yerine) + Odak/OOO seçici.
+
+**Kalan (bilinçli erteleme, ayrı görev):** Gerçek Google(OAuth2)/Outlook(Microsoft Graph) adaptörleri (kullanıcı kararı — gerçek OAuth kimlik bilgisi/test ortamı yok, tüm Kabul Kriterleri Mock'a karşı kanıtlanmış, ai-gateway'in Mock-öncelikli deseniyle tutarlı). Saatlik grid görünümü + gerçek saat-aralığı sürükleme (F1-T8'in gelecekteki bir genişlemesi). Çoklu-örnek polling tekilleştirmesi (ADR-0012 §b, tek-instance varsayımı).
+
+Sıradaki adım (PLAN.md sırası — F1-E4):
+
+```
+docs/specs/F1-E4/F1-T14.md dosyasını oku
+```
