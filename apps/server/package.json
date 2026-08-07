@@ -18,6 +18,7 @@
   "dependencies": {
     "@luminaos/ai-gateway": "workspace:*",
     "@luminaos/core-objects": "workspace:*",
+    "@luminaos/integrations": "workspace:*",
     "@luminaos/shared": "workspace:*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
