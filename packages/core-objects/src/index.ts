@@ -9,6 +9,7 @@ export * from './id.js';
 export * from './commands.js';
 export * from './checklist-commands.js';
 export * from './recurrence-rule-commands.js';
+export * from './timeblock-commands.js';
 export * from './replay.js';
 export * from './fields/field-permissions.js';
 export * from './fields/field-type-registry.js';
