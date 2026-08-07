@@ -34,6 +34,16 @@ describe('isKnownObjectType', () => {
   it('rejects a case-mismatched known type name', () => {
     expect(isKnownObjectType('Task')).toBe(false);
   });
+
+  /**
+   * F1-T12 PR2 (RED step) — `timeblock` object type registration. `'timeblock'`
+   * is not yet a member of `ObjectType`/`objectTypeRegistry` in
+   * `./object-type-registry.ts`, so this assertion is expected to fail (not
+   * a TS compile error here since `isKnownObjectType` accepts `string`).
+   */
+  it('accepts "timeblock"', () => {
+    expect(isKnownObjectType('timeblock')).toBe(true);
+  });
 });
 
 describe('requiresTitle', () => {
@@ -47,5 +57,18 @@ describe('requiresTitle', () => {
 
   it('does not require a title for "note"', () => {
     expect(requiresTitle('note')).toBe(false);
+  });
+
+  /**
+   * F1-T12 PR2 (RED step) — a timeblock's title is optional (e.g. "Focus
+   * time"); the schedule itself, not the title, is the meaningful data.
+   * `'timeblock'` does not exist as an `ObjectType` member yet, so this line
+   * is expected to fail TypeScript compilation ("Argument of type
+   * '"timeblock"' is not assignable to parameter of type 'ObjectType'")
+   * until `implementer` adds it to `./lumina-object.ts`'s `ObjectType` union
+   * and to `./object-type-registry.ts`'s registry.
+   */
+  it('does not require a title for "timeblock"', () => {
+    expect(requiresTitle('timeblock')).toBe(false);
   });
 });
