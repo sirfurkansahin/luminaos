@@ -15,7 +15,7 @@ import { z } from 'zod';
  */
 export const createObjectSchema = z
   .object({
-    objectType: z.enum(['task', 'doc', 'note']),
+    objectType: z.enum(['task', 'doc', 'note', 'timeblock']),
     title: z.string(),
   })
   .strict();

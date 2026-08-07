@@ -1333,6 +1333,14 @@ export class ObjectsService {
   private toLuminaObject(row: typeof objectsView.$inferSelect): LuminaObject {
     const checklist = parseChecklistColumn(row.checklist ?? []);
     const recurrenceRule = parseRecurrenceRuleColumn(row.recurrenceRule);
+    // F1-T12 PR3: `timeBlock` is present only when BOTH columns are set
+    // (mirrors `recurrenceRule`'s optional-spread convention above) --
+    // either column being NULL means "no schedule set", never a
+    // half-populated `timeBlock`.
+    const timeBlock =
+      row.timeBlockStart !== null && row.timeBlockEnd !== null
+        ? { start: row.timeBlockStart.toISOString(), end: row.timeBlockEnd.toISOString() }
+        : undefined;
 
     return {
       id: row.id,
@@ -1345,6 +1353,7 @@ export class ObjectsService {
       lifecycle: row.lifecycle as LuminaObject['lifecycle'],
       checklist,
       ...(recurrenceRule !== undefined ? { recurrenceRule } : {}),
+      ...(timeBlock !== undefined ? { timeBlock } : {}),
     };
   }
 

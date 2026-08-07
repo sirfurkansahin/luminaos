@@ -9,6 +9,7 @@ const KNOWN_RELATION_KINDS: readonly RelationKind[] = [
   'reference',
   'dependency',
   'recurrenceOf',
+  'blocks-time-for',
 ];
 
 function isKnownRelationKind(kind: string): kind is RelationKind {
