@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 
 import { CalendarAccountsController } from './calendar-accounts.controller.js';
 import { CalendarAccountsService } from './calendar-accounts.service.js';
+import { CalendarConnectorModule } from './calendar-connector.module.js';
 import { CalendarTokenEncryptionService } from './calendar-token-encryption.service.js';
+import { CalendarTokenRefreshService } from './calendar-token-refresh.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { DbModule } from '../db/db.module.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
@@ -18,11 +20,12 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * context for `@UseGuards(...)`.
  */
 @Module({
-  imports: [DbModule, AuthModule],
+  imports: [DbModule, AuthModule, CalendarConnectorModule],
   controllers: [CalendarAccountsController],
   providers: [
     CalendarTokenEncryptionService,
     CalendarAccountsService,
+    CalendarTokenRefreshService,
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],

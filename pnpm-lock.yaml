@@ -65,6 +65,9 @@ importers:
       '@luminaos/core-objects':
         specifier: workspace:*
         version: link:../../packages/core-objects
+      '@luminaos/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@luminaos/shared':
         specifier: workspace:*
         version: link:../../packages/shared
