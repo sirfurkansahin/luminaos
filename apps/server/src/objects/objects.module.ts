@@ -5,6 +5,7 @@ import { ObjectsService } from './objects.service.js';
 import { AIProviderModule } from '../ai/ai-provider.module.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { CalendarModule } from '../calendar/calendar.module.js';
 import { env } from '../config/env.js';
 import { DbModule } from '../db/db.module.js';
 import { EventStoreModule } from '../event-store/event-store.module.js';
@@ -13,7 +14,7 @@ import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.gua
 import { WorkspaceMembershipService } from '../workspaces/workspace-membership.service.js';
 
 @Module({
-  imports: [EventStoreModule, DbModule, AuthModule, AIProviderModule],
+  imports: [EventStoreModule, DbModule, AuthModule, AIProviderModule, CalendarModule],
   controllers: [ObjectsController],
   providers: [
     ObjectsService,

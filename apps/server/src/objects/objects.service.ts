@@ -21,12 +21,14 @@ import {
   isKnownObjectType,
   newObjectId,
   parseFormula,
+  clearTimeBlockSchedule as clearTimeBlockScheduleCommand,
   removeChecklistItem as removeChecklistItemCommand,
   renameObject,
   reorderChecklistItem as reorderChecklistItemCommand,
   replayFieldValues,
   replayObject,
   restoreObject,
+  scheduleTimeBlock as scheduleTimeBlockCommand,
   setFieldValues as setFieldValuesCommand,
   setRecurrenceRule as setRecurrenceRuleCommand,
   softDeleteObject,
@@ -74,6 +76,7 @@ import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AIUsageProjection } from '../ai/ai-usage.projection.js';
 import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
+import { TimeBlockPushService } from '../calendar/timeblock-push.service.js';
 import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
 import { aiUsageRecords } from '../db/schema/ai-usage.js';
@@ -171,6 +174,7 @@ export class ObjectsService {
     private readonly aiRefreshScheduler: AIRefreshScheduler,
     @Inject(AI_PROVIDER) private readonly aiProvider: AIProvider,
     private readonly taskRecurrenceService: TaskRecurrenceService,
+    private readonly timeBlockPush: TimeBlockPushService,
   ) {}
 
   async create(
@@ -334,6 +338,74 @@ export class ObjectsService {
     return this.applyCommandWithFieldValues(workspaceId, objectId, actor, callerRole, (state) =>
       clearRecurrenceRuleCommand(state),
     );
+  }
+
+  /**
+   * F1-T12 PR5d: schedules the timeblock via the shared
+   * `applyCommandWithFieldValues` write path, then best-effort pushes the
+   * new schedule to every calendar account the timeblock's CREATOR has
+   * connected. The push is wrapped in try/catch -- the command itself has
+   * already succeeded and been durably persisted by the time the push is
+   * attempted, so a push failure must never fail this method's own result.
+   */
+  async scheduleTimeBlock(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+    input: { start: string; end: string },
+  ): Promise<ObjectWithFieldValues> {
+    const object = await this.applyCommandWithFieldValues(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      (state) => scheduleTimeBlockCommand(state, input),
+    );
+
+    try {
+      await this.timeBlockPush.pushScheduled(
+        objectId,
+        workspaceId,
+        object.createdBy,
+        object.title,
+        input,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Timeblock schedule push failed for object ${objectId} (workspace ${workspaceId}); the schedule write itself already succeeded.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    return object;
+  }
+
+  /** Same "best-effort, never fails the request" reasoning as `scheduleTimeBlock` above, for the clear side. */
+  async clearTimeBlockSchedule(
+    workspaceId: string,
+    objectId: string,
+    actor: Actor,
+    callerRole: Role,
+  ): Promise<ObjectWithFieldValues> {
+    const object = await this.applyCommandWithFieldValues(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      (state) => clearTimeBlockScheduleCommand(state),
+    );
+
+    try {
+      await this.timeBlockPush.pushCleared(objectId);
+    } catch (error) {
+      this.logger.error(
+        `Timeblock schedule clear push failed for object ${objectId} (workspace ${workspaceId}); the clear write itself already succeeded.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    return object;
   }
 
   async get(

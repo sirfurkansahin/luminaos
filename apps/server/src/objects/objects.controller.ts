@@ -23,6 +23,7 @@ import { createObjectSchema } from './dto/create-object.schema.js';
 import { listObjectsQuerySchema } from './dto/list-objects.schema.js';
 import { renameObjectSchema } from './dto/rename-object.schema.js';
 import { reorderChecklistSchema } from './dto/reorder-checklist.schema.js';
+import { scheduleTimeblockSchema } from './dto/schedule-timeblock.schema.js';
 import { setFieldValuesSchema } from './dto/set-field-values.schema.js';
 import { setRecurrenceRuleSchema } from './dto/set-recurrence-rule.schema.js';
 import { ObjectsService } from './objects.service.js';
@@ -35,6 +36,7 @@ import type { CreateObjectInput } from './dto/create-object.schema.js';
 import type { ListObjectsQuery } from './dto/list-objects.schema.js';
 import type { RenameObjectInput } from './dto/rename-object.schema.js';
 import type { ReorderChecklistInput } from './dto/reorder-checklist.schema.js';
+import type { ScheduleTimeblockInput } from './dto/schedule-timeblock.schema.js';
 import type { SetFieldValuesInput } from './dto/set-field-values.schema.js';
 import type { SetRecurrenceRuleInput } from './dto/set-recurrence-rule.schema.js';
 import type { ObjectWithFieldValues, QueryResult } from './objects.service.js';
@@ -329,6 +331,57 @@ export class ObjectsController {
     const callerRole = this.requireRole(req);
 
     const object = await this.objectsService.clearRecurrenceRule(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+    );
+
+    return { object };
+  }
+
+  /**
+   * F1-T12 PR5d: mirrors `setRecurrenceRule`/`clearRecurrenceRule` exactly --
+   * same guard stack, same `requireActor`/`requireRole` pattern, same
+   * `@HttpCode(HttpStatus.OK)` (200, never 201) response envelope. The
+   * external-calendar push side effect this route also triggers
+   * (`TimeBlockPushService`, via `ObjectsService.scheduleTimeBlock`) is a
+   * resilient, best-effort concern that never affects this route's own
+   * response.
+   */
+  @Post(':objectId/timeblock')
+  @HttpCode(HttpStatus.OK)
+  async scheduleTimeBlock(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Body(new ZodValidationPipe(scheduleTimeblockSchema)) body: ScheduleTimeblockInput,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.scheduleTimeBlock(
+      workspaceId,
+      objectId,
+      actor,
+      callerRole,
+      { start: body.start, end: body.end },
+    );
+
+    return { object };
+  }
+
+  @Delete(':objectId/timeblock')
+  @HttpCode(HttpStatus.OK)
+  async clearTimeBlockSchedule(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('objectId') objectId: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.objectsService.clearTimeBlockSchedule(
       workspaceId,
       objectId,
       actor,
