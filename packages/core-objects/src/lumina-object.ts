@@ -3,7 +3,7 @@
  * API/URL/projections); the event-stream identity (`streamId`, a UUID) lives
  * in the `objects_view` projection mapping, not on this type.
  */
-export type ObjectType = 'task' | 'doc' | 'note';
+export type ObjectType = 'task' | 'doc' | 'note' | 'timeblock';
 
 export type Lifecycle = 'active' | 'archived' | 'deleted';
 
@@ -28,6 +28,20 @@ export interface RecurrenceRule {
   endDate?: string;
 }
 
+/**
+ * Per ADR-0012 "timeblock nesne tipi": embedded, OPTIONAL `LuminaObject`
+ * field (mirrors `recurrenceRule`'s embedded-value-type precedent — see
+ * `./timeblock-commands.test.ts`'s header comment for the full design
+ * rationale). Only ever meaningfully populated on `timeblock` objects, but
+ * present on the type structurally like `recurrenceRule` is.
+ */
+export interface TimeBlockSchedule {
+  /** ISO-8601 datetime string. */
+  start: string;
+  /** ISO-8601 datetime string, must be strictly after `start`. */
+  end: string;
+}
+
 export interface LuminaObject {
   id: string;
   type: ObjectType;
@@ -39,4 +53,5 @@ export interface LuminaObject {
   lifecycle: Lifecycle;
   checklist: ChecklistItem[];
   recurrenceRule?: RecurrenceRule;
+  timeBlock?: TimeBlockSchedule;
 }

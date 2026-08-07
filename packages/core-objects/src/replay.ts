@@ -172,6 +172,50 @@ function applyEvent(state: LuminaObject, event: DomainEvent): LuminaObject {
       delete next.recurrenceRule;
       return next;
     }
+    case 'TimeBlockScheduled': {
+      const { start, end } = event.payload;
+
+      if (typeof start !== 'string' || start.length === 0) {
+        throw new InvalidObjectStateError('TimeBlockScheduled event is missing a valid start');
+      }
+
+      if (typeof end !== 'string' || end.length === 0) {
+        throw new InvalidObjectStateError('TimeBlockScheduled event is missing a valid end');
+      }
+
+      const startMs = Date.parse(start);
+      const endMs = Date.parse(end);
+
+      // Defense-in-depth (security review, F1-T12 PR2): `scheduleTimeBlock`
+      // already enforces ISO-8601 shape + `end > start` before an event is
+      // drafted, but replay must not TRUST that every event in the log went
+      // through that command — it re-validates the same invariant so a
+      // corrupted/malformed event can never fold into a semantically-invalid
+      // `timeBlock`, mirroring how `RecurrenceRuleSet`'s case re-validates its
+      // own payload shape rather than trusting the command layer.
+      if (Number.isNaN(startMs)) {
+        throw new InvalidObjectStateError('TimeBlockScheduled event has an invalid start');
+      }
+
+      if (Number.isNaN(endMs)) {
+        throw new InvalidObjectStateError('TimeBlockScheduled event has an invalid end');
+      }
+
+      if (endMs <= startMs) {
+        throw new InvalidObjectStateError('TimeBlockScheduled event has end <= start');
+      }
+
+      return {
+        ...state,
+        timeBlock: { start, end },
+        updatedAt: event.occurredAt,
+      };
+    }
+    case 'TimeBlockCleared': {
+      const next = { ...state, updatedAt: event.occurredAt };
+      delete next.timeBlock;
+      return next;
+    }
     case 'ChecklistItemReordered': {
       const { orderedItemIds } = event.payload;
 

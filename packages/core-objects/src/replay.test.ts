@@ -457,3 +457,183 @@ describe('replayObject: recurrence rule events', () => {
     expect(result.updatedAt).toEqual(cleared.occurredAt);
   });
 });
+
+/**
+ * F1-T12 PR2 (RED step) — `timeblock` object type's embedded `timeBlock`
+ * schedule replay folding, the other half of
+ * `./timeblock-commands.test.ts`'s pinned contract (see that file's header
+ * for the full designed command signatures). `LuminaObject` does not have a
+ * `timeBlock` field yet, so EVERY `result.timeBlock` access below is
+ * expected to fail TypeScript compilation ("Property 'timeBlock' does not
+ * exist on type 'LuminaObject'") — `implementer` must add
+ * `timeBlock?: TimeBlockSchedule` to `./lumina-object.ts`'s `LuminaObject`
+ * interface (plus the `TimeBlockSchedule` interface and the `'timeblock'`
+ * `ObjectType` member itself) and fold `TimeBlockScheduled`/
+ * `TimeBlockCleared` in `./replay.ts`'s `applyEvent` to turn this green.
+ */
+describe('replayObject: timeblock events', () => {
+  it('timeBlock is undefined by default after ObjectCreated (no schedule set yet)', () => {
+    const created = createdEvent();
+
+    const result = replayObject([created]);
+
+    expect(result.timeBlock).toBeUndefined();
+  });
+
+  it('applies TimeBlockScheduled: sets timeBlock and bumps updatedAt', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T10:00:00.000Z',
+      },
+    });
+
+    const result = replayObject([created, scheduled]);
+
+    expect(result.timeBlock).toEqual({
+      start: '2026-02-01T09:00:00.000Z',
+      end: '2026-02-01T10:00:00.000Z',
+    });
+    expect(result.updatedAt).toEqual(scheduled.occurredAt);
+  });
+
+  it('a later TimeBlockScheduled replaces the earlier one entirely (rescheduling overwrites, not merges)', () => {
+    const created = createdEvent();
+    const firstScheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T10:00:00.000Z',
+      },
+    });
+    const secondScheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-03-01T14:00:00.000Z',
+        end: '2026-03-01T15:30:00.000Z',
+      },
+    });
+
+    const result = replayObject([created, firstScheduled, secondScheduled]);
+
+    expect(result.timeBlock).toEqual({
+      start: '2026-03-01T14:00:00.000Z',
+      end: '2026-03-01T15:30:00.000Z',
+    });
+  });
+
+  it('throws when TimeBlockScheduled has a missing/non-string start', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: { objectId: OBJECT_ID, start: 12345, end: '2026-02-01T10:00:00.000Z' },
+    });
+
+    expect(() => replayObject([created, scheduled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when TimeBlockScheduled has a missing/non-string end', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: { objectId: OBJECT_ID, start: '2026-02-01T09:00:00.000Z', end: undefined },
+    });
+
+    expect(() => replayObject([created, scheduled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when TimeBlockScheduled has a non-ISO-parseable start (defense-in-depth against a corrupted event)', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: { objectId: OBJECT_ID, start: 'not-a-date', end: '2026-02-01T10:00:00.000Z' },
+    });
+
+    expect(() => replayObject([created, scheduled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when TimeBlockScheduled has a non-ISO-parseable end (defense-in-depth against a corrupted event)', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: { objectId: OBJECT_ID, start: '2026-02-01T09:00:00.000Z', end: 'not-a-date' },
+    });
+
+    expect(() => replayObject([created, scheduled])).toThrow(InvalidObjectStateError);
+  });
+
+  it('throws when TimeBlockScheduled has end <= start (defense-in-depth: replay must not trust the command layer already enforced this)', () => {
+    const created = createdEvent();
+    const sameInstant = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T09:00:00.000Z',
+      },
+    });
+
+    expect(() => replayObject([created, sameInstant])).toThrow(InvalidObjectStateError);
+
+    const endBeforeStart = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T08:00:00.000Z',
+      },
+    });
+
+    expect(() => replayObject([created, endBeforeStart])).toThrow(InvalidObjectStateError);
+  });
+
+  it('applies TimeBlockCleared: clears timeBlock back to undefined and bumps updatedAt', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T10:00:00.000Z',
+      },
+    });
+    const cleared = buildEvent({
+      type: 'TimeBlockCleared',
+      payload: { objectId: OBJECT_ID },
+    });
+
+    const result = replayObject([created, scheduled, cleared]);
+
+    expect(result.timeBlock).toBeUndefined();
+    expect(result.updatedAt).toEqual(cleared.occurredAt);
+  });
+
+  it('an unrelated event (ObjectRenamed) does not touch timeBlock', () => {
+    const created = createdEvent();
+    const scheduled = buildEvent({
+      type: 'TimeBlockScheduled',
+      payload: {
+        objectId: OBJECT_ID,
+        start: '2026-02-01T09:00:00.000Z',
+        end: '2026-02-01T10:00:00.000Z',
+      },
+    });
+    const renamed = buildEvent({
+      type: 'ObjectRenamed',
+      payload: { objectId: OBJECT_ID, title: 'Renamed title' },
+    });
+
+    const result = replayObject([created, scheduled, renamed]);
+
+    expect(result.timeBlock).toEqual({
+      start: '2026-02-01T09:00:00.000Z',
+      end: '2026-02-01T10:00:00.000Z',
+    });
+    expect(result.title).toBe('Renamed title');
+  });
+});
