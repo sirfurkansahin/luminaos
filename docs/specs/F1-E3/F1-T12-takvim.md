@@ -22,6 +22,7 @@ Dış takvimlerle (Google, Outlook) temel senkron, LuminaOS içi zaman bloklama 
 - Takvim durumundan (ör. toplantı sırasında) otomatik Odak/OOO türetme.
 - Zoom/Meet/Notetaker entegrasyonu (F2-T13).
 - Diğer takvim sağlayıcıları (yalnızca Google + Outlook).
+- **Saatlik grid görünümü (gün-içi zaman konumlandırması).** F1-T8'in Calendar görünümü aylık bir grid'dir (hücre = gün, saat dilimi yok). Madde 6'daki "sürükle-bırak" zaman bloğu oluşturma bu yüzden PR8'de gün hücresine tıkla → başlangıç/bitiş saati formu ile karşılanır, piksel-hassasiyetli saat-aralığı sürükleme ile DEĞİL. Google Calendar tarzı saatlik/haftalık grid + gerçek saat-aralığı sürükleme, F1-T8'in gelecekteki bir genişlemesi olarak ayrı ele alınmalı.
 
 ## Kabul Kriterleri
 
