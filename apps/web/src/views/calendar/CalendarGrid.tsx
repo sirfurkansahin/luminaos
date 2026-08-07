@@ -21,9 +21,14 @@ export type CalendarDayItem =
 export interface CalendarGridProps {
   days: Date[];
   itemsByDay: Record<string, CalendarDayItem[]>;
+  // F1-T12 PR8b — click-day-to-create-timeblock (the accepted substitute for
+  // pixel-precise drag-to-create). Fired only when the day cell's own
+  // background is clicked, never when a chip inside it is clicked (see
+  // DayCell's `event.target === event.currentTarget` guard below).
+  onDayClick?: (dateISO: string) => void;
 }
 
-export function CalendarGrid({ days, itemsByDay }: CalendarGridProps) {
+export function CalendarGrid({ days, itemsByDay, onDayClick }: CalendarGridProps) {
   const cellRefs = useRef<(HTMLDivElement | null)[]>([]);
   const today = getTodayDateOnly();
 
@@ -91,6 +96,7 @@ export function CalendarGrid({ days, itemsByDay }: CalendarGridProps) {
                   cellRefs.current[index] = element;
                 }}
                 onKeyDown={handleKeyDown(index)}
+                onDayClick={onDayClick}
               />
             );
           })}
@@ -107,9 +113,15 @@ interface DayCellProps {
   items: CalendarDayItem[];
   registerRef: (element: HTMLDivElement | null) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  // Widened to explicitly accept `| undefined` (rather than a plain optional
+  // key) — under this repo's `exactOptionalPropertyTypes`, `CalendarGrid`
+  // forwards its own optional `onDayClick` prop (typed `T | undefined` since
+  // it may be omitted by its caller) as an explicit value, which a merely-
+  // optional target prop type would reject.
+  onDayClick?: ((dateISO: string) => void) | undefined;
 }
 
-function DayCell({ day, iso, isToday, items, registerRef, onKeyDown }: DayCellProps) {
+function DayCell({ day, iso, isToday, items, registerRef, onKeyDown, onDayClick }: DayCellProps) {
   const { setNodeRef } = useDroppable({ id: iso });
 
   return (
@@ -127,6 +139,15 @@ function DayCell({ day, iso, isToday, items, registerRef, onKeyDown }: DayCellPr
         .filter(Boolean)
         .join(' ')}
       onKeyDown={onKeyDown}
+      onClick={(event) => {
+        // Only the cell's own background click opens the create-timeblock
+        // modal — a click that bubbled up from a chip (CalendarObjectChip/
+        // ExternalEventChip) must NOT trigger it (regression proof that chip
+        // drag/click interactions aren't hijacked by this new handler).
+        if (event.target === event.currentTarget) {
+          onDayClick?.(iso);
+        }
+      }}
     >
       <span className={styles.dayNumber}>{day.getUTCDate()}</span>
       {items.map((item) =>

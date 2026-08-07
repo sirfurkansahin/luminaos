@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { QuerySpec } from '@luminaos/shared';
@@ -93,6 +94,24 @@ vi.mock('../hooks/useCalendarExtras.js', () => ({
   useCalendarConflictsQuery: vi.fn(),
 }));
 
+/**
+ * F1-T12 PR8b addition — mirrors ObjectDetailHost.test.tsx's convention of
+ * mocking a whole child component wholesale with an inline JSX stub, so this
+ * suite can assert CalendarView.tsx's own day-click wiring (which day was
+ * clicked, whether the modal was mounted at all) without depending on
+ * CreateTimeblockModal.tsx's (not-yet-implemented) internals.
+ */
+const timeblockModalState = vi.hoisted(() => ({
+  lastProps: undefined as { workspaceId: string; dateISO: string; onClose: () => void } | undefined,
+}));
+
+vi.mock('./calendar/CreateTimeblockModal.js', () => ({
+  CreateTimeblockModal: (props: { workspaceId: string; dateISO: string; onClose: () => void }) => {
+    timeblockModalState.lastProps = props;
+    return <div data-testid="create-timeblock-modal-mock" data-date={props.dateISO} />;
+  },
+}));
+
 const mockedUseObjectsQuery = vi.mocked(useObjectsQuery);
 const mockedUseSetFieldValuesMutation = vi.mocked(useSetFieldValuesMutation);
 const mockedUseExternalCalendarEventsQuery = vi.mocked(useExternalCalendarEventsQuery);
@@ -176,6 +195,9 @@ beforeEach(() => {
   // once CalendarView.tsx is wired to call them — a test can still override
   // via its own `mockCalendarExtras(...)` call for the new coverage below.
   mockCalendarExtras();
+  // F1-T12 PR8b addition — resets the mocked CreateTimeblockModal's captured
+  // props between tests so a stale value from a previous test can't leak in.
+  timeblockModalState.lastProps = undefined;
 });
 
 afterEach(() => {
@@ -430,5 +452,64 @@ describe('CalendarView — external events & conflicts (F1-T12 PR8a)', () => {
     expect(screen.queryByTestId('conflict-badge')).not.toBeInTheDocument();
     const chip = screen.getByTestId('calendar-object-chip');
     expect(chip).toHaveTextContent('Object obj-1');
+  });
+});
+
+/**
+ * F1-T12 PR8b — TDD red step. New coverage for the click-day-to-create-
+ * timeblock flow (the deliberately-not-pixel-precise-drag substitute — see
+ * docs/specs/F1-E3/F1-T12-takvim.md's "Kapsam DIŞI" note). Per the pinned
+ * contract:
+ *   - CalendarView.tsx owns `creatingForDate` state and passes
+ *     `onDayClick={setCreatingForDate}` down to CalendarGrid.
+ *   - Clicking an EMPTY day cell's background calls that callback with the
+ *     cell's ISO date, which mounts `CreateTimeblockModal` (mocked wholesale
+ *     above) with that `dateISO`.
+ *   - Clicking a CHIP inside a day cell must NOT trigger the day-click
+ *     handler (regression proof that chip drag/click interactions aren't
+ *     hijacked by the new day-level handler).
+ */
+describe('CalendarView — click day to create a timeblock (F1-T12 PR8b)', () => {
+  it("clicking an empty day cell's background opens CreateTimeblockModal with that cell's dateISO", async () => {
+    const today = toISODate(getTodayDateOnly());
+    const emptyDay = toISODate(addDays(getTodayDateOnly(), 3));
+    const obj = makeObject('obj-1', today);
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+    mockMutation();
+    const user = userEvent.setup();
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    expect(screen.queryByTestId('create-timeblock-modal-mock')).not.toBeInTheDocument();
+
+    const emptyCell = screen
+      .getAllByTestId('calendar-day-cell')
+      .find((element) => element.getAttribute('data-date') === emptyDay);
+    if (emptyCell === undefined) {
+      throw new Error(`expected to find a calendar-day-cell for ${emptyDay}`);
+    }
+
+    await user.click(emptyCell);
+
+    const modal = screen.getByTestId('create-timeblock-modal-mock');
+    expect(modal).toBeInTheDocument();
+    expect(modal.getAttribute('data-date')).toBe(emptyDay);
+    expect(timeblockModalState.lastProps?.dateISO).toBe(emptyDay);
+    expect(timeblockModalState.lastProps?.workspaceId).toBe(workspaceId);
+  });
+
+  it('clicking a chip inside a day cell does NOT open the create-timeblock modal', async () => {
+    const today = toISODate(getTodayDateOnly());
+    const obj = makeObject('obj-1', today);
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+    mockMutation();
+    const user = userEvent.setup();
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    const chip = screen.getByTestId('calendar-object-chip');
+    await user.click(chip);
+
+    expect(screen.queryByTestId('create-timeblock-modal-mock')).not.toBeInTheDocument();
   });
 });
