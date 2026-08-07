@@ -16,6 +16,10 @@ import {
   TabsTrigger,
 } from '@luminaos/ui';
 
+import {
+  useCalendarConflictsQuery,
+  useExternalCalendarEventsQuery,
+} from '../hooks/useCalendarExtras.js';
 import { useObjectsQuery, useSetFieldValuesMutation } from '../hooks/useObjectsQuery.js';
 import { detectDateFieldCandidates } from '../lib/dateFieldCandidates.js';
 import {
@@ -30,6 +34,7 @@ import { computeCalendarQuerySpec, computeVisibleRange } from './calendar/calend
 import styles from './calendar/CalendarView.module.css';
 import { computeDateFieldUpdate } from './calendar/dragEndUpdate.js';
 
+import type { CalendarDayItem } from './calendar/CalendarGrid.js';
 import type { ObjectWithFieldValues } from '../lib/apiClient.js';
 import type { DragEndEvent } from '@dnd-kit/core';
 
@@ -146,6 +151,45 @@ export function CalendarView({
     return map;
   }, [baseObjects, dateField, overrides]);
 
+  // F1-T12 PR8a — read-only external-calendar sync (ADR-0012 §a/§b): a
+  // second, independent pair of queries surfaces external-provider events
+  // and pre-computed conflict pairs for the same visible range, purely for
+  // display — neither ever feeds back into a mutation.
+  const externalEventsQuery = useExternalCalendarEventsQuery(workspaceId, range);
+  const conflictsQuery = useCalendarConflictsQuery(workspaceId, range);
+
+  const conflictObjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const pair of conflictsQuery.data ?? []) {
+      if (pair.a.kind === 'timeblock') {
+        ids.add(pair.a.id);
+      }
+      if (pair.b.kind === 'timeblock') {
+        ids.add(pair.b.id);
+      }
+    }
+    return ids;
+  }, [conflictsQuery.data]);
+
+  const mergedItemsByDay = useMemo(() => {
+    const map: Record<string, CalendarDayItem[]> = {};
+    for (const [day, objects] of Object.entries(itemsByDay)) {
+      map[day] = objects.map((object) => ({
+        kind: 'object' as const,
+        object,
+        hasConflict: conflictObjectIds.has(object.id),
+      }));
+    }
+    for (const event of externalEventsQuery.data ?? []) {
+      const day = extractISODay(event.start);
+      if (day === undefined) {
+        continue;
+      }
+      (map[day] ??= []).push({ kind: 'external' as const, event });
+    }
+    return map;
+  }, [itemsByDay, conflictObjectIds, externalEventsQuery.data]);
+
   const handleDragEnd = (event: DragEndEvent): void => {
     if (dateField === undefined) {
       return;
@@ -208,10 +252,12 @@ export function CalendarView({
 
   // `dateField === undefined` iff `candidates.length === 0` (its only other
   // source, `selectedDateField`, starts undefined and can only ever be set
-  // to a value already present in `candidates`) — checking it here (rather
-  // than `candidates.length === 0`) also narrows `dateField` to `string` for
-  // every use below, since it's never reassigned within this render.
-  if (dateField === undefined) {
+  // to a value already present in `candidates`). F1-T12 PR8a: this no longer
+  // gates the WHOLE view — a workspace with no internal date-like field but
+  // at least one read-only external-calendar event still has something
+  // useful to show (the external overlay), so the empty state only fires
+  // when there's truly nothing (no date field AND no external events).
+  if (dateField === undefined && (externalEventsQuery.data ?? []).length === 0) {
     return (
       <EmptyState
         data-testid="calendar-view-empty"
@@ -225,7 +271,7 @@ export function CalendarView({
     <div>
       <div className={styles.toolbar}>
         <SelectRoot
-          value={dateField}
+          {...(dateField !== undefined ? { value: dateField } : {})}
           onValueChange={(next) => {
             setSelectedDateField(next);
           }}
@@ -278,7 +324,7 @@ export function CalendarView({
       </div>
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <CalendarGrid days={gridDays} itemsByDay={itemsByDay} />
+        <CalendarGrid days={gridDays} itemsByDay={mergedItemsByDay} />
       </DndContext>
     </div>
   );

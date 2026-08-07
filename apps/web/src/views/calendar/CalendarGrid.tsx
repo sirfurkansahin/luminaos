@@ -3,16 +3,24 @@ import { useRef } from 'react';
 
 import { CalendarObjectChip } from './CalendarObjectChip.js';
 import styles from './CalendarView.module.css';
+import { ExternalEventChip } from './ExternalEventChip.js';
 import { getTodayDateOnly, isSameDay, toISODate } from '../../lib/dateMath.js';
 
-import type { ObjectWithFieldValues } from '../../lib/apiClient.js';
+import type { ExternalCalendarEvent, ObjectWithFieldValues } from '../../lib/apiClient.js';
 import type { KeyboardEvent } from 'react';
 
 const COLUMN_COUNT = 7;
 
+// F1-T12 PR8a — read-only external-calendar sync (ADR-0012 §a/§b): a day
+// cell can hold a mix of writable LuminaOS objects and read-only external
+// events, discriminated by `kind` so DayCell can dispatch to the right chip.
+export type CalendarDayItem =
+  | { kind: 'object'; object: ObjectWithFieldValues; hasConflict: boolean }
+  | { kind: 'external'; event: ExternalCalendarEvent };
+
 export interface CalendarGridProps {
   days: Date[];
-  itemsByDay: Record<string, ObjectWithFieldValues[]>;
+  itemsByDay: Record<string, CalendarDayItem[]>;
 }
 
 export function CalendarGrid({ days, itemsByDay }: CalendarGridProps) {
@@ -96,7 +104,7 @@ interface DayCellProps {
   day: Date;
   iso: string;
   isToday: boolean;
-  items: ObjectWithFieldValues[];
+  items: CalendarDayItem[];
   registerRef: (element: HTMLDivElement | null) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
 }
@@ -121,9 +129,17 @@ function DayCell({ day, iso, isToday, items, registerRef, onKeyDown }: DayCellPr
       onKeyDown={onKeyDown}
     >
       <span className={styles.dayNumber}>{day.getUTCDate()}</span>
-      {items.map((object) => (
-        <CalendarObjectChip key={object.id} object={object} />
-      ))}
+      {items.map((item) =>
+        item.kind === 'object' ? (
+          <CalendarObjectChip
+            key={item.object.id}
+            object={item.object}
+            hasConflict={item.hasConflict}
+          />
+        ) : (
+          <ExternalEventChip key={item.event.externalId} event={item.event} />
+        ),
+      )}
     </div>
   );
 }

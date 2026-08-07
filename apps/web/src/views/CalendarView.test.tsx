@@ -4,11 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QuerySpec } from '@luminaos/shared';
 
 import { CalendarView } from './CalendarView.js';
+import {
+  useCalendarConflictsQuery,
+  useExternalCalendarEventsQuery,
+} from '../hooks/useCalendarExtras.js';
 import { useObjectsQuery, useSetFieldValuesMutation } from '../hooks/useObjectsQuery.js';
 import { addDays, getTodayDateOnly, toISODate } from '../lib/dateMath.js';
 
 import type { OptimisticContext } from '../hooks/useObjectsQuery.js';
-import type { ObjectWithFieldValues, QueryResult } from '../lib/apiClient.js';
+import type {
+  ConflictPair,
+  ExternalCalendarEvent,
+  ObjectWithFieldValues,
+  QueryResult,
+} from '../lib/apiClient.js';
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
@@ -68,8 +77,44 @@ vi.mock('../hooks/useObjectsQuery.js', () => ({
   useSetFieldValuesMutation: vi.fn(),
 }));
 
+/**
+ * F1-T12 PR8a addition — mirrors the wholesale-mock convention above for the
+ * two new read-only hooks (`useExternalCalendarEventsQuery`/
+ * `useCalendarConflictsQuery`, from a not-yet-implemented
+ * `../hooks/useCalendarExtras.js`). Defaulted to empty-array `data` in
+ * `mockCalendarExtras()`'s no-arg form so every EXISTING test case above
+ * (which never calls `mockCalendarExtras()` at all) still renders exactly as
+ * before once the implementer wires `CalendarView.tsx` to call these hooks —
+ * `undefined` real-hook-return-value mocks would otherwise crash any
+ * pre-existing test that doesn't know about this new dependency.
+ */
+vi.mock('../hooks/useCalendarExtras.js', () => ({
+  useExternalCalendarEventsQuery: vi.fn(),
+  useCalendarConflictsQuery: vi.fn(),
+}));
+
 const mockedUseObjectsQuery = vi.mocked(useObjectsQuery);
 const mockedUseSetFieldValuesMutation = vi.mocked(useSetFieldValuesMutation);
+const mockedUseExternalCalendarEventsQuery = vi.mocked(useExternalCalendarEventsQuery);
+const mockedUseCalendarConflictsQuery = vi.mocked(useCalendarConflictsQuery);
+
+function mockCalendarExtras(
+  events: ExternalCalendarEvent[] | undefined = [],
+  conflicts: ConflictPair[] | undefined = [],
+) {
+  mockedUseExternalCalendarEventsQuery.mockReturnValue({
+    data: events,
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
+  mockedUseCalendarConflictsQuery.mockReturnValue({
+    data: conflicts,
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
+}
 
 const workspaceId = 'ws-1';
 const objectType = 'task';
@@ -126,6 +171,11 @@ function makeObject(id: string, dueDate: string, title = `Object ${id}`): Object
 
 beforeEach(() => {
   dndState.capturedOnDragEnd = undefined;
+  // Default every pre-existing test (none of which know about these new F1-T12
+  // PR8a hooks) to empty-array data, so they keep rendering exactly as before
+  // once CalendarView.tsx is wired to call them — a test can still override
+  // via its own `mockCalendarExtras(...)` call for the new coverage below.
+  mockCalendarExtras();
 });
 
 afterEach(() => {
@@ -282,5 +332,103 @@ describe('CalendarView', () => {
     const querySpec = lastCall?.[1] as QuerySpec;
     expect(querySpec.filters[0]?.field).toBe('dueDate');
     expect(screen.getByTestId('calendar-date-field-select')).toHaveTextContent('dueDate');
+  });
+});
+
+/**
+ * F1-T12 PR8a — TDD red step. New coverage for the read-only external-events/
+ * conflicts merge logic CalendarView.tsx must grow (per the pinned contract):
+ *   - `useExternalCalendarEventsQuery`/`useCalendarConflictsQuery` (both from
+ *     a not-yet-implemented `../hooks/useCalendarExtras.js`, mocked wholesale
+ *     above) are called with `(workspaceId, computeVisibleRange(gridDays))`.
+ *   - Each returned `ExternalCalendarEvent` is bucketed into the grid day
+ *     matching its `start`'s ISO date and rendered as an
+ *     `ExternalEventChip`/`data-testid="external-event-chip"`.
+ *   - Any object whose id appears as either `a` or `b` of any
+ *     `ConflictPair` with `kind === 'timeblock'` renders its
+ *     `CalendarObjectChip` with `hasConflict` -> `data-testid="conflict-badge"`
+ *     visible; objects absent from every pair do not show it.
+ *   - Missing/undefined query data for either hook must not crash the view
+ *     and must not fabricate phantom chips (safe merge with defaults).
+ */
+describe('CalendarView — external events & conflicts (F1-T12 PR8a)', () => {
+  it("renders an external event as an external-event-chip bucketed into its start date's day cell", () => {
+    const today = toISODate(getTodayDateOnly());
+    mockQueries({ objects: [] }, { objects: [] });
+    mockMutation();
+    mockCalendarExtras([
+      {
+        externalId: 'ext-1',
+        title: 'Doktor randevusu',
+        start: `${today}T10:00:00.000Z`,
+        end: `${today}T10:30:00.000Z`,
+      },
+    ]);
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    const cell = screen
+      .getAllByTestId('calendar-day-cell')
+      .find((element) => element.getAttribute('data-date') === today);
+    expect(cell).toBeDefined();
+    const chip = screen.getByTestId('external-event-chip');
+    expect(cell as HTMLElement).toContainElement(chip);
+    expect(chip).toHaveTextContent('Doktor randevusu');
+  });
+
+  it('renders a conflict badge on the CalendarObjectChip of an object referenced by a timeblock conflict pair, and not on an unrelated object', () => {
+    const today = toISODate(getTodayDateOnly());
+    const conflicted = makeObject('obj-conflicted', today);
+    const clean = makeObject('obj-clean', today);
+    mockQueries({ objects: [conflicted, clean] }, { objects: [conflicted, clean] });
+    mockMutation();
+    mockCalendarExtras(
+      [],
+      [
+        {
+          a: {
+            kind: 'timeblock',
+            id: 'obj-conflicted',
+            title: 'Object obj-conflicted',
+            start: `${today}T09:00:00.000Z`,
+            end: `${today}T11:00:00.000Z`,
+          },
+          b: {
+            kind: 'external',
+            id: 'ext-1',
+            title: 'Doktor randevusu',
+            start: `${today}T10:00:00.000Z`,
+            end: `${today}T10:30:00.000Z`,
+          },
+        },
+      ],
+    );
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    const chips = screen.getAllByTestId('calendar-object-chip');
+    const conflictedChip = chips.find((chip) => chip.textContent.includes('obj-conflicted'));
+    const cleanChip = chips.find((chip) => chip.textContent.includes('obj-clean'));
+    expect(conflictedChip).toBeDefined();
+    expect(cleanChip).toBeDefined();
+    expect(conflictedChip as HTMLElement).toContainElement(screen.getByTestId('conflict-badge'));
+    expect(
+      cleanChip !== undefined && cleanChip.querySelector('[data-testid="conflict-badge"]'),
+    ).toBeNull();
+  });
+
+  it('regression: renders exactly as before (no crash, no phantom chips) when both new queries return undefined data', () => {
+    const today = toISODate(getTodayDateOnly());
+    const obj = makeObject('obj-1', today);
+    mockQueries({ objects: [obj] }, { objects: [obj] });
+    mockMutation();
+    mockCalendarExtras(undefined, undefined);
+
+    render(<CalendarView workspaceId={workspaceId} objectType={objectType} />);
+
+    expect(screen.queryByTestId('external-event-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('conflict-badge')).not.toBeInTheDocument();
+    const chip = screen.getByTestId('calendar-object-chip');
+    expect(chip).toHaveTextContent('Object obj-1');
   });
 });
