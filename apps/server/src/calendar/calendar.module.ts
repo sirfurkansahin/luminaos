@@ -3,6 +3,9 @@ import { Module } from '@nestjs/common';
 import { CalendarAccountsController } from './calendar-accounts.controller.js';
 import { CalendarAccountsService } from './calendar-accounts.service.js';
 import { CalendarConnectorModule } from './calendar-connector.module.js';
+import { CalendarEventsController } from './calendar-events.controller.js';
+import { CalendarEventsService } from './calendar-events.service.js';
+import { CalendarSyncPollerService } from './calendar-sync-poller.service.js';
 import { CalendarTokenEncryptionService } from './calendar-token-encryption.service.js';
 import { CalendarTokenRefreshService } from './calendar-token-refresh.service.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -21,11 +24,13 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  */
 @Module({
   imports: [DbModule, AuthModule, CalendarConnectorModule],
-  controllers: [CalendarAccountsController],
+  controllers: [CalendarAccountsController, CalendarEventsController],
   providers: [
     CalendarTokenEncryptionService,
     CalendarAccountsService,
     CalendarTokenRefreshService,
+    CalendarSyncPollerService,
+    CalendarEventsService,
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
