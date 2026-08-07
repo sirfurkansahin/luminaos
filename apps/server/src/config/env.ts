@@ -29,6 +29,8 @@ export interface Env {
   docMaxConnectionsPerRoom: number;
   /** `DocCollabGateway`'s DoS cap on the number of distinct live doc rooms (F1-T11 PR4b): an upgrade that would create a new room beyond this is rejected `503`. Absent/blank -> default; present-but-invalid -> fatal. */
   docMaxRooms: number;
+  /** AES-256 key material for encrypting calendar-account OAuth tokens at rest (F1-T12 PR5a), base64-encoded in `ENCRYPTION_KEY`. Absent/blank -> `undefined` (the DI-layer signal `CalendarTokenEncryptionService` uses to throw `InvalidObjectStateError` lazily, at first use, rather than at boot); present-but-not-exactly-32-bytes-decoded -> fatal. */
+  encryptionKey?: Buffer;
 }
 
 /**
@@ -62,12 +64,14 @@ function readEnv(): Env {
   }
 
   const anthropicApiKey = readAnthropicApiKey();
+  const encryptionKey = readEncryptionKey();
 
   return {
     databaseUrl,
     logLevel: readLogLevel(),
     redisUrl,
     ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}),
+    ...(encryptionKey !== undefined ? { encryptionKey } : {}),
     aiTokenQuotaPerWorkspace: readPositiveIntegerEnv(
       'AI_TOKEN_QUOTA_PER_WORKSPACE',
       DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE,
@@ -138,6 +142,34 @@ function readAnthropicApiKey(): string | undefined {
   }
 
   return rawApiKey;
+}
+
+/**
+ * `ENCRYPTION_KEY` (F1-T12 PR5a): absent/blank -> `undefined` (never fatal —
+ * the DI-layer signal `CalendarTokenEncryptionService` uses to throw
+ * `InvalidObjectStateError` lazily, at first use, rather than at boot; a
+ * deployment without calendar features configured must not crash boot over
+ * this). Present -> base64-decoded; the decoded buffer must be EXACTLY 32
+ * bytes (AES-256 key length), otherwise this is a fatal misconfiguration,
+ * mirroring `readPositiveIntegerEnv`'s present-but-invalid style exactly.
+ */
+function readEncryptionKey(): Buffer | undefined {
+  const rawEncryptionKey = process.env['ENCRYPTION_KEY'];
+
+  if (rawEncryptionKey === undefined || rawEncryptionKey.trim() === '') {
+    return undefined;
+  }
+
+  const decodedKey = Buffer.from(rawEncryptionKey, 'base64');
+
+  if (decodedKey.length !== 32) {
+    process.stderr.write(
+      'FATAL: ENCRYPTION_KEY environment variable has an invalid value: must base64-decode to exactly 32 bytes.\n',
+    );
+    process.exit(1);
+  }
+
+  return decodedKey;
 }
 
 /** `AI_TOKEN_QUOTA_PER_WORKSPACE`'s own default (F1-T5 PR-C design decision — one million total input+output tokens per workspace). */
