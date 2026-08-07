@@ -53,8 +53,8 @@ Görev, ADR-0012 (mimari-kritik, insan onaylı) + 15 alt-PR ile gerçekleştiril
 
 **Kalan (bilinçli erteleme, ayrı görev):** Gerçek Google(OAuth2)/Outlook(Microsoft Graph) adaptörleri (kullanıcı kararı — gerçek OAuth kimlik bilgisi/test ortamı yok, tüm Kabul Kriterleri Mock'a karşı kanıtlanmış, ai-gateway'in Mock-öncelikli deseniyle tutarlı). Saatlik grid görünümü + gerçek saat-aralığı sürükleme (F1-T8'in gelecekteki bir genişlemesi). Çoklu-örnek polling tekilleştirmesi (ADR-0012 §b, tek-instance varsayımı).
 
-Sıradaki adım (PLAN.md sırası — F1-E4):
+Sıradaki adım (PLAN.md sırası — F1-E3'ün son görevi):
 
 ```
-docs/specs/F1-E4/F1-T14.md dosyasını oku
+docs/specs/F1-E3/F1-T13-global-arama.md dosyasını oku
 ```
