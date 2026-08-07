@@ -265,6 +265,53 @@ export function clearRecurrenceRule(
   );
 }
 
+// F1-T12 PR8a — read-only external-calendar sync (ADR-0012 §a/§b): external
+// events and conflict pairs are surfaced for display only, never mutated
+// from LuminaOS.
+export interface ExternalCalendarEvent {
+  externalId: string;
+  title: string;
+  start: string;
+  end: string;
+}
+
+export interface ConflictInterval {
+  kind: 'timeblock' | 'external';
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+}
+
+export interface ConflictPair {
+  a: ConflictInterval;
+  b: ConflictInterval;
+}
+
+export async function listExternalCalendarEvents(
+  workspaceId: string,
+  range: { start: string; end: string },
+): Promise<ExternalCalendarEvent[]> {
+  const params = new URLSearchParams({ start: range.start, end: range.end });
+  const { events } = await request<{ events: ExternalCalendarEvent[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/calendar/events?${params.toString()}`,
+    { method: 'GET' },
+  );
+  return events;
+}
+
+export async function listCalendarConflicts(
+  workspaceId: string,
+  range: { start: string; end: string },
+): Promise<ConflictPair[]> {
+  const params = new URLSearchParams({ start: range.start, end: range.end });
+  const { conflicts } = await request<{ conflicts: ConflictPair[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/calendar/conflicts?${params.toString()}`,
+    { method: 'GET' },
+  );
+  return conflicts;
+}
+
 export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
   // No explicit `<void>` type argument (would trip
   // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —
