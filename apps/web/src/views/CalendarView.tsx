@@ -32,6 +32,7 @@ import {
 import { CalendarGrid } from './calendar/CalendarGrid.js';
 import { computeCalendarQuerySpec, computeVisibleRange } from './calendar/calendarQuery.js';
 import styles from './calendar/CalendarView.module.css';
+import { CreateTimeblockModal } from './calendar/CreateTimeblockModal.js';
 import { computeDateFieldUpdate } from './calendar/dragEndUpdate.js';
 
 import type { CalendarDayItem } from './calendar/CalendarGrid.js';
@@ -96,6 +97,10 @@ export function CalendarView({
   useEffect(() => {
     onDateFieldChange?.(dateField);
   }, [dateField, onDateFieldChange]);
+
+  // F1-T12 PR8b — click-day-to-create-timeblock: `undefined` means no modal
+  // is open; a date-only ISO string opens `CreateTimeblockModal` for that day.
+  const [creatingForDate, setCreatingForDate] = useState<string | undefined>(undefined);
 
   const [mode, setMode] = useState<CalendarMode>('month');
   const [anchor, setAnchor] = useState<Date>(() => {
@@ -324,8 +329,22 @@ export function CalendarView({
       </div>
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <CalendarGrid days={gridDays} itemsByDay={mergedItemsByDay} />
+        <CalendarGrid
+          days={gridDays}
+          itemsByDay={mergedItemsByDay}
+          onDayClick={setCreatingForDate}
+        />
       </DndContext>
+
+      {creatingForDate !== undefined && (
+        <CreateTimeblockModal
+          workspaceId={workspaceId}
+          dateISO={creatingForDate}
+          onClose={() => {
+            setCreatingForDate(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

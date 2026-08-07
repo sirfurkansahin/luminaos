@@ -312,6 +312,71 @@ export async function listCalendarConflicts(
   return conflicts;
 }
 
+// F1-T12 PR8b — click-day-to-create-timeblock modal + header Odak/OOO
+// selector (ADR-0012 companion). `scheduleTimeBlock`/`clearTimeBlockSchedule`
+// set/clear a timeblock object's start/end window; `getAvailability`/
+// `setAvailability` read/write the workspace-wide "current status" snapshot
+// surfaced in the header.
+export interface TimeBlockSchedule {
+  start: string;
+  end: string;
+}
+
+export function scheduleTimeBlock(
+  workspaceId: string,
+  objectId: string,
+  schedule: TimeBlockSchedule,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/timeblock`,
+    {
+      method: 'POST',
+      body: JSON.stringify(schedule),
+    },
+  );
+}
+
+export function clearTimeBlockSchedule(
+  workspaceId: string,
+  objectId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/timeblock`,
+    { method: 'DELETE' },
+  );
+}
+
+export type AvailabilityStatus = 'available' | 'focus' | 'ooo';
+
+export interface AvailabilitySnapshot {
+  status: AvailabilityStatus;
+  until?: string;
+  updatedAt: string;
+}
+
+export async function getAvailability(workspaceId: string): Promise<AvailabilitySnapshot | null> {
+  const { availability } = await request<{ availability: AvailabilitySnapshot | null }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/availability`,
+    { method: 'GET' },
+  );
+  return availability;
+}
+
+export async function setAvailability(
+  workspaceId: string,
+  status: AvailabilityStatus,
+  until?: string,
+): Promise<AvailabilitySnapshot> {
+  const { availability } = await request<{ availability: AvailabilitySnapshot }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/availability`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ status, ...(until !== undefined ? { until } : {}) }),
+    },
+  );
+  return availability;
+}
+
 export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
   // No explicit `<void>` type argument (would trip
   // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —

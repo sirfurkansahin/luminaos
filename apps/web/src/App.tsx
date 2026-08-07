@@ -11,6 +11,7 @@ import { ObjectDetailHost } from './views/detail/ObjectDetailHost';
 import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
+import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
@@ -102,6 +103,7 @@ export function App() {
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
       </Button>
+      <AvailabilitySelector workspaceId={DEV_WORKSPACE_ID} />
 
       <ViewSwitcher />
       <ObjectDetailHost workspaceId={DEV_WORKSPACE_ID} />
