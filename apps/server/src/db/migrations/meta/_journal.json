@@ -120,6 +120,13 @@
       "when": 1786120691985,
       "tag": "0016_tiny_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786123446615,
+      "tag": "0017_thin_leader",
+      "breakpoints": true
     }
   ]
 }
