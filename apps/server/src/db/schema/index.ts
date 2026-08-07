@@ -14,3 +14,4 @@ export * from './ai-usage.js';
 export * from './calendar-accounts.js';
 export * from './calendar-events-cache.js';
 export * from './timeblock-external-pushes.js';
+export * from './user-availability.js';

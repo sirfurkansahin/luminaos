@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 
 import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AvailabilityModule } from './availability/availability.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
@@ -41,6 +42,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     AuthModule,
     WorkspacesModule,
     CalendarModule,
+    AvailabilityModule,
     ObjectsModule,
     DocsModule,
     FieldsModule,
