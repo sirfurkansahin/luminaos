@@ -17,6 +17,8 @@ export interface Env {
   anthropicApiKey?: string;
   /** Cumulative `inputTokens + outputTokens` a workspace may consume across `ai_usage_records` before `refreshAIField` starts rejecting with `QuotaExceededError` (F1-T5 PR-C). Absent/blank -> default; present-but-invalid -> fatal. */
   aiTokenQuotaPerWorkspace: number;
+  /** Cumulative `SUM(cost_usd)` (a decimal dollar amount, not a token count) a workspace may reach across `ai_usage_records` before `refreshAIField` starts rejecting with `QuotaExceededError` (F1-T14 PR4), alongside the existing token-count quota. Absent/blank -> default; present-but-invalid (including negative) -> fatal. */
+  aiCostBudgetUsdPerWorkspace: number;
   /** `AIRefreshScheduler`'s debounce window in milliseconds (F1-T5 PR-C). Absent/blank -> default (matches `AIRefreshScheduler`'s own pure default); present-but-invalid -> fatal. */
   aiRefreshDebounceMs: number;
   /** CORS allowlist origin for `apps/web` (F1-T7). Absent -> Vite's default dev origin; present -> used as-is, no shape validation (a malformed origin just fails every preflight, which is self-evident at request time). */
@@ -77,6 +79,10 @@ function readEnv(): Env {
     aiTokenQuotaPerWorkspace: readPositiveIntegerEnv(
       'AI_TOKEN_QUOTA_PER_WORKSPACE',
       DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE,
+    ),
+    aiCostBudgetUsdPerWorkspace: readNonNegativeFloatEnv(
+      'AI_COST_BUDGET_USD_PER_WORKSPACE',
+      DEFAULT_AI_COST_BUDGET_USD_PER_WORKSPACE,
     ),
     aiRefreshDebounceMs: readPositiveIntegerEnv(
       'AI_REFRESH_DEBOUNCE_MS',
@@ -181,6 +187,9 @@ function readEncryptionKey(): Buffer | undefined {
 /** `AI_TOKEN_QUOTA_PER_WORKSPACE`'s own default (F1-T5 PR-C design decision — one million total input+output tokens per workspace). */
 const DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE = 1_000_000;
 
+/** `AI_COST_BUDGET_USD_PER_WORKSPACE`'s own default (F1-T14 PR4 design decision — a v1 placeholder of $10 per workspace). */
+const DEFAULT_AI_COST_BUDGET_USD_PER_WORKSPACE = 10;
+
 /** `AI_REFRESH_DEBOUNCE_MS`'s own default — matches `AIRefreshScheduler`'s pure default so `new AIRefreshScheduler(env.aiRefreshDebounceMs)` and `new AIRefreshScheduler()` behave identically when this env var is unset. */
 const DEFAULT_AI_REFRESH_DEBOUNCE_MS = 5000;
 
@@ -222,6 +231,40 @@ function readPositiveIntegerEnv(variableName: string, defaultValue: number): num
   }
 
   return Number.parseInt(trimmedValue, 10);
+}
+
+/**
+ * "Absent = default, present-but-invalid = fatal" reader for AI env vars
+ * whose shape is a non-negative DECIMAL (e.g. a dollar cost budget) rather
+ * than a non-negative integer — `readPositiveIntegerEnv`'s `^\d+$` regex is
+ * integer-only and syntactically rejects both decimal points and a leading
+ * `-`, so this reader parses with `Number.parseFloat` and explicitly rejects
+ * `NaN` and negative values instead. Mirrors `readPositiveIntegerEnv`'s exact
+ * fail-fast style (`process.stderr.write` then `process.exit(1)`) for the
+ * invalid case. Zero is a valid (if extreme) value and is allowed through.
+ */
+function readNonNegativeFloatEnv(variableName: string, defaultValue: number): number {
+  const rawValue = process.env[variableName];
+
+  if (rawValue === undefined || rawValue.trim() === '') {
+    return defaultValue;
+  }
+
+  const trimmedValue = rawValue.trim();
+
+  // Plain non-negative decimal only -- no leading `+`, no exponent notation,
+  // no trailing garbage. Stricter than `Number.parseFloat` alone, which
+  // would silently accept `'25.5abc'` as `25.5` and `'Infinity'` as a real
+  // `Infinity` (which would then compare `>=` as always-false, silently
+  // disabling the cost budget with no fatal error).
+  if (!/^\d+(\.\d+)?$/.test(trimmedValue)) {
+    process.stderr.write(
+      `FATAL: ${variableName} environment variable has an invalid value "${rawValue}".\n`,
+    );
+    process.exit(1);
+  }
+
+  return Number.parseFloat(trimmedValue);
 }
 
 export const env: Env = readEnv();

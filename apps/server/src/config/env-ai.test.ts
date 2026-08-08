@@ -209,6 +209,101 @@ describe('env.ts — AI_TOKEN_QUOTA_PER_WORKSPACE (F1-T5 PR-C, new field with a 
   });
 });
 
+/**
+ * F1-T14 PR4 (RED step) — a NEW, always-present (defaulted) `Env` field,
+ * `aiCostBudgetUsdPerWorkspace: number`, backed by a NEW `AI_COST_BUDGET_USD_PER_WORKSPACE`
+ * env var, alongside the existing `aiTokenQuotaPerWorkspace` token-count
+ * quota. Unlike every other AI env var pinned above (all read via the
+ * existing `readPositiveIntegerEnv` helper, integer-only, regex `^\d+$`),
+ * this one must accept DECIMAL/fractional values (`'25.5'`) since it
+ * represents a fractional-dollar budget, not a token count — so it needs
+ * its OWN reader, not `readPositiveIntegerEnv` reused as-is.
+ *
+ * NEW CONTRACT PINNED HERE (implementer: extend `Env`/`readEnv()` in
+ * `./env.ts` to match):
+ *
+ *   interface Env {
+ *     ...
+ *     aiCostBudgetUsdPerWorkspace: number;  // NEW, always present (defaulted)
+ *   }
+ *
+ * `AI_COST_BUDGET_USD_PER_WORKSPACE`:
+ *   - absent, or blank/whitespace-only -> defaults to SOME documented
+ *     placeholder number (this test file does not pin the exact default
+ *     value — that is `implementer`'s own design decision to make and
+ *     document in `env.ts`'s doc comment, mirroring every other default
+ *     here — it only pins that the result IS a `number`, never `undefined`
+ *     and never `NaN`).
+ *   - set to a valid non-negative DECIMAL string (e.g. `'25.5'`) ->
+ *     `env.aiCostBudgetUsdPerWorkspace` equals that value AS A NUMBER
+ *     (`25.5`), never the raw string, and never rounded/truncated to an
+ *     integer.
+ *   - set to a non-numeric string (e.g. `'not-a-number'`) -> FATAL,
+ *     `process.exit(1)`, same fail-fast style as every other AI env var
+ *     above.
+ *   - set to a NEGATIVE number string (e.g. `'-5'`) -> ALSO fatal. This is
+ *     a validation rule `readPositiveIntegerEnv` does not need (its regex
+ *     `^\d+$` already syntactically rejects a leading `-`), but a decimal
+ *     reader that accepts fractional values must explicitly reject
+ *     negative ones too, since a negative dollar budget is nonsensical.
+ */
+describe('env.ts — AI_COST_BUDGET_USD_PER_WORKSPACE (F1-T14 PR4, new decimal-valued field with a default)', () => {
+  it('is a real, non-NaN number (some documented default) when AI_COST_BUDGET_USD_PER_WORKSPACE is not set at all', async () => {
+    delete process.env.AI_COST_BUDGET_USD_PER_WORKSPACE;
+
+    const { env } = await import('./env.js');
+
+    expect(typeof env.aiCostBudgetUsdPerWorkspace).toBe('number');
+    expect(Number.isNaN(env.aiCostBudgetUsdPerWorkspace)).toBe(false);
+  });
+
+  it('is a real, non-NaN number (some documented default) when AI_COST_BUDGET_USD_PER_WORKSPACE is blank/whitespace-only', async () => {
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '   ';
+
+    const { env } = await import('./env.js');
+
+    expect(typeof env.aiCostBudgetUsdPerWorkspace).toBe('number');
+    expect(Number.isNaN(env.aiCostBudgetUsdPerWorkspace)).toBe(false);
+  });
+
+  it('parses a valid non-negative DECIMAL string into a real (non-truncated) number, not the raw string', async () => {
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '25.5';
+
+    const { env } = await import('./env.js');
+
+    expect(env.aiCostBudgetUsdPerWorkspace).toBe(25.5);
+    expect(typeof env.aiCostBudgetUsdPerWorkspace).toBe('number');
+  });
+
+  it('parses a valid non-negative INTEGER string (no decimal point) into a real number too', async () => {
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '10';
+
+    const { env } = await import('./env.js');
+
+    expect(env.aiCostBudgetUsdPerWorkspace).toBe(10);
+  });
+
+  it('fails fast with process.exit(1) when set to a non-numeric value', async () => {
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = 'not-a-number';
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(throwProcessExitSignal);
+
+    await expect(import('./env.js')).rejects.toThrow(ProcessExitSignal);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('fails fast with process.exit(1) when set to a NEGATIVE number (a negative $ budget is nonsensical, unlike the token-count reader this does not reuse)', async () => {
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '-5';
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(throwProcessExitSignal);
+
+    await expect(import('./env.js')).rejects.toThrow(ProcessExitSignal);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});
+
 describe('env.ts — AI_REFRESH_DEBOUNCE_MS (F1-T5 PR-C, proposed here for AIRefreshScheduler wiring)', () => {
   it('defaults to 5000 (ms) when AI_REFRESH_DEBOUNCE_MS is not set at all', async () => {
     delete process.env.AI_REFRESH_DEBOUNCE_MS;

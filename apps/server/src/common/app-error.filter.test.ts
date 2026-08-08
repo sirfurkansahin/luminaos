@@ -120,6 +120,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       logLevel: 'info',
       redisUrl: 'unused',
       aiTokenQuotaPerWorkspace: 1_000_000,
+      aiCostBudgetUsdPerWorkspace: 10,
       aiRefreshDebounceMs: 5_000,
       webOrigin: 'http://localhost:5173',
       docSnapshotDebounceMs: 10_000,

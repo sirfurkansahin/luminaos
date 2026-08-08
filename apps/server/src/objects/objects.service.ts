@@ -1049,6 +1049,7 @@ export class ObjectsService {
     // provider call -- never re-checked between the first attempt and its
     // retry (F1-T5 PR-C design decision, see `object-ai-refresh.integration.test.ts`).
     await this.assertAITokenQuotaNotExceeded(workspaceId);
+    await this.assertAICostBudgetNotExceeded(workspaceId);
 
     const priorEvents = await this.eventStore.readStream(streamId);
     const fieldValues = replayFieldValues(priorEvents);
@@ -1188,6 +1189,30 @@ export class ObjectsService {
 
     if (totalTokensUsed >= env.aiTokenQuotaPerWorkspace) {
       throw new QuotaExceededError('AI token quota exceeded for this workspace.', { workspaceId });
+    }
+  }
+
+  /**
+   * Throws `QuotaExceededError` if this workspace's cumulative
+   * `ai_usage_records` recorded cost (`SUM(cost_usd)`, in USD) already meets
+   * or exceeds `env.aiCostBudgetUsdPerWorkspace` -- checked BEFORE any
+   * provider call, alongside `assertAITokenQuotaNotExceeded` (F1-T14 PR4).
+   * `cost_usd` is a nullable numeric column (older pre-cost-tracking rows,
+   * and any future gaps, have `NULL`), so `COALESCE(..., 0)` treats those as
+   * $0 rather than breaking the aggregate.
+   */
+  private async assertAICostBudgetNotExceeded(workspaceId: string): Promise<void> {
+    const [row] = await this.db
+      .select({
+        total: sql<string>`COALESCE(SUM(${aiUsageRecords.costUsd}), 0)`,
+      })
+      .from(aiUsageRecords)
+      .where(eq(aiUsageRecords.workspaceId, workspaceId));
+
+    const totalCostUsed = Number(row?.total ?? 0);
+
+    if (totalCostUsed >= env.aiCostBudgetUsdPerWorkspace) {
+      throw new QuotaExceededError('AI cost budget exceeded for this workspace.', { workspaceId });
     }
   }
 
