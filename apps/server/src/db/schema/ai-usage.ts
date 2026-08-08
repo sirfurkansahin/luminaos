@@ -1,4 +1,4 @@
-import { index, integer, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { index, integer, numeric, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 
 import { workspaces } from './workspaces.js';
 
@@ -25,6 +25,8 @@ export const aiUsageRecords = pgTable(
     objectId: varchar('object_id', { length: 26 }).notNull(),
     inputTokens: integer('input_tokens').notNull(),
     outputTokens: integer('output_tokens').notNull(),
+    model: varchar('model', { length: 64 }),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 6 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (table) => [index('ai_usage_records_workspace_id_idx').on(table.workspaceId)],

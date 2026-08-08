@@ -134,6 +134,13 @@
       "when": 1786180155204,
       "tag": "0018_heavy_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786219502525,
+      "tag": "0019_thick_the_liberteens",
+      "breakpoints": true
     }
   ]
 }
