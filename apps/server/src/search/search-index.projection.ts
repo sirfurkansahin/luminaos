@@ -4,6 +4,8 @@ import { InvalidObjectStateError } from '@luminaos/shared';
 import type { DomainEvent, Projection, ProjectionTx } from '@luminaos/shared';
 
 import { searchIndex } from '../db/schema/search-index.js';
+import { documentContentSnapshottedPayloadSchema } from '../docs/dto/document-snapshot.schema.js';
+import { extractPlainTextFromYjsUpdate } from '../docs/yjs-plain-text.js';
 
 import type { Database } from '../db/client.js';
 
@@ -34,15 +36,19 @@ function requireStringPayloadField(event: DomainEvent, field: string): string {
 }
 
 /**
- * `search_index` title-only full-text-search projection (F1-T13 PR3a,
- * ADR-0013 §(d)): folds `ObjectCreated`/`ObjectRenamed` into `search_index`'s
- * `tsv` column via Postgres's own `to_tsvector('simple', ...)`. A follow-up
- * PR3b will add `DocumentContentSnapshotted` to `handles` and fold decoded
- * doc text into `doc_text`/`tsv` as well -- deliberately out of scope here.
+ * `search_index` full-text-search projection (ADR-0013 §(d)): folds
+ * `ObjectCreated`/`ObjectRenamed` into `search_index`'s `tsv` column via
+ * Postgres's own `to_tsvector('simple', ...)` (F1-T13 PR3a), and folds
+ * `DocumentContentSnapshotted`'s Yjs-decoded doc text into `doc_text`/`tsv`
+ * as well (F1-T13 PR3b).
  */
 export class SearchIndexProjection implements Projection {
   readonly name = 'search-index';
-  readonly handles: readonly string[] = ['ObjectCreated', 'ObjectRenamed'];
+  readonly handles: readonly string[] = [
+    'ObjectCreated',
+    'ObjectRenamed',
+    'DocumentContentSnapshotted',
+  ];
 
   async apply(event: DomainEvent, tx: ProjectionTx): Promise<void> {
     const dbTx = asDbTransaction(tx);
@@ -95,6 +101,32 @@ export class SearchIndexProjection implements Projection {
             updatedAt: event.occurredAt,
           })
           .where(eq(searchIndex.objectId, objectId));
+        return;
+      }
+      case 'DocumentContentSnapshotted': {
+        const payload = documentContentSnapshottedPayloadSchema.parse(event.payload);
+        const docText = extractPlainTextFromYjsUpdate(Buffer.from(payload.snapshot, 'base64'));
+
+        const updated = await dbTx
+          .update(searchIndex)
+          .set({
+            docText,
+            tsv: sql`to_tsvector('simple', coalesce(${searchIndex.title}, '') || ' ' || ${docText})`,
+            updatedAt: event.occurredAt,
+          })
+          .where(eq(searchIndex.objectId, payload.docId))
+          .returning({ objectId: searchIndex.objectId });
+
+        // An orphan snapshot (no prior `ObjectCreated` row for this
+        // `docId`) should never happen in practice -- `ObjectCreated`
+        // always precedes any doc snapshot on the same object stream --
+        // but must fail loudly rather than silently no-op, mirroring PR3a's
+        // `InvalidObjectStateError` discipline.
+        if (updated.length === 0) {
+          throw new InvalidObjectStateError(
+            `"DocumentContentSnapshotted" event references unknown search_index row "${payload.docId}"`,
+          );
+        }
         return;
       }
       default:
