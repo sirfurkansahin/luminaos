@@ -27,6 +27,15 @@ export interface ResolveAIFieldValueInput {
   sourceFieldValues: Record<string, unknown>;
   outputType: 'text' | 'select';
   options?: string[];
+  /**
+   * Which model the caller (`objects.service.ts`, via `selectAIModel`)
+   * already decided to use for this refresh -- forwarded as-is into every
+   * `provider.complete(...)` call (including the `'select'`-output retry, so
+   * both attempts use the SAME model). `resolveAIFieldValue` itself never
+   * decides or defaults this; omitting it preserves the pre-F1-T14-PR3
+   * behavior of not sending a `model` at all.
+   */
+  model?: string;
   recordUsage: (usage: AITokenUsage) => Promise<void> | void;
 }
 
@@ -34,7 +43,10 @@ export async function resolveAIFieldValue(input: ResolveAIFieldValueInput): Prom
   const prompt = renderAIPrompt(input.promptTemplate, input.sourceFieldValues);
 
   const complete = async (): Promise<string> => {
-    const result = await input.provider.complete({ prompt });
+    const result = await input.provider.complete({
+      prompt,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+    });
     await input.recordUsage(result.usage);
     return result.text;
   };
