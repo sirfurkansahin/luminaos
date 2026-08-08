@@ -289,6 +289,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.114.0
         version: 0.114.0(zod@4.4.3)
+      '@luminaos/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.10
