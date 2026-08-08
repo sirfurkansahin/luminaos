@@ -377,6 +377,27 @@ export async function setAvailability(
   return availability;
 }
 
+export interface SearchResult {
+  objectId: string;
+  title: string;
+  type: string;
+  score: number;
+}
+
+export function searchWorkspace(
+  workspaceId: string,
+  query: string,
+  limit?: number,
+): Promise<{ results: SearchResult[] }> {
+  return request<{ results: SearchResult[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/search`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ query, ...(limit !== undefined ? { limit } : {}) }),
+    },
+  );
+}
+
 export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
   // No explicit `<void>` type argument (would trip
   // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —
