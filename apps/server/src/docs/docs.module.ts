@@ -5,6 +5,7 @@ import { DocumentReconstructionService } from './document-reconstruction.service
 import { AuthModule } from '../auth/auth.module.js';
 import { DbModule } from '../db/db.module.js';
 import { EventStoreModule } from '../event-store/event-store.module.js';
+import { SearchIndexModule } from '../search/search-index.module.js';
 import { WorkspacesModule } from '../workspaces/workspaces.module.js';
 
 /**
@@ -21,7 +22,7 @@ import { WorkspacesModule } from '../workspaces/workspaces.module.js';
  * `EventStoreService`/`ProjectionRunner` from `EventStoreModule`.
  */
 @Module({
-  imports: [DbModule, AuthModule, WorkspacesModule, EventStoreModule],
+  imports: [DbModule, AuthModule, WorkspacesModule, EventStoreModule, SearchIndexModule],
   providers: [DocumentReconstructionService, DocCollabGateway],
   exports: [DocumentReconstructionService],
 })

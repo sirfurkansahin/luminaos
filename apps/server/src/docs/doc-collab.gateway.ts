@@ -25,6 +25,9 @@ import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
+import { SearchIndexEmbeddingRefreshService } from '../search/search-index-embedding-refresh.service.js';
+import { SearchIndexEmbeddingScheduler } from '../search/search-index-embedding-scheduler.service.js';
+import { SearchIndexProjection } from '../search/search-index.projection.js';
 import { WorkspaceMembershipService } from '../workspaces/workspace-membership.service.js';
 
 import type { Database } from '../db/client.js';
@@ -151,6 +154,11 @@ export class DocCollabGateway implements OnModuleInit, OnModuleDestroy {
   // append (mirrors `ObjectsService`'s own "stable projection instance").
   private readonly snapshotProjection = new DocumentSnapshotsProjection();
 
+  // Same "single, stable instance" reasoning as `snapshotProjection` above,
+  // for the `search_index` doc-content read model (F1-T13 PR4 bug fix: this
+  // gateway's `snapshotRoom` never caught this projection up before).
+  private readonly searchIndexProjection = new SearchIndexProjection();
+
   constructor(
     private readonly adapterHost: HttpAdapterHost,
     private readonly sessionService: SessionService,
@@ -159,6 +167,8 @@ export class DocCollabGateway implements OnModuleInit, OnModuleDestroy {
     private readonly eventStore: EventStoreService,
     private readonly projectionRunner: ProjectionRunner,
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
+    private readonly searchIndexEmbeddingScheduler: SearchIndexEmbeddingScheduler,
+    private readonly searchIndexEmbeddingRefreshService: SearchIndexEmbeddingRefreshService,
   ) {}
 
   onModuleInit(): void {
@@ -713,6 +723,10 @@ export class DocCollabGateway implements OnModuleInit, OnModuleDestroy {
       room.dirtyCount = 0;
 
       await this.projectionRunner.catchUp(this.snapshotProjection);
+      await this.projectionRunner.catchUp(this.searchIndexProjection);
+      this.searchIndexEmbeddingScheduler.schedule(docId, () =>
+        this.searchIndexEmbeddingRefreshService.refreshEmbedding(docId),
+      );
     } catch {
       // A snapshot write failure (transient DB error, projection catch-up
       // failure, etc.) must NEVER escape as an unhandled promise rejection:
