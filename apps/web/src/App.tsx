@@ -12,6 +12,7 @@ import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
+import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
@@ -99,6 +100,7 @@ export function App() {
   return (
     <main>
       <h1>LuminaOS</h1>
+      <CommandPalette workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
