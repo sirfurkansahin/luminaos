@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, ne, sql } from 'drizzle-orm';
 
+import { calculateCostUsd } from '@luminaos/ai-gateway';
 import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
 import {
   addChecklistItem as addChecklistItemCommand,
@@ -76,6 +77,7 @@ import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
 import { AIUsageProjection } from '../ai/ai-usage.projection.js';
 import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
+import { selectAIModel } from '../ai/select-ai-model.js';
 import { TimeBlockPushService } from '../calendar/timeblock-push.service.js';
 import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
@@ -1052,6 +1054,7 @@ export class ObjectsService {
     const fieldValues = replayFieldValues(priorEvents);
 
     const config = this.aiFieldConfig(definition);
+    const model = selectAIModel({ outputType: config.outputType });
 
     const resolvedValue = await resolveAIFieldValue({
       provider: this.aiProvider,
@@ -1059,7 +1062,9 @@ export class ObjectsService {
       sourceFieldValues: fieldValues,
       outputType: config.outputType,
       ...(config.options !== undefined ? { options: config.options } : {}),
-      recordUsage: (usage) => this.recordAIUsage(workspaceId, definition.id, objectId, usage),
+      model,
+      recordUsage: (usage) =>
+        this.recordAIUsage(workspaceId, definition.id, objectId, usage, model),
     });
 
     const draft: ObjectEventDraft = {
@@ -1190,33 +1195,51 @@ export class ObjectsService {
    * Records `usage` as an `AIUsageRecorded` event on its OWN dedicated
    * stream (own atomic `append`, separate from the object's own stream --
    * see `AI_USAGE_STREAM_TYPE`'s doc comment). Passed to
-   * `resolveAIFieldValue` as its `recordUsage` callback.
+   * `resolveAIFieldValue` as its `recordUsage` callback, AFTER the provider
+   * has already returned a result -- so, same "best-effort, never fail the
+   * request" reasoning as `scheduleTimeBlock` above, this never throws.
+   * `calculateCostUsd` cannot fail for any model `selectAIModel` can
+   * currently produce (both are in `MODEL_PRICING`), but this stays
+   * defensive so a future routing/pricing-table mismatch degrades to a
+   * missing usage record instead of discarding an already-generated field
+   * value.
    */
   private async recordAIUsage(
     workspaceId: string,
     fieldDefinitionId: string,
     objectId: string,
     usage: AITokenUsage,
+    model: string,
   ): Promise<void> {
-    const usageStreamId = randomUUID();
-    const event: NewDomainEvent = {
-      id: randomUUID(),
-      streamType: AI_USAGE_STREAM_TYPE,
-      workspaceId,
-      type: 'AIUsageRecorded',
-      payload: {
+    try {
+      const usageStreamId = randomUUID();
+      const costUsd = calculateCostUsd(model, usage);
+      const event: NewDomainEvent = {
+        id: randomUUID(),
+        streamType: AI_USAGE_STREAM_TYPE,
         workspaceId,
-        fieldDefinitionId,
-        objectId,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-      },
-      actor: AI_GATEWAY_ACTOR,
-      occurredAt: new Date(),
-    };
+        type: 'AIUsageRecorded',
+        payload: {
+          workspaceId,
+          fieldDefinitionId,
+          objectId,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          model,
+          costUsd,
+        },
+        actor: AI_GATEWAY_ACTOR,
+        occurredAt: new Date(),
+      };
 
-    await this.eventStore.append(usageStreamId, 0, [event]);
-    await this.projectionRunner.catchUp(this.aiUsageProjection);
+      await this.eventStore.append(usageStreamId, 0, [event]);
+      await this.projectionRunner.catchUp(this.aiUsageProjection);
+    } catch (error) {
+      this.logger.error(
+        `AI usage recording failed for field ${fieldDefinitionId} on object ${objectId} (workspace ${workspaceId}); the AI field value itself already succeeded.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   /**

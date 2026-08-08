@@ -4,6 +4,8 @@ import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redi
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5, calculateCostUsd } from '@luminaos/ai-gateway';
+
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 
@@ -254,6 +256,38 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+/**
+ * F1-T14 PR3 (RED step) — model routing + cost calculation, wired into the
+ * SAME `performAIFieldRefresh` flow this file already exercises end-to-end.
+ * Nothing below this comment exists yet on `main`:
+ *
+ *   performAIFieldRefresh now:
+ *     1. Calls selectAIModel({ outputType: config.outputType }) to pick a model.
+ *     2. Passes that model into resolveAIFieldValue({ ..., model }).
+ *     3. recordAIUsage(workspaceId, fieldDefinitionId, objectId, usage, model) — NEW
+ *        5th parameter — computes costUsd = calculateCostUsd(model, usage) and
+ *        includes BOTH model and costUsd in the AIUsageRecorded event payload.
+ *
+ * Until `implementer` builds this, every `ai_usage_records` row inserted by
+ * this file's refreshes has `model`/`cost_usd` = NULL (the columns exist,
+ * per PR2, merged — only the wiring that POPULATES them is missing), so the
+ * new assertions below (on a non-null `model`/`cost_usd`) are expected to
+ * fail for that reason, not a missing-column/migration error.
+ *
+ * `assertAITokenQuotaNotExceeded`'s own SQL (`SUM(input_tokens +
+ * output_tokens)`, grouped by `workspace_id`) reads neither `model` nor
+ * `cost_usd` at all -- this PR's wiring cannot regress the existing
+ * token-quota tests above (`assertAITokenQuotaNotExceeded` and its
+ * cost-based successor are explicitly out of scope here, deferred to PR4).
+ */
+
+interface RawAIUsageRow {
+  model: string | null;
+  cost_usd: string | null;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 let emailCounter = 0;
 
 function freshEmail(): string {
@@ -405,6 +439,23 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
       .post(`${objectsUrl(workspaceId)}/${objectId}/fields/${fieldKey}/refresh`)
       .set('Cookie', cookie)
       .send();
+  }
+
+  /**
+   * Raw SQL (not the Drizzle `aiUsageRecords` schema object) mirroring
+   * `../ai/ai-usage.projection.integration.test.ts`'s own `getRawRow`
+   * convention -- returns the MOST RECENT `ai_usage_records` row for a given
+   * `field_definition_id` (each test below refreshes a field defined fresh
+   * for that test, so there is exactly one row per field, except the
+   * pre-existing quota test above which never asserts on this helper at
+   * all).
+   */
+  async function getLatestUsageRow(fieldDefinitionId: string): Promise<RawAIUsageRow | undefined> {
+    const result = await rawDb.$client.query<RawAIUsageRow>(
+      'select model, cost_usd, input_tokens, output_tokens from ai_usage_records where field_definition_id = $1 order by created_at desc limit 1',
+      [fieldDefinitionId],
+    );
+    return result.rows[0];
   }
 
   // -------------------------------------------------------------------------
@@ -746,4 +797,104 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
       (finalResponse.body as ObjectEnvelope).object.fieldValues['summaryOfSummary'],
     ).toBeUndefined();
   }, 15_000);
+
+  // -------------------------------------------------------------------------
+  // F1-T14 PR3 — model routing + cost calculation wired into the refresh flow
+  // -------------------------------------------------------------------------
+
+  it("a text-output ai field refresh's ai_usage_records row records model = CLAUDE_SONNET_5 and a cost_usd matching calculateCostUsd for that model + the actual recorded usage", async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costTextSource',
+      label: 'Cost Text Source',
+      fieldType: 'text',
+      config: {},
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+    const summaryField = await defineField(cookie, workspaceId, 'task', {
+      key: 'costTextSummary',
+      label: 'Cost Text Summary',
+      fieldType: 'ai',
+      config: {
+        promptTemplate: `Summarize: {costTextSource}\n${returnDirective('text model routing response')}`,
+        sourceFields: ['costTextSource'],
+        outputType: 'text',
+        refreshMode: 'manual',
+      },
+      permissions: AI_VIEW_ONLY_PERMISSIONS,
+    });
+
+    const created = await createObject(cookie, workspaceId, 'task', 'Cost text-output task');
+    await setFieldValues(cookie, workspaceId, created.id, { costTextSource: 'anything' });
+
+    const refreshResponse = await refreshField(cookie, workspaceId, created.id, 'costTextSummary');
+    expect(refreshResponse.status).toBe(200);
+
+    const row = await getLatestUsageRow(summaryField.id);
+    expect(row).toBeDefined();
+    expect(row?.model).toBe(CLAUDE_SONNET_5);
+    expect(row?.cost_usd).not.toBeNull();
+
+    // This file's fixed per-call scripted usage (see header, design decision
+    // 1): every real provider call costs exactly 100 input / 20 output
+    // tokens -- one call for a text-output field (no retry path).
+    const expectedCost = calculateCostUsd(CLAUDE_SONNET_5, {
+      inputTokens: row?.input_tokens ?? 0,
+      outputTokens: row?.output_tokens ?? 0,
+    });
+    expect(Number(row?.cost_usd)).toBeCloseTo(expectedCost, 6);
+  });
+
+  it("a select-output ai field refresh's ai_usage_records row records model = CLAUDE_HAIKU_4_5 (the real Haiku model id) and a cost_usd computed from THAT model's (cheaper) pricing table entry, not Sonnet's", async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costSelectSource',
+      label: 'Cost Select Source',
+      fieldType: 'text',
+      config: {},
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+    const urgencyField = await defineField(cookie, workspaceId, 'task', {
+      key: 'costUrgency',
+      label: 'Cost Urgency',
+      fieldType: 'ai',
+      config: {
+        promptTemplate: `Classify urgency: {costSelectSource}\n${returnDirective('medium')}`,
+        sourceFields: ['costSelectSource'],
+        outputType: 'select',
+        refreshMode: 'manual',
+        options: ['low', 'medium', 'high'],
+      },
+      permissions: AI_VIEW_ONLY_PERMISSIONS,
+    });
+
+    const created = await createObject(cookie, workspaceId, 'task', 'Cost select-output task');
+    await setFieldValues(cookie, workspaceId, created.id, {
+      costSelectSource: 'server is on fire',
+    });
+
+    const refreshResponse = await refreshField(cookie, workspaceId, created.id, 'costUrgency');
+    expect(refreshResponse.status).toBe(200);
+    expect((refreshResponse.body as ObjectEnvelope).object.fieldValues['costUrgency']).toBe(
+      'medium',
+    );
+
+    const row = await getLatestUsageRow(urgencyField.id);
+    expect(row).toBeDefined();
+    expect(row?.model).toBe(CLAUDE_HAIKU_4_5);
+    expect(row?.model).not.toBe(CLAUDE_SONNET_5);
+    expect(row?.cost_usd).not.toBeNull();
+
+    // Proves the RIGHT pricing table entry was used: computing the cost
+    // against Sonnet's (more expensive) rates must NOT match this row's
+    // persisted cost_usd, only Haiku's does.
+    const usage = { inputTokens: row?.input_tokens ?? 0, outputTokens: row?.output_tokens ?? 0 };
+    const expectedHaikuCost = calculateCostUsd(CLAUDE_HAIKU_4_5, usage);
+    const sonnetCostForSameUsage = calculateCostUsd(CLAUDE_SONNET_5, usage);
+
+    expect(Number(row?.cost_usd)).toBeCloseTo(expectedHaikuCost, 6);
+    expect(expectedHaikuCost).not.toBeCloseTo(sonnetCostForSameUsage, 6);
+  });
 });
