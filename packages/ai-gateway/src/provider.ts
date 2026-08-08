@@ -8,6 +8,7 @@
 export interface AICompletionRequest {
   prompt: string;
   maxTokens?: number;
+  model?: string;
 }
 
 export interface AITokenUsage {
@@ -18,6 +19,17 @@ export interface AITokenUsage {
 export interface AICompletionResult {
   text: string;
   usage: AITokenUsage;
+  /**
+   * The model that actually produced this result, when the provider knows it
+   * (e.g. `AnthropicProvider` always reports the exact string it sent to the
+   * SDK — `request.model ?? this.model`). Optional so `MockProvider`/existing
+   * fixtures aren't forced to supply it. A caller computing cost from `usage`
+   * should still prefer whatever model value IT explicitly requested (if any)
+   * over re-deriving it from this field — this exists as a single source of
+   * truth for callers that omitted `request.model` and need to know after the
+   * fact what was actually billed, not as the primary channel.
+   */
+  model?: string;
 }
 
 export interface AIProvider {

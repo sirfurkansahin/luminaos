@@ -1,15 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+import { DEFAULT_ANTHROPIC_MODEL } from './model-pricing.js';
 import { withRetry } from './retry.js';
 
 import type { AICompletionRequest, AICompletionResult, AIProvider } from './provider.js';
 
-/**
- * Placeholder default model name. No real model-name string was found
- * anywhere in this repo at the time this file was written; this is a
- * placeholder pending a real models/pricing reference doc.
- */
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-placeholder-model';
+export { DEFAULT_ANTHROPIC_MODEL } from './model-pricing.js';
 
 const DEFAULT_MAX_TOKENS = 1024;
 
@@ -65,9 +61,11 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async complete(request: AICompletionRequest): Promise<AICompletionResult> {
+    const effectiveModel = request.model ?? this.model;
+
     const response = await withRetry(() =>
       this.client.messages.create({
-        model: this.model,
+        model: effectiveModel,
         max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
         messages: [{ role: 'user', content: request.prompt }],
       }),
@@ -81,6 +79,7 @@ export class AnthropicProvider implements AIProvider {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
       },
+      model: effectiveModel,
     };
   }
 }

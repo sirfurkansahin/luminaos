@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AnthropicProvider } from './anthropic-provider.js';
+import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './anthropic-provider.js';
+import { CLAUDE_SONNET_5 } from './model-pricing.js';
 
 import type { AICompletionRequest } from './provider.js';
 
@@ -119,6 +120,58 @@ describe('AnthropicProvider — request shape', () => {
     expect(callArgs.messages).toEqual([{ role: 'user', content: 'summarize X' }]);
   });
 
+  it('uses the per-request model override, not the constructor-fixed model, when request.model is set', async () => {
+    const { client, create } = fixedClient({
+      content: [{ type: 'text', text: 'a summary' }],
+      usage: { input_tokens: 12, output_tokens: 4 },
+    });
+
+    const provider = new AnthropicProvider(
+      { apiKey: 'test-api-key', model: 'constructor-default-model' },
+      client,
+    );
+
+    await provider.complete(buildRequest({ model: 'some-override-model' }));
+
+    expect(create).toHaveBeenCalledTimes(1);
+    const callArgs = create.mock.calls[0]?.[0] as { model: string };
+    expect(callArgs.model).toBe('some-override-model');
+  });
+
+  it('falls back to the constructor-fixed model when the request has no model field', async () => {
+    const { client, create } = fixedClient({
+      content: [{ type: 'text', text: 'a summary' }],
+      usage: { input_tokens: 12, output_tokens: 4 },
+    });
+
+    const provider = new AnthropicProvider(
+      { apiKey: 'test-api-key', model: 'constructor-default-model' },
+      client,
+    );
+
+    await provider.complete(buildRequest());
+
+    expect(create).toHaveBeenCalledTimes(1);
+    const callArgs = create.mock.calls[0]?.[0] as { model: string };
+    expect(callArgs.model).toBe('constructor-default-model');
+  });
+
+  it('uses DEFAULT_ANTHROPIC_MODEL (the real claude-sonnet-5 value) when neither the constructor nor the request specify a model', async () => {
+    const { client, create } = fixedClient({
+      content: [{ type: 'text', text: 'a summary' }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+
+    const provider = new AnthropicProvider({ apiKey: 'test-api-key' }, client);
+
+    await provider.complete(buildRequest());
+
+    expect(create).toHaveBeenCalledTimes(1);
+    const callArgs = create.mock.calls[0]?.[0] as { model: string };
+    expect(callArgs.model).toBe(CLAUDE_SONNET_5);
+    expect(DEFAULT_ANTHROPIC_MODEL).toBe(CLAUDE_SONNET_5);
+  });
+
   it('never reads process.env itself — the API key must come only from the constructor options', async () => {
     const { client } = fixedClient({
       content: [{ type: 'text', text: 'ok' }],
@@ -134,6 +187,7 @@ describe('AnthropicProvider — request shape', () => {
     await expect(provider.complete(buildRequest())).resolves.toEqual({
       text: 'ok',
       usage: { inputTokens: 1, outputTokens: 1 },
+      model: DEFAULT_ANTHROPIC_MODEL,
     });
   });
 });
@@ -152,6 +206,7 @@ describe('AnthropicProvider — response mapping', () => {
     expect(result).toEqual({
       text: 'the mapped completion text',
       usage: { inputTokens: 42, outputTokens: 7 },
+      model: DEFAULT_ANTHROPIC_MODEL,
     });
   });
 });
