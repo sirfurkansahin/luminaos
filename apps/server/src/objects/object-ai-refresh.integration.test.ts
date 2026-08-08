@@ -1,17 +1,22 @@
+import { randomUUID } from 'node:crypto';
+
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5, calculateCostUsd } from '@luminaos/ai-gateway';
+import type { AIProvider } from '@luminaos/ai-gateway';
 
+import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 
 import type { Database } from '../db/client.js';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
+import type { MockInstance } from 'vitest';
 
 /**
  * F1-T5 PR-C (RED step) — server-side AI FIELDS integration: the new
@@ -301,6 +306,8 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
   let app: INestApplication;
   let server: Server;
   let rawDb: Database;
+  let aiProvider: AIProvider;
+  let completeSpy: MockInstance<AIProvider['complete']>;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
@@ -319,6 +326,17 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
     // A short real debounce window -- see design decision 3.
     process.env.AI_REFRESH_DEBOUNCE_MS = '50';
 
+    // F1-T14 PR4 (RED step) -- a generous $ budget, deliberately far above
+    // anything this file's real MockProvider-backed calls could ever
+    // naturally accumulate (a handful of calls at ~$0.0006 each), so it
+    // never interferes with any EXISTING test above. The dedicated
+    // cost-budget-rejection test below never relies on natural
+    // accumulation to exceed it -- it seeds a prior `ai_usage_records` row
+    // with a `cost_usd` far above this budget directly via `rawDb`, for
+    // its own freshly-registered workspace, so the very FIRST refresh
+    // operation in that workspace is rejected before any provider call.
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '10';
+
     await runMigrations(container.getConnectionUri());
 
     const { AppModule } = await import('../app.module.js');
@@ -332,6 +350,15 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
 
     server = app.getHttpServer() as Server;
     rawDb = createDatabaseClient(container.getConnectionUri());
+
+    // F1-T14 PR4 (RED step) -- the SAME MockProvider instance the whole app
+    // resolves `AI_PROVIDER` to, spied on so cost-budget-rejection tests can
+    // assert "the provider's complete() was never invoked for THIS
+    // operation" by diffing the spy's call count before/after, rather than
+    // asserting a global `toHaveBeenCalledTimes(0)` (other tests in this
+    // same file legitimately call it many times, sharing one app instance).
+    aiProvider = app.get<AIProvider>(AI_PROVIDER);
+    completeSpy = vi.spyOn(aiProvider, 'complete');
   }, 60_000);
 
   afterAll(async () => {
@@ -456,6 +483,37 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
       [fieldDefinitionId],
     );
     return result.rows[0];
+  }
+
+  /**
+   * F1-T14 PR4 (RED step) -- inserts a synthetic `ai_usage_records` row
+   * directly via raw SQL (bypassing `performAIFieldRefresh`/`recordAIUsage`
+   * entirely) so a workspace's cumulative recorded COST can be pushed above
+   * `AI_COST_BUDGET_USD_PER_WORKSPACE` WITHOUT needing any real provider
+   * call first -- the whole point of the dedicated rejection test below is
+   * proving the cost-budget check runs, and rejects, BEFORE the first
+   * provider call of an operation, so accumulating cost via real calls
+   * first would defeat the point. `field_definition_id`/`object_id` are
+   * plain `varchar` columns with no FK constraint (see
+   * `../db/schema/ai-usage.ts`), so any non-empty placeholder string is
+   * valid here.
+   */
+  async function seedPriorUsageCost(workspaceId: string, costUsd: string): Promise<void> {
+    await rawDb.$client.query(
+      `insert into ai_usage_records
+         (id, workspace_id, field_definition_id, object_id, input_tokens, output_tokens, model, cost_usd, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
+      [
+        randomUUID(),
+        workspaceId,
+        'seeded-field-definition-id',
+        'seeded-object-id',
+        0,
+        0,
+        null,
+        costUsd,
+      ],
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -896,5 +954,107 @@ describe('AI field refresh (real Postgres + real HTTP via Testcontainers + super
 
     expect(Number(row?.cost_usd)).toBeCloseTo(expectedHaikuCost, 6);
     expect(expectedHaikuCost).not.toBeCloseTo(sonnetCostForSameUsage, 6);
+  });
+
+  // -------------------------------------------------------------------------
+  // F1-T14 PR4 (RED step) — the $ cost-budget quota, alongside the existing
+  // token-count quota. Nothing under test in this section exists yet:
+  // `assertAICostBudgetNotExceeded` (or equivalent) is not wired into
+  // `performAIFieldRefresh` at all, and `env.aiCostBudgetUsdPerWorkspace`
+  // does not exist on `Env` yet (see `../config/env-ai.test.ts`'s own RED
+  // contract for that field) -- every test below is expected to fail until
+  // `implementer` builds both.
+  // -------------------------------------------------------------------------
+
+  it('a refresh operation whose workspace has ALREADY recorded cumulative cost above AI_COST_BUDGET_USD_PER_WORKSPACE is rejected with 429 QUOTA_EXCEEDED BEFORE calling the provider at all', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costBudgetSource',
+      label: 'Cost Budget Source',
+      fieldType: 'text',
+      config: {},
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costBudgetField',
+      label: 'Cost Budget Field',
+      fieldType: 'ai',
+      config: {
+        promptTemplate: `Summarize: {costBudgetSource}\n${returnDirective('should never be reached')}`,
+        sourceFields: ['costBudgetSource'],
+        outputType: 'text',
+        refreshMode: 'manual',
+      },
+      permissions: AI_VIEW_ONLY_PERMISSIONS,
+    });
+
+    const created = await createObject(cookie, workspaceId, 'task', 'Cost budget rejection task');
+    await setFieldValues(cookie, workspaceId, created.id, { costBudgetSource: 'anything' });
+
+    // Seeded FAR above this file's shared AI_COST_BUDGET_USD_PER_WORKSPACE
+    // ('10') -- this workspace's cumulative recorded cost is already over
+    // budget before the very FIRST refresh operation of this test even
+    // starts, so the rejection must happen without ever calling the
+    // provider (unlike the token-quota test above, which needs a SECOND
+    // operation to observe the rejection).
+    await seedPriorUsageCost(workspaceId, '20.000000');
+
+    const callsBefore = completeSpy.mock.calls.length;
+
+    const refreshResponse = await refreshField(cookie, workspaceId, created.id, 'costBudgetField');
+
+    expect(refreshResponse.status).toBe(429);
+    expect((refreshResponse.body as ApiErrorEnvelope).error.code).toBe('QUOTA_EXCEEDED');
+
+    // The provider must never have been invoked for this operation -- the
+    // cost-budget check runs BEFORE the first provider call, per
+    // `performAIFieldRefresh`'s existing "quota checked once, before any
+    // provider call" design (mirrors `assertAITokenQuotaNotExceeded`'s own
+    // placement).
+    expect(completeSpy.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('a refresh operation in a workspace whose cumulative recorded cost is comfortably BELOW AI_COST_BUDGET_USD_PER_WORKSPACE succeeds normally, unaffected by the cost-budget check', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costBudgetOkSource',
+      label: 'Cost Budget OK Source',
+      fieldType: 'text',
+      config: {},
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+    await defineField(cookie, workspaceId, 'task', {
+      key: 'costBudgetOkField',
+      label: 'Cost Budget OK Field',
+      fieldType: 'ai',
+      config: {
+        promptTemplate: `Summarize: {costBudgetOkSource}\n${returnDirective('within budget response')}`,
+        sourceFields: ['costBudgetOkSource'],
+        outputType: 'text',
+        refreshMode: 'manual',
+      },
+      permissions: AI_VIEW_ONLY_PERMISSIONS,
+    });
+
+    const created = await createObject(cookie, workspaceId, 'task', 'Cost budget happy-path task');
+    await setFieldValues(cookie, workspaceId, created.id, { costBudgetOkSource: 'anything' });
+
+    // No seeded prior usage at all -- this freshly-registered workspace's
+    // cumulative recorded cost starts at 0, far below the shared $10
+    // budget, so this single refresh operation must succeed exactly as it
+    // would have before this PR's cost-budget check existed.
+    const refreshResponse = await refreshField(
+      cookie,
+      workspaceId,
+      created.id,
+      'costBudgetOkField',
+    );
+
+    expect(refreshResponse.status).toBe(200);
+    expect((refreshResponse.body as ObjectEnvelope).object.fieldValues['costBudgetOkField']).toBe(
+      'within budget response',
+    );
   });
 });
