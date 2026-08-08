@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { Projection, ProjectionTx } from '@luminaos/shared';
 
@@ -34,26 +34,41 @@ export class ProjectionRunner {
    * Reads the log in `globalPosition` order, starting just after the
    * projection's last recorded checkpoint, applying every event whose type
    * this projection `handles` (or all events, for a `['*']` projection), and
-   * advancing the checkpoint to the last-read position — all per batch, in
-   * one transaction. Resumable: calling this again only processes events
-   * appended since the previous call.
+   * advancing the checkpoint to the last-read position. Resumable: calling
+   * this again only processes events appended since the previous call.
+   *
+   * The ENTIRE call (checkpoint read through every batch's apply +
+   * checkpoint write) runs inside ONE transaction, serialized per
+   * `projection.name` by a Postgres transaction-scoped advisory lock
+   * (`pg_advisory_xact_lock`, auto-released on commit/rollback — safe under
+   * connection pooling since it's tied to the transaction, not a specific
+   * session). Without this, two concurrent `catchUp` calls for the SAME
+   * projection could both read the same (stale) checkpoint before either
+   * writes a new one, both apply the same batch of events, and — for any
+   * projection whose `apply()` does a plain (non-upsert) `INSERT` on an
+   * event like `ObjectCreated` — crash with a duplicate-key violation
+   * (discovered via F1-T13 PR5's genuinely-concurrent-HTTP-requests test).
+   * This makes the "effectively-once" guarantee this class already claimed
+   * actually hold under concurrency, rather than introducing a new one.
    */
   async catchUp(projection: Projection): Promise<void> {
-    let checkpoint = await this.readCheckpoint(projection.name);
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${projection.name})::bigint)`);
 
-    for (;;) {
-      const batch = await this.eventStore.readAllFrom(checkpoint, BATCH_SIZE);
+      let checkpoint = await this.readCheckpoint(tx, projection.name);
 
-      if (batch.length === 0) {
-        return;
-      }
+      for (;;) {
+        const batch = await this.eventStore.readAllFrom(checkpoint, BATCH_SIZE);
 
-      const lastPositionInBatch = batch[batch.length - 1]?.globalPosition;
-      if (lastPositionInBatch === undefined) {
-        return;
-      }
+        if (batch.length === 0) {
+          return;
+        }
 
-      await this.db.transaction(async (tx) => {
+        const lastPositionInBatch = batch[batch.length - 1]?.globalPosition;
+        if (lastPositionInBatch === undefined) {
+          return;
+        }
+
         for (const event of batch) {
           if (projection.handles.includes('*') || projection.handles.includes(event.type)) {
             // `ProjectionTx` is intentionally opaque at the `packages/shared`
@@ -65,14 +80,14 @@ export class ProjectionRunner {
         }
 
         await this.writeCheckpoint(tx, projection.name, lastPositionInBatch);
-      });
 
-      checkpoint = lastPositionInBatch;
+        checkpoint = lastPositionInBatch;
 
-      if (batch.length < BATCH_SIZE) {
-        return;
+        if (batch.length < BATCH_SIZE) {
+          return;
+        }
       }
-    }
+    });
   }
 
   /**
@@ -90,8 +105,8 @@ export class ProjectionRunner {
     await this.catchUp(projection);
   }
 
-  private async readCheckpoint(projectionName: string): Promise<number> {
-    const [row] = await this.db
+  private async readCheckpoint(tx: DbTransaction, projectionName: string): Promise<number> {
+    const [row] = await tx
       .select({ lastPosition: projectionCheckpoints.lastPosition })
       .from(projectionCheckpoints)
       .where(eq(projectionCheckpoints.projectionName, projectionName));
