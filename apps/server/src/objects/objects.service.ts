@@ -85,6 +85,7 @@ import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 import { TaskRecurrenceService } from '../recurrence/task-recurrence.service.js';
+import { SearchIndexProjection } from '../search/search-index.projection.js';
 
 import type { Database } from '../db/client.js';
 import type { SQL } from 'drizzle-orm';
@@ -165,6 +166,9 @@ export class ObjectsService {
   /** Same "single, stable instance" reasoning as `projection` above, for the `ai_usage_records` read model (F1-T5 PR-C). */
   private readonly aiUsageProjection = new AIUsageProjection();
 
+  /** Same "single, stable instance" reasoning as `projection` above, for the `search_index` title-search read model (F1-T13 PR3a). */
+  private readonly searchIndexProjection = new SearchIndexProjection();
+
   private readonly logger = new Logger(ObjectsService.name);
 
   constructor(
@@ -231,6 +235,7 @@ export class ObjectsService {
     const appended = await this.eventStore.append(streamId, 0, [...userEvents, ...systemEvents]);
 
     await this.projectionRunner.catchUp(this.projection);
+    await this.projectionRunner.catchUp(this.searchIndexProjection);
 
     const object = replayObject(appended);
     const fieldValues = replayFieldValues(appended);
@@ -797,6 +802,7 @@ export class ObjectsService {
     const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
+    await this.projectionRunner.catchUp(this.searchIndexProjection);
 
     const object = replayObject([...priorEvents, ...appended]);
     const fieldValues = replayFieldValues([...priorEvents, ...appended]);
@@ -1055,6 +1061,7 @@ export class ObjectsService {
     const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
+    await this.projectionRunner.catchUp(this.searchIndexProjection);
 
     const allEvents = [...priorEvents, ...appended];
     const object = replayObject(allEvents);
@@ -1301,6 +1308,7 @@ export class ObjectsService {
     const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
+    await this.projectionRunner.catchUp(this.searchIndexProjection);
 
     return replayObject([...priorEvents, ...appended]);
   }
@@ -1334,6 +1342,7 @@ export class ObjectsService {
     const appended = await this.eventStore.append(streamId, priorEvents.length, newEvents);
 
     await this.projectionRunner.catchUp(this.projection);
+    await this.projectionRunner.catchUp(this.searchIndexProjection);
 
     const allEvents = [...priorEvents, ...appended];
     const object = replayObject(allEvents);
