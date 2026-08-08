@@ -85,6 +85,8 @@ import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 import { TaskRecurrenceService } from '../recurrence/task-recurrence.service.js';
+import { SearchIndexEmbeddingRefreshService } from '../search/search-index-embedding-refresh.service.js';
+import { SearchIndexEmbeddingScheduler } from '../search/search-index-embedding-scheduler.service.js';
 import { SearchIndexProjection } from '../search/search-index.projection.js';
 
 import type { Database } from '../db/client.js';
@@ -179,6 +181,8 @@ export class ObjectsService {
     @Inject(AI_PROVIDER) private readonly aiProvider: AIProvider,
     private readonly taskRecurrenceService: TaskRecurrenceService,
     private readonly timeBlockPush: TimeBlockPushService,
+    private readonly searchIndexEmbeddingScheduler: SearchIndexEmbeddingScheduler,
+    private readonly searchIndexEmbeddingRefreshService: SearchIndexEmbeddingRefreshService,
   ) {}
 
   async create(
@@ -236,6 +240,9 @@ export class ObjectsService {
 
     await this.projectionRunner.catchUp(this.projection);
     await this.projectionRunner.catchUp(this.searchIndexProjection);
+    this.searchIndexEmbeddingScheduler.schedule(objectId, () =>
+      this.searchIndexEmbeddingRefreshService.refreshEmbedding(objectId),
+    );
 
     const object = replayObject(appended);
     const fieldValues = replayFieldValues(appended);
@@ -803,6 +810,9 @@ export class ObjectsService {
 
     await this.projectionRunner.catchUp(this.projection);
     await this.projectionRunner.catchUp(this.searchIndexProjection);
+    this.searchIndexEmbeddingScheduler.schedule(objectId, () =>
+      this.searchIndexEmbeddingRefreshService.refreshEmbedding(objectId),
+    );
 
     const object = replayObject([...priorEvents, ...appended]);
     const fieldValues = replayFieldValues([...priorEvents, ...appended]);
@@ -1062,6 +1072,9 @@ export class ObjectsService {
 
     await this.projectionRunner.catchUp(this.projection);
     await this.projectionRunner.catchUp(this.searchIndexProjection);
+    this.searchIndexEmbeddingScheduler.schedule(objectId, () =>
+      this.searchIndexEmbeddingRefreshService.refreshEmbedding(objectId),
+    );
 
     const allEvents = [...priorEvents, ...appended];
     const object = replayObject(allEvents);
@@ -1309,6 +1322,9 @@ export class ObjectsService {
 
     await this.projectionRunner.catchUp(this.projection);
     await this.projectionRunner.catchUp(this.searchIndexProjection);
+    this.searchIndexEmbeddingScheduler.schedule(objectId, () =>
+      this.searchIndexEmbeddingRefreshService.refreshEmbedding(objectId),
+    );
 
     return replayObject([...priorEvents, ...appended]);
   }
@@ -1343,6 +1359,9 @@ export class ObjectsService {
 
     await this.projectionRunner.catchUp(this.projection);
     await this.projectionRunner.catchUp(this.searchIndexProjection);
+    this.searchIndexEmbeddingScheduler.schedule(objectId, () =>
+      this.searchIndexEmbeddingRefreshService.refreshEmbedding(objectId),
+    );
 
     const allEvents = [...priorEvents, ...appended];
     const object = replayObject(allEvents);

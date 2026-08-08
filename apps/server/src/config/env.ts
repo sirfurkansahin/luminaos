@@ -31,6 +31,8 @@ export interface Env {
   docMaxRooms: number;
   /** AES-256 key material for encrypting calendar-account OAuth tokens at rest (F1-T12 PR5a), base64-encoded in `ENCRYPTION_KEY`. Absent/blank -> `undefined` (the DI-layer signal `CalendarTokenEncryptionService` uses to throw `InvalidObjectStateError` lazily, at first use, rather than at boot); present-but-not-exactly-32-bytes-decoded -> fatal. */
   encryptionKey?: Buffer;
+  /** `SearchIndexEmbeddingScheduler`'s debounce window in milliseconds (F1-T13 PR4, ADR-0013 §(e)). Absent/blank -> default (matches `SearchIndexEmbeddingScheduler`'s own pure default); present-but-invalid -> fatal. */
+  searchIndexEmbeddingDebounceMs: number;
 }
 
 /**
@@ -94,6 +96,10 @@ function readEnv(): Env {
       DEFAULT_DOC_MAX_CONNECTIONS_PER_ROOM,
     ),
     docMaxRooms: readPositiveIntegerEnv('DOC_MAX_ROOMS', DEFAULT_DOC_MAX_ROOMS),
+    searchIndexEmbeddingDebounceMs: readPositiveIntegerEnv(
+      'SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS',
+      DEFAULT_SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS,
+    ),
   };
 }
 
@@ -189,6 +195,9 @@ const DEFAULT_DOC_MAX_CONNECTIONS_PER_ROOM = 50;
 
 /** `DOC_MAX_ROOMS`'s own default (F1-T11 PR4b) — live-room-count DoS cap. */
 const DEFAULT_DOC_MAX_ROOMS = 1000;
+
+/** `SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS`'s own default (F1-T13 PR4) — matches `SearchIndexEmbeddingScheduler`'s pure default so `new SearchIndexEmbeddingScheduler(env.searchIndexEmbeddingDebounceMs)` and `new SearchIndexEmbeddingScheduler()` behave identically when this env var is unset. */
+const DEFAULT_SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS = 5000;
 
 /**
  * Shared "absent = default, present-but-invalid = fatal" reader for the

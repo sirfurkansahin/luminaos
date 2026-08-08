@@ -126,6 +126,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       docSnapshotMaxUpdates: 100,
       docMaxConnectionsPerRoom: 50,
       docMaxRooms: 1_000,
+      searchIndexEmbeddingDebounceMs: 5_000,
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 
