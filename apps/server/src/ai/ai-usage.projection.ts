@@ -37,6 +37,50 @@ function requireIntegerPayloadField(event: DomainEvent, field: string): number {
 }
 
 /**
+ * Like `requireStringPayloadField`, but tolerates ABSENCE (returns
+ * `undefined`) — only a PRESENT-but-wrong-typed value throws. Used for
+ * optional payload fields (`model`) introduced after the event type already
+ * had production traffic, so old events lacking the field must not fail.
+ */
+function optionalStringPayloadField(event: DomainEvent, field: string): string | undefined {
+  const value = event.payload[field];
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new InvalidObjectStateError(
+      `"${event.type}" event has an invalid "${field}" payload field`,
+    );
+  }
+
+  return value;
+}
+
+/**
+ * Like `requireIntegerPayloadField`, but tolerates ABSENCE (returns
+ * `undefined`) — only a PRESENT-but-invalid value throws. Used for the
+ * optional `costUsd` payload field: a finite number is required when present,
+ * but the field may be entirely missing on older events.
+ */
+function optionalFiniteNumberPayloadField(event: DomainEvent, field: string): number | undefined {
+  const value = event.payload[field];
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new InvalidObjectStateError(
+      `"${event.type}" event has an invalid "${field}" payload field`,
+    );
+  }
+
+  return value;
+}
+
+/**
  * `ai_usage_records` read-model projection (F1-T5 PR-C): one row per
  * `AIUsageRecorded` event. Every OTHER read model in this codebase
  * (`ObjectsViewProjection`, `FieldDefinitionsViewProjection`,
@@ -63,6 +107,8 @@ export class AIUsageProjection implements Projection {
     const objectId = requireStringPayloadField(event, 'objectId');
     const inputTokens = requireIntegerPayloadField(event, 'inputTokens');
     const outputTokens = requireIntegerPayloadField(event, 'outputTokens');
+    const model = optionalStringPayloadField(event, 'model');
+    const costUsd = optionalFiniteNumberPayloadField(event, 'costUsd');
 
     // `onConflictDoNothing` on the primary key (the event's own id) — an
     // idempotent replay of the same `AIUsageRecorded` event (event-store
@@ -77,6 +123,8 @@ export class AIUsageProjection implements Projection {
         objectId,
         inputTokens,
         outputTokens,
+        model: model ?? null,
+        costUsd: costUsd === undefined ? null : costUsd.toString(),
         createdAt: event.occurredAt,
       })
       .onConflictDoNothing({ target: aiUsageRecords.id });
