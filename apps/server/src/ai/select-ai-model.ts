@@ -8,9 +8,14 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * is a constrained-choice task, cheap enough for the fast/cheap model
  * (`CLAUDE_HAIKU_4_5`); a `'text'`-output field is open-ended generation,
  * routed to the default/stronger model (`CLAUDE_SONNET_5`).
+ *
+ * `'qa'` (F1-T15 PR3, `answerQuestion`'s RAG-style question-answering output)
+ * routes the same way as `'text'`: answering a question from retrieved
+ * passages is open-ended generation, not a constrained-choice task, so it
+ * belongs on the default/stronger model too.
  */
 export interface SelectAIModelInput {
-  outputType: 'text' | 'select';
+  outputType: 'text' | 'select' | 'qa';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {
