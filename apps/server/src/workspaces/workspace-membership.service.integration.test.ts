@@ -7,8 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 
 import { WorkspaceMembershipService } from './workspace-membership.service.js';
+import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { memberships } from '../db/schema/memberships.js';
 
+import type { Database } from '../db/client.js';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
 
@@ -93,6 +96,14 @@ describe('WorkspaceMembershipService.assertMembership (real Postgres, via Testco
   let app: INestApplication;
   let server: Server;
   let service: WorkspaceMembershipService;
+  // F1-T16 PR3 (RED) addition: a raw Drizzle client, independent of Nest's
+  // injected one, used only by this file's `assertAllMembers` fixtures to
+  // seed an EXTRA (non-owner) membership row directly — there is no
+  // HTTP/service path today for "add an existing user as a member of
+  // someone else's workspace", so direct-insert is the same convention
+  // already established by `object-query.integration.test.ts`'s own
+  // `addMemberWithRole` helper (search `rawDb.insert(memberships)`).
+  let rawDb: Database;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
@@ -116,10 +127,12 @@ describe('WorkspaceMembershipService.assertMembership (real Postgres, via Testco
 
     server = app.getHttpServer() as Server;
     service = app.get(WorkspaceMembershipService);
+    rawDb = createDatabaseClient(container.getConnectionUri());
   }, 60_000);
 
   afterAll(async () => {
     await app.close();
+    await rawDb.$client.end();
     await container.stop();
     await redisContainer.stop();
   }, 60_000);
@@ -155,6 +168,22 @@ describe('WorkspaceMembershipService.assertMembership (real Postgres, via Testco
     const { cookie, userId } = await registerUser();
     const workspaceId = await createWorkspace(cookie, `Workspace ${String(emailCounter)}`);
     return { userId, workspaceId };
+  }
+
+  /** F1-T16 PR3 (RED) addition: registers a brand-new user and directly
+   * inserts a `memberships` row making them a member of `workspaceId` with
+   * `role` — used only by `assertAllMembers` fixtures below, which need
+   * MULTIPLE distinct members of the SAME workspace (something no existing
+   * HTTP route in this codebase supports yet, so a direct insert via
+   * `rawDb` is used, mirroring `object-query.integration.test.ts`'s own
+   * `addMemberWithRole` convention). Returns the new member's userId. */
+  async function addExistingUserAsMember(
+    workspaceId: string,
+    role: 'admin' | 'member' | 'guest',
+  ): Promise<string> {
+    const { userId } = await registerUser();
+    await rawDb.insert(memberships).values({ workspaceId, userId, role });
+    return userId;
   }
 
   // Case 1
@@ -205,5 +234,94 @@ describe('WorkspaceMembershipService.assertMembership (real Postgres, via Testco
     await expect(service.assertMembership(userId, WELL_FORMED_UUID)).rejects.toBeInstanceOf(
       ForbiddenError,
     );
+  });
+
+  /**
+   * ---------------------------------------------------------------------------
+   * F1-T16 PR3 (RED): `assertAllMembers`, a NEW bulk-membership-check method
+   * needed by a later PR (F1-T16 PR5's `assignPeople` action execution) to
+   * validate every person a command proposes assigning is actually a member
+   * of the workspace, before writing a `people`-typed field value.
+   *
+   * CONTRACT PINNED BY THIS BLOCK (implementer must match precisely):
+   *
+   *   assertAllMembers(workspaceId: string, userIds: string[]): Promise<void>
+   *
+   *   1. Resolves without throwing when every `userIds` entry is a member of
+   *      `workspaceId`.
+   *   2. Throws `ForbiddenError` (same class `assertMembership` throws for
+   *      "not a member" — no new error type) when AT LEAST ONE `userIds`
+   *      entry is not a member of `workspaceId`.
+   *   3. Resolves without throwing for an empty `userIds` array — nothing to
+   *      validate.
+   *   4. Duplicate entries in `userIds` (the same member listed twice) must
+   *      NOT cause a false failure.
+   *   5. Throws `ForbiddenError` for a malformed (non-UUID) `workspaceId`,
+   *      mirroring `assertMembership`'s own "malformed value can never match
+   *      a real workspace" guard (see this file's top-of-class comment) —
+   *      this must hold even when `userIds` is otherwise valid.
+   *
+   * RED STATE (expected, today): `WorkspaceMembershipService` has no
+   * `assertAllMembers` method, so every `it` below fails with `TypeError:
+   * service.assertAllMembers is not a function` — the right reason, per this
+   * file's own established RED-state precedent for `assertMembership` above.
+   * Once the implementer lands the method, every `it` below must pass
+   * unchanged.
+   *
+   * NOT separately tested here (deliberate, see PR3 task notes): a
+   * dedicated "single query, not N queries" efficiency assertion. A
+   * call-count spy on the injected `db` client would couple this black-box
+   * behavioral suite to an implementation detail; test 2 (partial
+   * membership correctly rejected) and test 4 (duplicates don't
+   * double-count) already fully pin the OBSERVABLE behavior any correct
+   * single-query or looped implementation must satisfy — efficiency itself
+   * is a non-functional concern better left to code review.
+   * ---------------------------------------------------------------------------
+   */
+  describe('WorkspaceMembershipService.assertAllMembers (F1-T16 PR3, RED — new bulk-membership-check method)', () => {
+    // Case 1
+    it('resolves without throwing when every provided userId is a member of the workspace', async () => {
+      const { userId: ownerId, workspaceId } = await registerOwnerWithWorkspace();
+      const memberId = await addExistingUserAsMember(workspaceId, 'member');
+
+      await expect(
+        service.assertAllMembers(workspaceId, [ownerId, memberId]),
+      ).resolves.toBeUndefined();
+    });
+
+    // Case 2
+    it('throws ForbiddenError when at least one provided userId is NOT a member of the workspace', async () => {
+      const { userId: ownerId, workspaceId } = await registerOwnerWithWorkspace();
+      const { userId: outsiderId } = await registerUser();
+
+      await expect(
+        service.assertAllMembers(workspaceId, [ownerId, outsiderId]),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    // Case 3
+    it('resolves without throwing for an empty userIds array (nothing to validate)', async () => {
+      const { workspaceId } = await registerOwnerWithWorkspace();
+
+      await expect(service.assertAllMembers(workspaceId, [])).resolves.toBeUndefined();
+    });
+
+    // Case 4
+    it('resolves without throwing when a member userId is duplicated in the input array', async () => {
+      const { userId: ownerId, workspaceId } = await registerOwnerWithWorkspace();
+
+      await expect(
+        service.assertAllMembers(workspaceId, [ownerId, ownerId]),
+      ).resolves.toBeUndefined();
+    });
+
+    // Case 5
+    it('throws ForbiddenError for a malformed (non-UUID) workspaceId, even with otherwise-valid userIds', async () => {
+      const { userId: ownerId } = await registerOwnerWithWorkspace();
+
+      await expect(service.assertAllMembers('not-a-uuid', [ownerId])).rejects.toBeInstanceOf(
+        ForbiddenError,
+      );
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 
@@ -62,5 +62,41 @@ export class WorkspaceMembershipService {
     }
 
     return { workspaceId, role: membership.role };
+  }
+
+  /**
+   * Bulk membership check: throws `ForbiddenError` unless every entry in
+   * `userIds` is a member of `workspaceId`. Used to validate, e.g., every
+   * person a command proposes assigning is actually a member of the
+   * workspace before writing a `people`-typed field value.
+   */
+  async assertAllMembers(workspaceId: string, userIds: string[]): Promise<void> {
+    // Same "malformed value can never match a real workspace" guard as
+    // `assertMembership` — see this class's top-of-file comment.
+    if (typeof workspaceId !== 'string' || !UUID_PATTERN.test(workspaceId)) {
+      throw new ForbiddenError();
+    }
+
+    const uniqueUserIds = new Set(userIds);
+    if (uniqueUserIds.size === 0) {
+      return;
+    }
+
+    const rows = await this.db
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, workspaceId),
+          inArray(memberships.userId, [...uniqueUserIds]),
+        ),
+      );
+
+    const foundUserIds = new Set(rows.map((row) => row.userId));
+    for (const userId of uniqueUserIds) {
+      if (!foundUserIds.has(userId)) {
+        throw new ForbiddenError();
+      }
+    }
   }
 }
