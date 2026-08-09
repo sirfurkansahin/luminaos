@@ -32,4 +32,30 @@ describe('selectAIModel', () => {
 
     expect(model).toBe(CLAUDE_SONNET_5);
   });
+
+  // F1-T15 PR3 (RED step) — widen `SelectAIModelInput['outputType']` to also
+  // accept `'qa'` (the new RAG-style `answerQuestion` orchestration's output
+  // type), routed to the SAME branch as `'text'`: answering a question from
+  // retrieved passages is open-ended generation, not a constrained-choice
+  // task, so it belongs on the default/stronger model (`CLAUDE_SONNET_5`).
+  // This requires ZERO branching-logic change to `selectAIModel` itself --
+  // `outputType !== 'select'` already falls through to `CLAUDE_SONNET_5` --
+  // only the type union needs widening to `'text' | 'select' | 'qa'`.
+  it("outputType: 'qa' routes to CLAUDE_SONNET_5 (RAG-style question-answering is open-ended generation, like 'text' -- not a constrained-choice task)", () => {
+    // NOTE (intentional RED, not a typo): on `main`,
+    // `SelectAIModelInput['outputType']` is only `'text' | 'select'`, so the
+    // object literal below (`{ outputType: 'qa' }`) is a TypeScript compile
+    // error -- "Argument of type '{ outputType: "qa"; }' is not assignable to
+    // parameter of type 'SelectAIModelInput'" -- until `implementer` widens
+    // the union. This repo's vitest config (`apps/server/vitest.config.ts`)
+    // transforms tests via `unplugin-swc`, which strips types WITHOUT
+    // type-checking them, so `pnpm --filter server test` alone will NOT
+    // surface this failure -- only `pnpm typecheck` (`tsc`) will. Per
+    // CLAUDE.md's Definition of Done, both `pnpm typecheck` and
+    // `pnpm test:changed` must be green before this task is done, so this
+    // compile error is a real, required RED signal, not a false negative.
+    const model = selectAIModel({ outputType: 'qa' });
+
+    expect(model).toBe(CLAUDE_SONNET_5);
+  });
 });
