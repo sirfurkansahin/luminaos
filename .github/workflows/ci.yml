@@ -105,8 +105,24 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Cache turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # `vitest` çalıştırılmadan önce apps/server'ın workspace bağımlılıkları
+      # (ör. @luminaos/ai-gateway) derlenmiş olmalı -- doğrudan `vitest run`
+      # turbo'nun `test` task'ının aksine `^build`'e bağımlı değildir
+      # (bkz. turbo.json), bu yüzden burada açıkça tetikleniyor.
+      - name: Workspace bağımlılıklarını derle
+        run: pnpm turbo run build --filter=...@luminaos/server
 
       # F1-T17: AI Fields / QA / Komut Ayrıştırma golden-set'lerini (docs/evals/)
       # birlikte koşan, açıkça raporlanan regresyon kapısı. Yeni bir golden-set
