@@ -42,8 +42,8 @@ const decidableActionSchema = proposedActionSchema.element.extend({
   actionId: z.string(),
 });
 
-/** Hard cap on how many decisions a single `decide()` call may carry — defense-in-depth against an adversarial/malfunctioning AI response producing an unbounded `subtaskTitles`/`userIds`-style array upstream in `parseCommand`'s output (security review, F1-T16 PR5). */
-const MAX_DECISIONS_PER_CALL = 50;
+/** Hard cap on how many decisions a single `decide()` call may carry — defense-in-depth against an adversarial/malfunctioning AI response producing an unbounded `subtaskTitles`/`userIds`-style array upstream in `parseCommand`'s output (security review, F1-T16 PR5). Exported so `../commands/dto/decide-actions.schema.ts` (F1-T16 PR6) can reuse the exact same cap instead of hardcoding a second, driftable `50`. */
+export const MAX_DECISIONS_PER_CALL = 50;
 
 type DecidableAction = z.infer<typeof decidableActionSchema>;
 

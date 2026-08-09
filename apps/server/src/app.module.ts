@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AvailabilityModule } from './availability/availability.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
+import { CommandsModule } from './commands/commands.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
 import { DbModule } from './db/db.module.js';
@@ -52,6 +53,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     SavedViewsModule,
     SearchModule,
     QAModule,
+    CommandsModule,
   ],
   controllers: [AppController],
   providers: [
