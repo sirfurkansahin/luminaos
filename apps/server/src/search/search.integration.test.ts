@@ -106,6 +106,46 @@ import type { Server } from 'node:http';
  * async debounced path (`SearchIndexEmbeddingScheduler`, PR4) — this file
  * never waits on it; AC5 below sidesteps it entirely by writing the
  * `embedding` column directly.
+ *
+ * ============================================================================
+ * F1-T15 PR1 (RED step) addendum — `SearchResult` gains a `snippet: string`
+ * field, needed by a future RAG question-answering feature (F1-T15 PR3/PR4)
+ * so the LLM has real passage text to cite, not just object metadata.
+ *
+ * `SearchService.search(...)`'s returned `SearchResult` must become:
+ *
+ *   interface SearchResult {
+ *     objectId: string;
+ *     title: string;
+ *     type: string;
+ *     score: number;
+ *     snippet: string;
+ *   }
+ *
+ * Snippet-building contract (pinned by AC9/AC10/AC11 below — implementer must
+ * match exactly, no ambiguity left for it):
+ *
+ *   - Source: `search_index.doc_text` for that result's `objectId`.
+ *   - Bounded length: hard-capped to the first 300 characters of `doc_text`
+ *     (`doc_text.slice(0, 300)`) — no ellipsis/suffix is added, this file
+ *     asserts an EXACT `slice(0, 300)` equality, not merely a length bound.
+ *   - `doc_text` is nullable (see `search-index.ts`'s own column comment —
+ *     `doc_text` stays `NULL` until a follow-up PR folds
+ *     `DocumentContentSnapshotted` events into it). A `null` (or empty-string)
+ *     `doc_text` MUST NOT crash the snippet-building step, and MUST NOT
+ *     silently fall back to the object's `title` — it must produce
+ *     `snippet: ''`. Rationale (deliberate choice, not an oversight): an
+ *     empty string is more honest than duplicating the title into what is
+ *     supposed to be body content — a future RAG/QA consumer needs to be able
+ *     to tell "no body text exists" apart from "body text happens to equal
+ *     the title".
+ *
+ * None of AC9/AC10/AC11 touch `embedding`/semantic search at all — they only
+ * ever go through the keyword (`ts_rank`) retrieval path, and directly
+ * `UPDATE search_index SET doc_text = ...` via `rawDb` to set up each
+ * fixture, mirroring AC5's own precedent of writing straight to
+ * `search_index` columns to bypass not-yet-built projection paths.
+ * ============================================================================
  */
 
 const PASSWORD = 'correct-horse-battery-staple';
@@ -124,6 +164,7 @@ interface SearchResult {
   title: string;
   type: string;
   score: number;
+  snippet: string;
 }
 interface SearchEnvelope {
   results: SearchResult[];
@@ -416,6 +457,81 @@ describe('F1-T13 PR5 (RED step): POST /workspaces/:workspaceId/search (real Post
       const { cookie, workspaceId } = await registerUserWithWorkspace();
       const response = await search(cookie, workspaceId, { query: 'anything', extra: 'nope' });
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('AC9 (F1-T15 PR1, Kabul Kriteri #1): SearchResult gains a `snippet` field derived from search_index.doc_text', () => {
+    it('a result’s snippet reflects the object’s doc_text (written directly to search_index, bypassing the not-yet-built doc-text projection) rather than duplicating its title', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+      const objectId = await createObject(cookie, workspaceId, 'task', 'Snippet Source Object');
+
+      const docText = 'The quick brown fox jumps over the lazy dog near the riverbank.';
+      await rawDb.update(searchIndex).set({ docText }).where(eq(searchIndex.objectId, objectId));
+
+      const response = await search(cookie, workspaceId, { query: 'Snippet' });
+
+      expect(response.status).toBe(200);
+      const { results } = response.body as SearchEnvelope;
+      const match = results.find((result) => result.objectId === objectId);
+      expect(match).toBeDefined();
+      // docText here is well under the 300-char cap exercised by AC10, so the
+      // snippet should reproduce it verbatim rather than truncating.
+      expect(match?.snippet).toBe(docText);
+    });
+  });
+
+  describe('AC10 (F1-T15 PR1, Kabul Kriteri #2): snippet length is bounded to a fixed max (300 chars), even for a much longer doc_text', () => {
+    it('truncates a 1000+ character doc_text down to exactly the first 300 characters, with no ellipsis/suffix added', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+      const objectId = await createObject(cookie, workspaceId, 'task', 'Long Document Object');
+
+      const longDocText = 'Lorem ipsum dolor sit amet consectetur adipiscing elit. '.repeat(20);
+      expect(longDocText.length).toBeGreaterThan(1000);
+
+      await rawDb
+        .update(searchIndex)
+        .set({ docText: longDocText })
+        .where(eq(searchIndex.objectId, objectId));
+
+      const response = await search(cookie, workspaceId, { query: 'Long Document' });
+
+      expect(response.status).toBe(200);
+      const { results } = response.body as SearchEnvelope;
+      const match = results.find((result) => result.objectId === objectId);
+      expect(match).toBeDefined();
+      // 300 is the fixed cap the implementer must match exactly (see this
+      // file's header comment) -- asserted both as a bound and as an EXACT
+      // slice(0, 300) equality, so a different truncation strategy (e.g.
+      // word-boundary trimming, an appended "...") would also fail this test
+      // until it matches this exact contract.
+      expect(match?.snippet.length).toBeLessThanOrEqual(300);
+      expect(match?.snippet).toBe(longDocText.slice(0, 300));
+    });
+  });
+
+  describe('AC11 (F1-T15 PR1, Kabul Kriteri #3): a null/empty doc_text produces a safe, honest empty-string snippet — never a crash, never a silent title duplicate', () => {
+    it('an object with no doc_text (title-only, never had a DocumentContentSnapshotted event) returns snippet: "" rather than crashing or echoing the title', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+      // Deliberately never written to `search_index.doc_text` -- it stays
+      // NULL, the schema's documented default for an object with no
+      // doc-content event yet (see `search-index.ts`'s own column comment).
+      const objectId = await createObject(
+        cookie,
+        workspaceId,
+        'task',
+        'Title Only No Doc Text Object',
+      );
+
+      const response = await search(cookie, workspaceId, { query: 'Title Only No Doc Text' });
+
+      expect(response.status).toBe(200);
+      const { results } = response.body as SearchEnvelope;
+      const match = results.find((result) => result.objectId === objectId);
+      expect(match).toBeDefined();
+      // Deliberate choice (see this file's header comment): an empty string
+      // is more honest than silently duplicating the title into what is
+      // supposed to be body content.
+      expect(match?.snippet).toBe('');
     });
   });
 });

@@ -16,6 +16,7 @@ export interface SearchResult {
   title: string;
   type: string;
   score: number;
+  snippet: string;
 }
 
 /**
@@ -45,6 +46,7 @@ interface KeywordCandidate {
   objectId: string;
   title: string;
   type: string;
+  docText: string | null;
   rank: number;
 }
 
@@ -52,6 +54,7 @@ interface SemanticCandidate {
   objectId: string;
   title: string;
   type: string;
+  docText: string | null;
   cosine: number;
 }
 
@@ -111,6 +114,7 @@ export class SearchService {
       objectId: string;
       title: string;
       type: string;
+      docText: string | null;
       keywordNorm: number;
       cosine: number;
     }
@@ -122,6 +126,7 @@ export class SearchService {
         objectId: candidate.objectId,
         title: candidate.title,
         type: candidate.type,
+        docText: candidate.docText,
         keywordNorm: maxRawRank > 0 ? candidate.rank / maxRawRank : 0,
         cosine: 0,
       });
@@ -136,6 +141,7 @@ export class SearchService {
           objectId: candidate.objectId,
           title: candidate.title,
           type: candidate.type,
+          docText: candidate.docText,
           keywordNorm: 0,
           cosine: candidate.cosine,
         });
@@ -147,6 +153,7 @@ export class SearchService {
       title: entry.title,
       type: entry.type,
       score: KEYWORD_WEIGHT * entry.keywordNorm + SEMANTIC_WEIGHT * entry.cosine,
+      snippet: (entry.docText ?? '').slice(0, 300),
     }));
 
     scored.sort((a, b) => b.score - a.score);
@@ -165,6 +172,7 @@ export class SearchService {
         objectId: searchIndex.objectId,
         title: searchIndex.title,
         type: objectsView.type,
+        docText: searchIndex.docText,
         rank: rankExpression,
       })
       .from(searchIndex)
@@ -183,6 +191,7 @@ export class SearchService {
       objectId: row.objectId,
       title: row.title,
       type: row.type,
+      docText: row.docText,
       rank: row.rank,
     }));
   }
@@ -198,6 +207,7 @@ export class SearchService {
         objectId: searchIndex.objectId,
         title: searchIndex.title,
         type: objectsView.type,
+        docText: searchIndex.docText,
         embedding: searchIndex.embedding,
       })
       .from(searchIndex)
@@ -220,6 +230,7 @@ export class SearchService {
         objectId: row.objectId,
         title: row.title,
         type: row.type,
+        docText: row.docText,
         cosine: cosineSimilarity(queryVector, row.embedding),
       }));
 
