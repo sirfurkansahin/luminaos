@@ -16,3 +16,4 @@ export * from './calendar-events-cache.js';
 export * from './timeblock-external-pushes.js';
 export * from './user-availability.js';
 export * from './search-index.js';
+export * from './command-proposals.js';
