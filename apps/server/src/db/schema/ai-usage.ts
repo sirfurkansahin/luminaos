@@ -21,8 +21,8 @@ export const aiUsageRecords = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    fieldDefinitionId: varchar('field_definition_id', { length: 26 }).notNull(),
-    objectId: varchar('object_id', { length: 26 }).notNull(),
+    fieldDefinitionId: varchar('field_definition_id', { length: 26 }),
+    objectId: varchar('object_id', { length: 26 }),
     inputTokens: integer('input_tokens').notNull(),
     outputTokens: integer('output_tokens').notNull(),
     model: varchar('model', { length: 64 }),

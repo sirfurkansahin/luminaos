@@ -4,6 +4,7 @@ import { ObjectsController } from './objects.controller.js';
 import { ObjectsService } from './objects.service.js';
 import { AIProviderModule } from '../ai/ai-provider.module.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
+import { AIUsageModule } from '../ai/ai-usage.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { CalendarModule } from '../calendar/calendar.module.js';
 import { env } from '../config/env.js';
@@ -20,6 +21,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     DbModule,
     AuthModule,
     AIProviderModule,
+    AIUsageModule,
     CalendarModule,
     SearchIndexModule,
   ],
