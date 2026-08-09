@@ -50,7 +50,7 @@ export interface ParseCommandResult {
 const PARSE_EXHAUSTED_MESSAGE =
   'AI response could not be parsed into valid proposed actions after retry';
 
-const proposedActionSchema = z
+export const proposedActionSchema = z
   .object({
     type: z.enum(['createTask', 'generateSubtasks', 'assignPeople']),
     intent: z.string().min(1),
