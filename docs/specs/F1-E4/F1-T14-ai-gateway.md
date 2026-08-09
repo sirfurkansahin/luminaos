@@ -1,6 +1,6 @@
 # F1-T14 — `ai-gateway`: Sağlayıcı Soyutlama Genişletmesi, Model Yönlendirme Kuralları, Maliyet/Kota Ölçümü
 
-**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Yapılacak
+**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Tamamlandı (Kabul Kriterleri 5/5)
 **Bağımlılık:** F1-T5 (`packages/ai-gateway` temeli — `AIProvider`, `AnthropicProvider`, `MockProvider`, ADR-0008), F1-T13 (`EmbeddingProvider` soyutlaması — aynı Mock-öncelikli DI deseni emsal alınır)
 
 ## Amaç
@@ -34,8 +34,19 @@ Bugüne kadar `ai-gateway` (F1-T5, F1-T10, F1-T13 PR1 ile artımlı olarak inşa
 
 ## Kabul Kriterleri
 
-- [ ] `AIProvider`/`AnthropicProvider`, en az iki gerçek model arasında seçim yapabilir; `DEFAULT_ANTHROPIC_MODEL` yer-tutucusu gerçek bir model adıyla değiştirilmiştir (testli, gerçek ağ çağrısı gerektirmez — `AnthropicClientLike` sahte istemci emsali).
-- [ ] Model yönlendirme kuralı saf bir fonksiyon olarak var, girdi (görev tipi/ipucu) → çıktı (seçilen model) eşlemesi deterministik test edilir.
-- [ ] Her yeni `AIUsageRecorded` olayı kullanılan modeli ve o modele göre hesaplanmış `$` maliyetini taşır; `aiUsageRecords` projeksiyonu bunları kalıcı kılar (testli).
-- [ ] Workspace-başına $ bütçe eşiği, mevcut token-kotası deseniyle aynı disiplinde (istek ÖNCESİ kontrol, `QuotaExceededError`) uygulanır; mevcut `aiTokenQuotaPerWorkspace` davranışı regresyonsuz kalır (testli).
-- [ ] security-reviewer: yeni model-seçim/fiyatlandırma mantığının hiçbir yerinde prompt/tamamlanma metni loglanmadığı doğrulanır (ADR-0008'in yapısal loglama disiplini korunur).
+- [x] `AIProvider`/`AnthropicProvider`, en az iki gerçek model arasında seçim yapabilir; `DEFAULT_ANTHROPIC_MODEL` yer-tutucusu gerçek bir model adıyla değiştirilmiştir (testli, gerçek ağ çağrısı gerektirmez — `AnthropicClientLike` sahte istemci emsali).
+- [x] Model yönlendirme kuralı saf bir fonksiyon olarak var, girdi (görev tipi/ipucu) → çıktı (seçilen model) eşlemesi deterministik test edilir.
+- [x] Her yeni `AIUsageRecorded` olayı kullanılan modeli ve o modele göre hesaplanmış `$` maliyetini taşır; `aiUsageRecords` projeksiyonu bunları kalıcı kılar (testli).
+- [x] Workspace-başına $ bütçe eşiği, mevcut token-kotası deseniyle aynı disiplinde (istek ÖNCESİ kontrol, `QuotaExceededError`) uygulanır; mevcut `aiTokenQuotaPerWorkspace` davranışı regresyonsuz kalır (testli).
+- [x] security-reviewer: yeni model-seçim/fiyatlandırma mantığının hiçbir yerinde prompt/tamamlanma metni loglanmadığı doğrulanır (ADR-0008'in yapısal loglama disiplini korunur).
+
+## İlerleme Notu
+
+ADR gerekmedi (CLAUDE.md'nin iki gerçek ADR kriterine göre önyargısız değerlendirildi — bkz. plan dosyası: ne bir mimari değişmezle gerilim yaratıyor, ne de yeni bir çok-paketli sözleşim tanımlıyor; ADR-0008'in `AIProvider` sözleşimini artımlı/geriye-uyumlu genişletiyor). 4 alt-PR ile tamamlandı:
+
+- **PR1** (#91): `packages/ai-gateway` — gerçek model ID'leri (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001`, `claude-fable-5`), model→fiyat tablosu (Sonnet 5 için standart $3/$15 fiyatı bilinçli kullanıldı, tanıtım fiyatı değil), `calculateCostUsd`, `AICompletionRequest`/`Result.model?`.
+- **PR2** (#92): `apps/server` — `aiUsageRecords` şemasına nullable `model`/`cost_usd` sütunları (geriye dönük uyumlu), projeksiyon genişletmesi.
+- **PR3** (#93): `apps/server` — `selectAIModel` (outputType'a göre Haiku/Sonnet yönlendirmesi), `performAIFieldRefresh`'in seçilen modeli tek kaynaktan hem provider çağrısına hem kullanım kaydına iletmesi, `recordAIUsage`'ın best-effort (log-and-swallow) hale getirilmesi.
+- **PR4** (#94): `apps/server` — `AI_COST_BUDGET_USD_PER_WORKSPACE` + `assertAICostBudgetNotExceeded`, mevcut token-kotası deseniyle aynı disiplinde.
+
+Uygulama sırasında keşfedilenler: (1) `Number.parseFloat` tabanlı env okuyucular `'25.5abc'`/`'Infinity'` gibi değerleri sessizce kabul edebiliyor — PR4'te sıkı bir regex (`^\d+(\.\d+)?$`) ile kapatıldı, aksi halde bir yapılandırma hatası bütçe kotasını sessizce sınırsız hale getirebilirdi. (2) `recordAIUsage` başlangıçta maliyet hesaplama hatasını yutmuyordu — provider çağrısı zaten başarılı olduktan SONRA çalıştığından, teorik bir `calculateCostUsd` hatası zaten üretilmiş bir AI alan değerini geri alabilirdi; `scheduleTimeBlock` ile aynı best-effort desenine çevrildi (şu an `selectAIModel`'in ürettiği modellerin hepsi `MODEL_PRICING`'de olduğundan erişilemez bir risk, ama gelecekte model seçimi dinamikleşirse önemli).
