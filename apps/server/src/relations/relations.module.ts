@@ -12,5 +12,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   imports: [EventStoreModule, DbModule, AuthModule],
   controllers: [RelationsController],
   providers: [RelationsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  exports: [RelationsService],
 })
 export class RelationsModule {}

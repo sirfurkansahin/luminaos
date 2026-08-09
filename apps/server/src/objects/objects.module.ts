@@ -43,5 +43,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
       useFactory: () => new AIRefreshScheduler(env.aiRefreshDebounceMs),
     },
   ],
+  exports: [ObjectsService],
 })
 export class ObjectsModule {}
