@@ -3,6 +3,7 @@ dist/
 .turbo/
 coverage/
 *.log
+ai-eval-results.json
 .env
 .env.*
 !.env.example

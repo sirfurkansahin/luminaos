@@ -1,6 +1,6 @@
 # F1-T17 — Eval Altyapısı: 100+ Senaryoluk Golden Set + CI'da AI Regresyon Kapısı
 
-**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Yapılacak
+**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Tamamlandı (PR1-3, bkz. İlerleme Notu)
 **Bağımlılık:** F1-T5 (AI Fields eval tohumu — `docs/evals/ai-fields.md`, `ai-fields.eval.test.ts`, ADR-0008 §f), F1-T15 (`QAService`/`answerQuestion`, ADR-0014), F1-T16 (`parseCommand`/`CommandsService`, ADR-0015), F0-T3 (CI boru hattı — `.github/workflows/ci.yml`'in `quality` job'ı)
 
 ## Amaç
@@ -39,8 +39,38 @@ PLAN.md (satır 230) bu görevi "eval altyapısı: 100+ senaryoluk golden set; C
 
 ## Kabul Kriterleri
 
-- [ ] Golden-set toplamda 100+ senaryo içerir, üç AI-çağıran özelliği (AI Fields, QA/RAG, Komut Ayrıştırma) kapsar; hepsi `MockProvider`/`MockEmbeddingProvider` ile deterministik, Testcontainers'sız `pnpm test` altında koşar.
-- [ ] CI'da (`ci.yml`) golden-set'in geçip geçmediğini açıkça raporlayan, başarısızlıkta PR'ı kırmızı yapan bir adım/job vardır (regresyon kapısı).
-- [ ] Mevcut 10 AI Fields senaryosu (`docs/evals/ai-fields.md`) değişmeden, regresyonsuz genişletilmiş sete dahildir.
-- [ ] Golden-set'e yeni bir senaryo eklemenin dokümante edilmiş, tek bir deseni vardır (gelecekteki AI özellikleri için tekrarlanabilir).
-- [ ] security-reviewer: golden-set senaryolarının hiçbirinde gerçek/hassas veri kullanılmadığı (yalnızca sentetik test verisi) doğrulanır.
+- [x] Golden-set toplamda 100+ senaryo içerir, üç AI-çağıran özelliği (AI Fields, QA/RAG, Komut Ayrıştırma) kapsar; hepsi `MockProvider`/`MockEmbeddingProvider` ile deterministik, Testcontainers'sız `pnpm test` altında koşar (10+40+50=100, PR1+PR2).
+- [x] CI'da (`ci.yml`) golden-set'in geçip geçmediğini açıkça raporlayan, başarısızlıkta PR'ı kırmızı yapan bir adım/job vardır (regresyon kapısı — `ai-eval` job'ı, PR3).
+- [x] Mevcut 10 AI Fields senaryosu (`docs/evals/ai-fields.md`) değişmeden, regresyonsuz genişletilmiş sete dahildir.
+- [x] Golden-set'e yeni bir senaryo eklemenin dokümante edilmiş, tek bir deseni vardır (gelecekteki AI özellikleri için tekrarlanabilir — `docs/evals/README.md`, PR3).
+- [x] security-reviewer: golden-set senaryolarının hiçbirinde gerçek/hassas veri kullanılmadığı (yalnızca sentetik test verisi) doğrulanır (PR1 ve PR2'de ayrı ayrı doğrulandı).
+
+## İlerleme Notu
+
+Üç alt-PR'da tamamlandı, dosya organizasyonu özellik-başına ayrı dosya (Açık
+Sorular'ın 1. maddesi), skorlama v1 için basit pass/fail (2. madde), CI kapısı
+ayrı bir `ai-eval` job'ı (3. madde) olarak netleşti; senaryo dağılımı AI
+Fields'in mevcut 10'u sabit kalacak şekilde QA/Komutlar'a ağırlıklı verildi
+(4. madde — 10/40/50, ADR-0008'in eski tohumu değişmeden büyütüldü):
+
+- **PR1** (#110) — `docs/evals/qa.md` + `apps/server/src/ai/qa.eval.test.ts`:
+  `answerQuestion` (F1-T15) için 40 senaryo (prompt oluşturma, sıfır-pasaj
+  kısa devresi, kaynak sadakati, içerik çeşitliliği, halüsinasyon-karşıtı
+  talimat kalıcılığı, usage kaydı, loglama disiplini, gerçekçi uçtan uca
+  senaryolar).
+- **PR2** (#111) — `docs/evals/komut-ayristirma.md` + `apps/server/src/ai/commands.eval.test.ts`:
+  `parseCommand` (F1-T16) için 50 senaryo (üç aksiyon tipi happy path, bozuk
+  JSON/şema ihlali retry-once çeşitleri, çift başarısızlık hata-sentinel'i —
+  boş-ama-geçerli-diziyle karıştırılmadan —, actionId üretimi/tekilliği,
+  model/sourceObjectId iletimi, loglama disiplini, gerçekçi/belirsiz komutlar).
+- **PR3** — `.github/workflows/ci.yml`'e `ai-eval` job'ı (üç golden-set
+  dosyasını birlikte koşar, `.github/scripts/summarize-ai-eval.mjs` ile
+  dosya-başına geçti/kaldı tablosunu `$GITHUB_STEP_SUMMARY`'e yazar, toplam
+  senaryo sayısı 100'ün altına düşerse VEYA herhangi bir senaryo kalırsa
+  kırmızı çıkış koduyla biter); `docs/evals/README.md` ile genişletilebilir
+  desen dokümante edildi.
+
+İnsan-değerlendirmeli skorlama ve model karşılaştırması (ADR-0008 §f'nin
+notu, Açık Sorular'ın kapsamı) v1'de bilinçli olarak dışarıda bırakıldı —
+gelecekteki bir görev için `docs/evals/README.md`'nin "Skorlama modeli"
+bölümünde işaretlendi.
