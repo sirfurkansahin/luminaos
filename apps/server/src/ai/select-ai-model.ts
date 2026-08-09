@@ -13,9 +13,15 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * routes the same way as `'text'`: answering a question from retrieved
  * passages is open-ended generation, not a constrained-choice task, so it
  * belongs on the default/stronger model too.
+ *
+ * `'command'` (F1-T16 PR2, `parseCommand`'s conversational-command output,
+ * ADR-0015 §e) routes the same way as `'text'`/`'qa'`: parsing a
+ * natural-language command into a set of proposed actions is open-ended
+ * reasoning, not a constrained-choice task, so it belongs on the
+ * default/stronger model too.
  */
 export interface SelectAIModelInput {
-  outputType: 'text' | 'select' | 'qa';
+  outputType: 'text' | 'select' | 'qa' | 'command';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {
