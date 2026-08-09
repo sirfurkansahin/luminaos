@@ -1,6 +1,6 @@
 # F1-T16 — Konuşma Komutları v1: Çok Adımlı Aksiyonlar + Onay Kartı
 
-**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Yapılacak
+**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Tamamlandı (PR1-6, bkz. İlerleme Notu)
 **Bağımlılık:** F1-T14 (`AIProvider.complete()` + model yönlendirme + `AIUsageService`, ADR-0008), F1-T15 (RAG/QA deseni — `QAService`/`answerQuestion`, ADR-0014), F1-T1 (nesne çekirdeği — `createObject`), F1-T2 (Custom Fields — `people` alanı), F1-T3 (ilişki sistemi — `parentChild`, döngü reddi), F1-T10 (görev deneyimi — mevcut alan/komut desenleri), F0-T5 (RBAC), F0-T6 (event store — `Actor` zarfı)
 
 ## Amaç
@@ -45,8 +45,21 @@ PLAN.md (satır 229) bu görevi "konuşma komutları v1: 'görev aç, alt görev
 
 ## Kabul Kriterleri
 
-- [ ] Doğal dil komutu, sabit/kapalı aksiyon-tipi kümesinden (`createTask`/`generateSubtasks`/`assignPeople`) doğru ayrıştırılmış bir öneri listesine dönüşür (testli, `MockProvider` ile deterministik).
-- [ ] Hiçbir aksiyon, kullanıcı o SPESİFİK aksiyonu onaylamadan yürütülmez; kısmi onay (listedeki bazı aksiyonları kabul, bazılarını red) doğru çalışır (testli).
-- [ ] Onaylanan her aksiyon MEVCUT komut/servis çağrılarına (`createObject`/`parentChild` ilişkisi/`people` alanı `setFieldValues`) birebir delege edilir; yeni bir mutasyon yolu icat edilmediği ve mevcut RBAC/doğrulama kurallarının (F0-T5, F1-T2/T3) korunduğu testli.
-- [ ] Komut-ayrıştırma completion çağrısı `aiUsageRecords`'a kaydedilir ve mevcut $ bütçe/token kotasına (`AIUsageService`, ADR-0014) tabidir; regresyonsuz (testli).
-- [ ] security-reviewer: (a) prompt/komut metni/ayrıştırılan aksiyon içeriğinin hiçbir yerde loglanmadığı (ADR-0008 disiplini), (b) yürütme aşamasının yalnızca kullanıcının ZATEN sahip olduğu izinlerle çalıştığı, RBAC'ı aşan bir "ajan-yetkisi" olmadığı doğrulanır.
+- [x] Doğal dil komutu, sabit/kapalı aksiyon-tipi kümesinden (`createTask`/`generateSubtasks`/`assignPeople`) doğru ayrıştırılmış bir öneri listesine dönüşür (testli, `parseCommand` JSON+zod+retry-once, PR2).
+- [x] Hiçbir aksiyon, kullanıcı o SPESİFİK aksiyonu onaylamadan yürütülmez; kısmi onay (listedeki bazı aksiyonları kabul, bazılarını red) doğru çalışır (testli, PR5 `CommandsService.decide()`).
+- [x] Onaylanan her aksiyon MEVCUT komut/servis çağrılarına (`createObject`/`parentChild` ilişkisi/`people` alanı `setFieldValues`) birebir delege edilir; yeni bir mutasyon yolu icat edilmediği ve mevcut RBAC/doğrulama kurallarının (F0-T5, F1-T2/T3) korunduğu testli (PR5).
+- [x] Komut-ayrıştırma completion çağrısı `aiUsageRecords`'a kaydedilir ve mevcut $ bütçe/token kotasına (`AIUsageService`, ADR-0014) tabidir; regresyonsuz (testli, PR4 `CommandsService.parse()`).
+- [x] security-reviewer: (a) prompt/komut metni/ayrıştırılan aksiyon içeriğinin hiçbir yerde loglanmadığı (ADR-0008 disiplini), (b) yürütme aşamasının yalnızca kullanıcının ZATEN sahip olduğu izinlerle çalıştığı, RBAC'ı aşan bir "ajan-yetkisi" olmadığı doğrulanır (PR5 ve PR6'da ayrı ayrı doğrulandı).
+
+## İlerleme Notu
+
+ADR-0015 (`docs/adr/ADR-0015-konusma-komutlari-ajan-aksiyon-sozlesmesi.md`) ile netleşen tasarıma göre 6 alt-PR'da tamamlandı:
+
+- **PR1** (#104) — `packages/core-objects`: `createObject`'e opsiyonel `causationEventId`.
+- **PR2** (#105) — `apps/server/src/ai`: `parseCommand` (JSON-prompt+zod+retry-once) + `selectAIModel`'e `'command'` outputType.
+- **PR3** (#106) — `apps/server/src/workspaces`: `WorkspaceMembershipService.assertAllMembers`.
+- **PR4** (#107) — `apps/server/src/commands`: `ActionsProposed`/`ActionsDecided` event tipleri, `ActionProposalProjection`, `CommandsService.parse()`.
+- **PR5** (#108) — `CommandsService.decide()` + yürütme katmanı (`executeCreateTask`/`executeGenerateSubtasks`/`executeAssignPeople`); security review'da bulunan fail-open karar kontrolü, IDOR (workspace scoping eksikliği), mükerrer actionId çift yürütme, sanitize edilmemiş hata mesajları ve üst sınır eksikliği düzeltildi. `causationEventId`, ADR-0015'in gözden geçirilmiş halinde düz metadata olarak (deterministik türetim OLMADAN) gerçek mutasyon çağrılarına geçirildi — idempotency tamamen `command_proposals.decided_at`'ten gelir.
+- **PR6** (#109) — `CommandsController` + DTO'lar + API kablolama (`.../commands/parse`, `.../commands/:proposalId/decide`); security review'da `sourceObjectId` için eksik üst sınır bulundu ve düzeltildi.
+
+Ajan-aksiyon sözleşmesi (`{niyet, gerekçe, kaynaklar[], geri_alma_planı}`), paylaşılan `domain-event.ts` zarfına dokunmadan `ActionsProposed`/`ActionsDecided`'ın PAYLOAD'ında uygulandı (ADR-0015 §a) — Açık Sorular'daki [KRİTİK] madde bu şekilde çözüldü.
