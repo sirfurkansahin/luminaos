@@ -1,6 +1,6 @@
 # F1-T15 — Soru-Cevap: Workspace Bağlamıyla RAG + Kaynak Gösterimi
 
-**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Yapılacak
+**Epik:** F1-E4 (AI Servisi v1 + Veri Çıkışı) · **Durum:** Tamamlandı (Kabul Kriterleri 5/5)
 **Bağımlılık:** F1-T13 (`search_index` tablosu + `SearchService` hibrit retrieval + `EmbeddingProvider`/`MockEmbeddingProvider`, ADR-0013), F1-T14 (`AIProvider.complete()` + model yönlendirme + maliyet/kota ölçümü, ADR-0008), F0-T5 (RBAC — `WorkspaceMembershipGuard`)
 
 ## Amaç
@@ -44,8 +44,25 @@ PLAN.md (satır 228) bu görevi "workspace bağlamıyla RAG (pgvector) + kaynak 
 
 ## Kabul Kriterleri
 
-- [ ] Bir soru sorulduğunda, workspace içeriğinden (nesne başlığı + doküman metni) alakalı pasajlar retrieval ile bulunur ve cevap yalnızca bu pasajlara dayanarak üretilir (testli, `MockProvider` + `MockEmbeddingProvider` ile deterministik).
-- [ ] Cevap, kaynak gösterdiği nesnelerin listesini (`objectId`, `title`, snippet) döner; pasajlarda bulunmayan bilginin uydurulmadığı (prompt şablonunun bunu zorladığı) testli doğrulanır.
-- [ ] Erişimi olmayan bir nesnenin içeriği ne cevapta ne kaynak listesinde sızmaz (RBAC query-time filtresi F1-T13 deseniyle miras alınır, testli).
-- [ ] QA tamamlama çağrıları `aiUsageRecords`'a model + `$` maliyetiyle kaydedilir ve mevcut $ bütçe/token kotası kontrolüne (istek ÖNCESİ, `QuotaExceededError`) tabidir; regresyonsuz (testli).
-- [ ] security-reviewer: soru metni, retrieved pasajlar, prompt ve tamamlanma metninin hiçbir yerde loglanmadığı doğrulanır (ADR-0008 disiplini korunur).
+- [x] Bir soru sorulduğunda, workspace içeriğinden (nesne başlığı + doküman metni) alakalı pasajlar retrieval ile bulunur ve cevap yalnızca bu pasajlara dayanarak üretilir (testli, `MockProvider` + `MockEmbeddingProvider` ile deterministik).
+- [x] Cevap, kaynak gösterdiği nesnelerin listesini (`objectId`, `title`, snippet) döner; pasajlarda bulunmayan bilginin uydurulmadığı (prompt şablonunun bunu zorladığı) testli doğrulanır. Ek olarak (plan onayında eklendi): retrieval sıfır pasaj döndürdüğünde model'e HİÇ gidilmeden sabit, halüsinasyonsuz bir "ilgili içerik bulunamadı" yanıtı dönülür — gereksiz $ maliyeti oluşmaz.
+- [x] Erişimi olmayan bir nesnenin içeriği ne cevapta ne kaynak listesinde sızmaz (RBAC query-time filtresi F1-T13 deseniyle miras alınır, testli).
+- [x] QA tamamlama çağrıları `aiUsageRecords`'a model + `$` maliyetiyle kaydedilir (fieldDefinitionId/objectId NULL) ve mevcut $ bütçe/token kotası kontrolüne (istek ÖNCESİ, `QuotaExceededError`) tabidir; regresyonsuz (testli).
+- [x] security-reviewer: soru metni, retrieved pasajlar, prompt ve tamamlanma metninin hiçbir yerde loglanmadığı doğrulanır (ADR-0008 disiplini korunur).
+
+## İlerleme Notu
+
+Plan onayında iki netleştirme kararı verildi (bkz. Açık Sorular): (1) pasaj-seviyeli retrieval için seçenek (a) — `search_index.docText` (keşifle KALICI saklandığı doğrulandı, ADR-0013'ün "geçici" varsayımı yanlıştı) SELECT'e eklendi, şema değişikliği/ADR gerekmedi; (2) PLAN.md'nin "(pgvector)" notu bilinçli terk edildi, ADR-0013'ün kararı (real[] + Node-tarafı brute-force kosinüs) aynen miras alındı. `selectAIModel`'e eklenen `'qa'` görev tipi Sonnet 5'e yönlendiriliyor (text ile aynı, sıfır mantık değişikliği).
+
+Kota/kilit/kullanım-kaydı mantığının `ObjectsService`'ten paylaşılan bir `AIUsageService`'e çıkarılması CLAUDE.md'nin ikinci ADR kriterine (gelecekteki görevlere — F1-T16 — dayatılan sözleşim) girdiği için **ADR-0014** yazıldı ve ayrıca onaylandı (plan onayından bağımsız bir adım, CLAUDE.md'nin ADR ritüeli gereği).
+
+5 alt-PR ile tamamlandı (4'ü F1-T15 planı + 1 ADR):
+
+- **Docs** (#95): F1-T14 Done işaretlendi, bu spec yazıldı.
+- **ADR-0014** (#96): AIUsageService çıkarımı kararı.
+- **PR1** (#97): `apps/server/src/search` — `SearchResult.snippet` (`docText`'in ilk 300 karakteri, null/boşsa `''`, başlığa asla düşmez).
+- **PR2** (#98): `apps/server/src/ai` — `AIUsageService` çıkarımı (davranış-koruyucu, `object-ai-refresh.integration.test.ts` değişmeden yeşil), `ai_usage_records.fieldDefinitionId`/`objectId` nullable.
+- **PR3** (#99): `apps/server/src/ai` — `answerQuestion` (boş-pasaj kısa-devresi dahil) + `selectAIModel`'e `'qa'` eklendi.
+- **PR4** (#100): `apps/server/src/qa` — `QAService`/`QAController`/DTO, `POST /workspaces/:workspaceId/qa` uç noktası.
+
+Uygulama sırasında keşfedilenler: (1) `search_index.docText` ADR-0013'ün varsaydığının aksine kalıcı saklanıyormuş — bu, pasaj-retrieval kararını basitleştirdi (şema değişikliği gerekmedi). (2) `AIUsageProjection`'ın yazma yolu ADR-0013 §d'nin öngördüğü `blocksToPlainText` yerine gerçekte `extractPlainTextFromYjsUpdate` kullanıyor (dead-code divergence, F1-T15 kapsamında düzeltilmedi, ayrıca not edildi).
