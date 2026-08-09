@@ -82,6 +82,7 @@ interface LastMigrationEffect {
   createdTables: string[];
   addedColumns: AddedColumn[];
   addedIndexes: string[];
+  droppedNotNullColumns: AddedColumn[];
 }
 
 /**
@@ -89,13 +90,17 @@ interface LastMigrationEffect {
  * generated migration (the last entry in the journal), then extracts every
  * table that migration's `CREATE TABLE "tablename" (...)` statements
  * created, every `(table, column)` pair its
- * `ALTER TABLE "tablename" ADD COLUMN "columnname" ...` statements added, AND
+ * `ALTER TABLE "tablename" ADD COLUMN "columnname" ...` statements added,
  * every index name its `CREATE [UNIQUE] INDEX "indexname" ...` statements
- * created. This is how the test learns, without any hardcoded table/column/
- * index name, what `runDownMigrations`'s single default rollback step is
- * expected to undo — whether that's whole tables, columns on an existing
- * table, indexes on an existing table, or (in principle) any combination in
- * the same migration.
+ * created, AND every `(table, column)` pair its
+ * `ALTER TABLE "tablename" ALTER COLUMN "columnname" DROP NOT NULL`
+ * statements loosened. This is how the test learns, without any hardcoded
+ * table/column/index name, what `runDownMigrations`'s single default
+ * rollback step is expected to undo — whether that's whole tables, columns
+ * on an existing table, indexes on an existing table, a `NOT NULL`
+ * constraint (ADR-0014 §b: intentionally NOT re-imposed by the down script,
+ * so this effect has no corresponding after-rollback assertion below, unlike
+ * the other three), or (in principle) any combination in the same migration.
  */
 function getLastMigrationEffect(): LastMigrationEffect {
   const journal = JSON.parse(readFileSync(JOURNAL_PATH, 'utf-8')) as MigrationJournal;
@@ -120,13 +125,24 @@ function getLastMigrationEffect(): LastMigrationEffect {
     .map((match) => match[1])
     .filter((indexName): indexName is string => indexName !== undefined);
 
-  if (createdTables.length === 0 && addedColumns.length === 0 && addedIndexes.length === 0) {
+  const droppedNotNullColumns = [
+    ...sql.matchAll(/ALTER TABLE "(\w+)" ALTER COLUMN "(\w+)" DROP NOT NULL/g),
+  ]
+    .map((match) => (match[1] && match[2] ? { table: match[1], column: match[2] } : undefined))
+    .filter((entry): entry is AddedColumn => entry !== undefined);
+
+  if (
+    createdTables.length === 0 &&
+    addedColumns.length === 0 &&
+    addedIndexes.length === 0 &&
+    droppedNotNullColumns.length === 0
+  ) {
     throw new Error(
-      `Neither a "CREATE TABLE", an "ALTER TABLE ... ADD COLUMN", nor a "CREATE [UNIQUE] INDEX" statement was found in ${sqlFilePath}; the extraction regexes may no longer match the generated SQL format.`,
+      `Neither a "CREATE TABLE", an "ALTER TABLE ... ADD COLUMN", a "CREATE [UNIQUE] INDEX", nor an "ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL" statement was found in ${sqlFilePath}; the extraction regexes may no longer match the generated SQL format.`,
     );
   }
 
-  return { createdTables, addedColumns, addedIndexes };
+  return { createdTables, addedColumns, addedIndexes, droppedNotNullColumns };
 }
 
 async function getPublicTableNames(client: Client): Promise<string[]> {

@@ -1,0 +1,7 @@
+-- ADR-0014 §b: deliberately NOT restoring NOT NULL on "field_definition_id"/
+-- "object_id". A QA-originated `AIUsageRecorded` event legitimately has
+-- neither a field nor an object context, so post-migration rows may already
+-- carry NULL in either column by the time this down script would ever run in
+-- production; re-imposing NOT NULL here would fail (or, worse, silently
+-- destroy data if paired with a forced default) against any such row. There
+-- is nothing safe to undo, so this is an intentional no-op.

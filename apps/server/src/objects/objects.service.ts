@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 
-import { calculateCostUsd } from '@luminaos/ai-gateway';
-import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
+import type { AIProvider } from '@luminaos/ai-gateway';
 import {
   addChecklistItem as addChecklistItemCommand,
   applyDefaultFieldValues,
@@ -45,12 +44,7 @@ import type {
   RecurrenceRule,
   Role,
 } from '@luminaos/core-objects';
-import {
-  ForbiddenError,
-  NotFoundError,
-  QuotaExceededError,
-  ValidationError,
-} from '@luminaos/shared';
+import { ForbiddenError, NotFoundError, ValidationError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent, QuerySpec } from '@luminaos/shared';
 
 import {
@@ -75,13 +69,11 @@ import {
 import { detectStatusDoneTransition } from './status-done-transition.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIRefreshScheduler } from '../ai/ai-refresh-scheduler.service.js';
-import { AIUsageProjection } from '../ai/ai-usage.projection.js';
+import { AIUsageService } from '../ai/ai-usage.service.js';
 import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
 import { selectAIModel } from '../ai/select-ai-model.js';
 import { TimeBlockPushService } from '../calendar/timeblock-push.service.js';
-import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
-import { aiUsageRecords } from '../db/schema/ai-usage.js';
 import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
@@ -95,9 +87,6 @@ import type { Database } from '../db/client.js';
 import type { SQL } from 'drizzle-orm';
 
 const STREAM_TYPE = 'lumina-object';
-
-/** The dedicated event-stream type for `AIUsageRecorded` events — one brand-new stream per usage record, never the object's own stream (F1-T5 PR-C). */
-const AI_USAGE_STREAM_TYPE = 'ai-usage';
 
 /** The always-and-only actor recorded for a formula field's own recomputed
  * `FieldValueChanged` events -- never the caller's own actor, since the
@@ -167,9 +156,6 @@ export class ObjectsService {
    */
   private readonly projection = new ObjectsViewProjection();
 
-  /** Same "single, stable instance" reasoning as `projection` above, for the `ai_usage_records` read model (F1-T5 PR-C). */
-  private readonly aiUsageProjection = new AIUsageProjection();
-
   /** Same "single, stable instance" reasoning as `projection` above, for the `search_index` title-search read model (F1-T13 PR3a). */
   private readonly searchIndexProjection = new SearchIndexProjection();
 
@@ -185,6 +171,7 @@ export class ObjectsService {
     private readonly timeBlockPush: TimeBlockPushService,
     private readonly searchIndexEmbeddingScheduler: SearchIndexEmbeddingScheduler,
     private readonly searchIndexEmbeddingRefreshService: SearchIndexEmbeddingRefreshService,
+    private readonly aiUsageService: AIUsageService,
   ) {}
 
   async create(
@@ -1016,7 +1003,7 @@ export class ObjectsService {
       );
     }
 
-    return this.withWorkspaceAILock(workspaceId, () =>
+    return this.aiUsageService.withWorkspaceAILock(workspaceId, () =>
       this.performAIFieldRefresh(
         workspaceId,
         streamId,
@@ -1048,8 +1035,8 @@ export class ObjectsService {
     // Quota is checked EXACTLY ONCE per refresh operation, before the FIRST
     // provider call -- never re-checked between the first attempt and its
     // retry (F1-T5 PR-C design decision, see `object-ai-refresh.integration.test.ts`).
-    await this.assertAITokenQuotaNotExceeded(workspaceId);
-    await this.assertAICostBudgetNotExceeded(workspaceId);
+    await this.aiUsageService.assertAITokenQuotaNotExceeded(workspaceId);
+    await this.aiUsageService.assertAICostBudgetNotExceeded(workspaceId);
 
     const priorEvents = await this.eventStore.readStream(streamId);
     const fieldValues = replayFieldValues(priorEvents);
@@ -1065,7 +1052,7 @@ export class ObjectsService {
       ...(config.options !== undefined ? { options: config.options } : {}),
       model,
       recordUsage: (usage) =>
-        this.recordAIUsage(workspaceId, definition.id, objectId, usage, model),
+        this.aiUsageService.recordAIUsage(workspaceId, definition.id, objectId, usage, model),
     });
 
     const draft: ObjectEventDraft = {
@@ -1090,40 +1077,6 @@ export class ObjectsService {
       ...object,
       fieldValues: this.filterFieldValuesForRole(updatedFieldValues, definitions, callerRole),
     };
-  }
-
-  /**
-   * Serializes every `refreshAIField` critical section (quota check through
-   * the final field-value write) per WORKSPACE, via a Postgres session-level
-   * advisory lock (`pg_advisory_lock`/`pg_advisory_unlock`) taken on a
-   * dedicated connection checked out from the pool -- closes a TOCTOU race
-   * where two concurrent refreshes could both read the same pre-call
-   * cumulative usage total and both proceed, letting a workspace's actual
-   * spend silently exceed `env.aiTokenQuotaPerWorkspace` (security review
-   * finding, F1-T5 PR-C; see
-   * `object-ai-refresh.integration.test.ts`'s "two CONCURRENT refresh
-   * operations" test). `hashtext(workspaceId)` scopes the lock per
-   * workspace, so concurrent refreshes in DIFFERENT workspaces never contend
-   * with each other. The lock is held across the real `AIProvider.complete()`
-   * call(s) -- an accepted v0 tradeoff (refreshes are not a hot path: manual
-   * or debounced) in exchange for a simple, well-understood correctness
-   * guarantee, instead of holding a DB transaction open across an external
-   * HTTP call.
-   */
-  private async withWorkspaceAILock<T>(workspaceId: string, fn: () => Promise<T>): Promise<T> {
-    const client = await this.db.$client.connect();
-
-    try {
-      await client.query('SELECT pg_advisory_lock(hashtext($1)::bigint)', [workspaceId]);
-
-      try {
-        return await fn();
-      } finally {
-        await client.query('SELECT pg_advisory_unlock(hashtext($1)::bigint)', [workspaceId]);
-      }
-    } finally {
-      client.release();
-    }
   }
 
   /**
@@ -1168,103 +1121,6 @@ export class ObjectsService {
   /** See `AIFieldConfig`'s own doc comment for the assumption this asserts. */
   private aiFieldConfig(definition: FieldDefinition): AIFieldConfig {
     return definition.config as AIFieldConfig;
-  }
-
-  /**
-   * Throws `QuotaExceededError` if this workspace's cumulative
-   * `ai_usage_records` usage (`SUM(inputTokens + outputTokens)`) already
-   * meets or exceeds `env.aiTokenQuotaPerWorkspace` -- checked BEFORE any
-   * provider call, per `refreshAIField`'s own "once per operation" design
-   * decision.
-   */
-  private async assertAITokenQuotaNotExceeded(workspaceId: string): Promise<void> {
-    const [row] = await this.db
-      .select({
-        total: sql<string>`COALESCE(SUM(${aiUsageRecords.inputTokens} + ${aiUsageRecords.outputTokens}), 0)`,
-      })
-      .from(aiUsageRecords)
-      .where(eq(aiUsageRecords.workspaceId, workspaceId));
-
-    const totalTokensUsed = Number(row?.total ?? 0);
-
-    if (totalTokensUsed >= env.aiTokenQuotaPerWorkspace) {
-      throw new QuotaExceededError('AI token quota exceeded for this workspace.', { workspaceId });
-    }
-  }
-
-  /**
-   * Throws `QuotaExceededError` if this workspace's cumulative
-   * `ai_usage_records` recorded cost (`SUM(cost_usd)`, in USD) already meets
-   * or exceeds `env.aiCostBudgetUsdPerWorkspace` -- checked BEFORE any
-   * provider call, alongside `assertAITokenQuotaNotExceeded` (F1-T14 PR4).
-   * `cost_usd` is a nullable numeric column (older pre-cost-tracking rows,
-   * and any future gaps, have `NULL`), so `COALESCE(..., 0)` treats those as
-   * $0 rather than breaking the aggregate.
-   */
-  private async assertAICostBudgetNotExceeded(workspaceId: string): Promise<void> {
-    const [row] = await this.db
-      .select({
-        total: sql<string>`COALESCE(SUM(${aiUsageRecords.costUsd}), 0)`,
-      })
-      .from(aiUsageRecords)
-      .where(eq(aiUsageRecords.workspaceId, workspaceId));
-
-    const totalCostUsed = Number(row?.total ?? 0);
-
-    if (totalCostUsed >= env.aiCostBudgetUsdPerWorkspace) {
-      throw new QuotaExceededError('AI cost budget exceeded for this workspace.', { workspaceId });
-    }
-  }
-
-  /**
-   * Records `usage` as an `AIUsageRecorded` event on its OWN dedicated
-   * stream (own atomic `append`, separate from the object's own stream --
-   * see `AI_USAGE_STREAM_TYPE`'s doc comment). Passed to
-   * `resolveAIFieldValue` as its `recordUsage` callback, AFTER the provider
-   * has already returned a result -- so, same "best-effort, never fail the
-   * request" reasoning as `scheduleTimeBlock` above, this never throws.
-   * `calculateCostUsd` cannot fail for any model `selectAIModel` can
-   * currently produce (both are in `MODEL_PRICING`), but this stays
-   * defensive so a future routing/pricing-table mismatch degrades to a
-   * missing usage record instead of discarding an already-generated field
-   * value.
-   */
-  private async recordAIUsage(
-    workspaceId: string,
-    fieldDefinitionId: string,
-    objectId: string,
-    usage: AITokenUsage,
-    model: string,
-  ): Promise<void> {
-    try {
-      const usageStreamId = randomUUID();
-      const costUsd = calculateCostUsd(model, usage);
-      const event: NewDomainEvent = {
-        id: randomUUID(),
-        streamType: AI_USAGE_STREAM_TYPE,
-        workspaceId,
-        type: 'AIUsageRecorded',
-        payload: {
-          workspaceId,
-          fieldDefinitionId,
-          objectId,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          model,
-          costUsd,
-        },
-        actor: AI_GATEWAY_ACTOR,
-        occurredAt: new Date(),
-      };
-
-      await this.eventStore.append(usageStreamId, 0, [event]);
-      await this.projectionRunner.catchUp(this.aiUsageProjection);
-    } catch (error) {
-      this.logger.error(
-        `AI usage recording failed for field ${fieldDefinitionId} on object ${objectId} (workspace ${workspaceId}); the AI field value itself already succeeded.`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
   }
 
   /**

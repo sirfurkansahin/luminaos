@@ -103,8 +103,8 @@ export class AIUsageProjection implements Projection {
     const dbTx = asDbTransaction(tx);
 
     const workspaceId = requireStringPayloadField(event, 'workspaceId');
-    const fieldDefinitionId = requireStringPayloadField(event, 'fieldDefinitionId');
-    const objectId = requireStringPayloadField(event, 'objectId');
+    const fieldDefinitionId = optionalStringPayloadField(event, 'fieldDefinitionId');
+    const objectId = optionalStringPayloadField(event, 'objectId');
     const inputTokens = requireIntegerPayloadField(event, 'inputTokens');
     const outputTokens = requireIntegerPayloadField(event, 'outputTokens');
     const model = optionalStringPayloadField(event, 'model');
@@ -119,8 +119,8 @@ export class AIUsageProjection implements Projection {
       .values({
         id: event.id,
         workspaceId,
-        fieldDefinitionId,
-        objectId,
+        fieldDefinitionId: fieldDefinitionId ?? null,
+        objectId: objectId ?? null,
         inputTokens,
         outputTokens,
         model: model ?? null,
