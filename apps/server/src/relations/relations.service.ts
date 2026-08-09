@@ -296,6 +296,25 @@ export class RelationsService {
     return rows.map((row) => this.toRelation(row));
   }
 
+  /**
+   * F1-T18 PR1: mirrors `getActiveRelationsOfKind` above exactly, just
+   * without the `kind` filter — returns every relation in `workspaceId`
+   * regardless of kind, with no lifecycle/counterpart filtering (unlike
+   * `getRelationsWithActiveCounterpart`, since `relations_view` rows are
+   * already hard-deleted on `RelationRemoved`, same reasoning as its
+   * sibling above). `ExportService` is the sole caller; it filters out
+   * relations whose counterpart object was soft-deleted itself, using the
+   * object-id set it already has from `ObjectsService.list` (ADR-0016 §b).
+   */
+  async getAllForWorkspace(workspaceId: string): Promise<Relation[]> {
+    const rows = await this.db
+      .select()
+      .from(relationsView)
+      .where(eq(relationsView.workspaceId, workspaceId));
+
+    return rows.map((row) => this.toRelation(row));
+  }
+
   private async lookupStreamId(workspaceId: string, relationId: string): Promise<string> {
     const [row] = await this.db
       .select({ streamId: relationsView.streamId })
