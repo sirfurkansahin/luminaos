@@ -1,0 +1,665 @@
+import { Test } from '@nestjs/testing';
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { createDatabaseClient } from '../db/client.js';
+import { runMigrations } from '../db/migrate.js';
+import { memberships } from '../db/schema/memberships.js';
+
+import type { Database } from '../db/client.js';
+import type { INestApplication } from '@nestjs/common';
+import type { Server } from 'node:http';
+
+/**
+ * F1-T18 PR1: real, end-to-end integration test for the JSON data-export HTTP
+ * surface, mirroring `../fields/field-definitions-security.integration.
+ * test.ts`'s exact harness (same Testcontainers Postgres 16 + Redis 7 pair,
+ * same dynamic `import('../app.module.js')` AFTER `DATABASE_URL`/`REDIS_URL`
+ * are set, same `toCookieHeader`/`registerUser`/`createWorkspace`/
+ * `registerAdminWithWorkspace`/`addMemberWithRole` helpers copied verbatim)
+ * and `../objects/objects.integration.test.ts`'s object-creation/response-
+ * shape conventions. Nothing here is mocked.
+ *
+ * ============================================================================
+ * RED STATE (expected, today): `AppModule` (`../app.module.ts`) does not yet
+ * import an `ExportModule` — there is no `export.module.ts`,
+ * `export.controller.ts`, or `export.service.ts` yet under
+ * `apps/server/src/export/` (this is a brand-new, greenfield directory).
+ * Every request below to `/workspaces/:workspaceId/export...` is therefore
+ * expected to 404 via Nest's own default "Cannot GET ..." handler (there is
+ * no matching route at all), NOT via `AppErrorFilter` mapping an `AppError` —
+ * this file's assertions will fail with e.g. "expected 404 to be 200" and the
+ * body will be Nest's default `{"message":"Cannot GET /workspaces/.../
+ * export","error":"Not Found","statusCode":404}` shape rather than the pinned
+ * export envelope. That is the correct red: it means the ROUTE doesn't exist
+ * yet, not that test logic itself is wrong. `implementer` must:
+ *   - add `ExportModule` (imported by `AppModule`) with `ExportController`/
+ *     `ExportService` under `apps/server/src/export/`;
+ *   - add a new `getAllForWorkspace(workspaceId: string): Promise<Relation[]>`
+ *     public method to `RelationsService` (mirrors its existing
+ *     `getActiveRelationsOfKind`, just without the `kind` filter — needed so
+ *     `ExportService` can fetch every relation in a workspace, not just one
+ *     kind).
+ * ============================================================================
+ *
+ * ---------------------------------------------------------------------------
+ * CONTRACT PINNED BY THIS TEST FILE (implementer must match precisely, per
+ * ADR-0016 `docs/adr/ADR-0016-veri-disa-aktarma-rbac-kapsam.md`):
+ *
+ * `GET /workspaces/:workspaceId/export?format=json[&objectId=]`, guarded by
+ * `@UseGuards(SessionAuthGuard, WorkspaceMembershipGuard)` at the class level
+ * — the SAME guard stack as `ObjectsController`/`RelationsController`, NO
+ * role gate beyond plain membership (ADR-0016 §a's central decision: a
+ * `guest` succeeds here, unlike `FieldsController`'s admin-gated schema
+ * routes).
+ *
+ * Query params, validated via a zod schema + `ZodValidationPipe` (`.strict()`):
+ * - `format` — required, only `'json'` accepted in this PR; missing/unknown
+ *   -> 400.
+ * - `objectId` — optional string; narrows the export to a single object (and
+ *   only relations/field-definitions touching it) when given, whole-workspace
+ *   otherwise. A nonexistent `objectId` -> 404.
+ *
+ * Response body (200, no wrapper envelope — this shape IS the top-level
+ * body):
+ * ```
+ * {
+ *   workspaceId: string,
+ *   exportedAt: string (ISO-8601),
+ *   objects: ObjectWithFieldValues[],
+ *   fieldDefinitions: Record<ObjectType, FieldDefinition[]>,
+ *   relations: Relation[],
+ * }
+ * ```
+ *
+ * `objects`/`fieldDefinitions` inherit the SAME `lifecycle != 'deleted'` base
+ * predicate and the SAME role-based `fieldValues`/`fieldDefinitions`
+ * filtering that every other read path (`ObjectsService.list`,
+ * `FieldsController`'s `GET /fields`) already applies — the export endpoint
+ * must not leak a shape or value the caller couldn't already see elsewhere.
+ * `relations` excludes any relation whose counterpart object is not present
+ * in the same export's `objects` (soft-deleted counterpart), mirroring
+ * `RelationsService.getRelated`'s "suspended when counterpart deleted"
+ * behavior.
+ * ---------------------------------------------------------------------------
+ */
+
+const PASSWORD = 'correct-horse-battery-staple';
+
+interface FieldPermissionsBody {
+  owner: string;
+  admin: string;
+  member: string;
+  guest: string;
+}
+
+interface ObjectBody {
+  id: string;
+  type: string;
+  workspaceId: string;
+  title: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  lifecycle: string;
+  fieldValues: Record<string, unknown>;
+}
+
+interface ObjectEnvelope {
+  object: ObjectBody;
+}
+
+interface FieldDefinitionBody {
+  id: string;
+  key: string;
+  objectType: string;
+}
+
+interface FieldDefinitionEnvelope {
+  fieldDefinition: FieldDefinitionBody;
+}
+
+interface RelationBody {
+  id: string;
+  workspaceId: string;
+  fromId: string;
+  toId: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RelationEnvelope {
+  relation: RelationBody;
+}
+
+interface WorkspaceEnvelope {
+  workspace: { id: string };
+}
+
+interface UserEnvelope {
+  user: { id: string; email: string };
+}
+
+interface ExportBody {
+  workspaceId: string;
+  exportedAt: string;
+  objects: ObjectBody[];
+  fieldDefinitions: Record<string, FieldDefinitionBody[]>;
+  relations: RelationBody[];
+}
+
+function toCookieHeader(setCookie: string[] | undefined): string {
+  expect(setCookie).toBeDefined();
+  expect(setCookie?.length).toBeGreaterThan(0);
+  return (setCookie ?? []).map((cookie) => cookie.split(';')[0]).join('; ');
+}
+
+const EDIT_ALL_PERMISSIONS: FieldPermissionsBody = {
+  owner: 'edit',
+  admin: 'edit',
+  member: 'edit',
+  guest: 'edit',
+};
+
+const HIDDEN_FOR_GUEST_PERMISSIONS: FieldPermissionsBody = {
+  owner: 'edit',
+  admin: 'edit',
+  member: 'edit',
+  guest: 'hidden',
+};
+
+let emailCounter = 0;
+
+function freshEmail(): string {
+  emailCounter += 1;
+  return `export-test-user-${String(emailCounter)}@example.com`;
+}
+
+describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest)', () => {
+  let container: StartedPostgreSqlContainer;
+  let redisContainer: StartedRedisContainer;
+  let app: INestApplication;
+  let server: Server;
+  let rawDb: Database;
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer('postgres:16').start();
+    process.env.DATABASE_URL = container.getConnectionUri();
+
+    redisContainer = await new RedisContainer('redis:7').start();
+    process.env.REDIS_URL = redisContainer.getConnectionUrl();
+
+    await runMigrations(container.getConnectionUri());
+
+    const { AppModule } = await import('../app.module.js');
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+
+    server = app.getHttpServer() as Server;
+    rawDb = createDatabaseClient(container.getConnectionUri());
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await rawDb.$client.end();
+    await container.stop();
+    await redisContainer.stop();
+  }, 60_000);
+
+  async function registerUser(): Promise<{ cookie: string; userId: string }> {
+    const email = freshEmail();
+    const response = await request(server)
+      .post('/auth/register')
+      .send({ email, password: PASSWORD });
+
+    expect(response.status).toBe(201);
+    const cookie = toCookieHeader(response.get('Set-Cookie'));
+    const userId = (response.body as UserEnvelope).user.id;
+    return { cookie, userId };
+  }
+
+  async function createWorkspace(cookie: string, name: string): Promise<string> {
+    const response = await request(server).post('/workspaces').set('Cookie', cookie).send({ name });
+
+    expect(response.status).toBe(201);
+    return (response.body as WorkspaceEnvelope).workspace.id;
+  }
+
+  async function registerAdminWithWorkspace(): Promise<{ cookie: string; workspaceId: string }> {
+    const { cookie } = await registerUser();
+    const workspaceId = await createWorkspace(cookie, `Export Workspace ${String(emailCounter)}`);
+    return { cookie, workspaceId };
+  }
+
+  async function addMemberWithRole(
+    workspaceId: string,
+    role: 'admin' | 'member' | 'guest',
+  ): Promise<string> {
+    const { cookie, userId } = await registerUser();
+    await rawDb.insert(memberships).values({ workspaceId, userId, role });
+    return cookie;
+  }
+
+  async function createObject(
+    cookie: string,
+    workspaceId: string,
+    objectType: string,
+    title: string,
+  ): Promise<ObjectBody> {
+    const response = await request(server)
+      .post(`/workspaces/${workspaceId}/objects`)
+      .set('Cookie', cookie)
+      .send({ objectType, title });
+
+    expect(response.status).toBe(201);
+    return (response.body as ObjectEnvelope).object;
+  }
+
+  async function deleteObject(
+    cookie: string,
+    workspaceId: string,
+    objectId: string,
+  ): Promise<void> {
+    const response = await request(server)
+      .delete(`/workspaces/${workspaceId}/objects/${objectId}`)
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(204);
+  }
+
+  async function createReferenceRelation(
+    cookie: string,
+    workspaceId: string,
+    fromId: string,
+    toId: string,
+  ): Promise<RelationBody> {
+    const response = await request(server)
+      .post(`/workspaces/${workspaceId}/relations`)
+      .set('Cookie', cookie)
+      .send({ fromId, toId, kind: 'reference' });
+
+    expect(response.status).toBe(201);
+    return (response.body as RelationEnvelope).relation;
+  }
+
+  async function defineField(
+    cookie: string,
+    workspaceId: string,
+    objectType: string,
+    key: string,
+    permissions: FieldPermissionsBody,
+  ): Promise<FieldDefinitionBody> {
+    const response = await request(server)
+      .post(`/workspaces/${workspaceId}/object-types/${objectType}/fields`)
+      .set('Cookie', cookie)
+      .send({
+        key,
+        label: key,
+        fieldType: 'text',
+        config: {},
+        permissions,
+      });
+
+    expect(response.status).toBe(201);
+    return (response.body as FieldDefinitionEnvelope).fieldDefinition;
+  }
+
+  async function setFieldValue(
+    cookie: string,
+    workspaceId: string,
+    objectId: string,
+    key: string,
+    value: unknown,
+  ): Promise<void> {
+    const response = await request(server)
+      .patch(`/workspaces/${workspaceId}/objects/${objectId}/fields`)
+      .set('Cookie', cookie)
+      .send({ values: { [key]: value } });
+
+    expect(response.status).toBe(200);
+  }
+
+  function exportUrl(workspaceId: string, query: string): string {
+    return `/workspaces/${workspaceId}/export?${query}`;
+  }
+
+  // ---------------------------------------------------------------------
+  // 1. RBAC — the ADR's central proof: a "guest" caller succeeds (200),
+  // no role gate beyond plain workspace membership.
+  // ---------------------------------------------------------------------
+  it('a "guest" role caller (the LOWEST rank) gets 200 with real data — no role-based gate on export (ADR-0016 §a)', async () => {
+    const { cookie: adminCookie, workspaceId } = await registerAdminWithWorkspace();
+    const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+
+    await createObject(adminCookie, workspaceId, 'task', 'Guest-visible task');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', guestCookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+    expect(body.workspaceId).toBe(workspaceId);
+    expect(body.objects.length).toBeGreaterThan(0);
+  });
+
+  it('format is required; an unknown/missing format returns 400', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const missingFormatResponse = await request(server)
+      .get(`/workspaces/${workspaceId}/export`)
+      .set('Cookie', cookie);
+    expect(missingFormatResponse.status).toBe(400);
+
+    const unknownFormatResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=csv'))
+      .set('Cookie', cookie);
+    expect(unknownFormatResponse.status).toBe(400);
+  });
+
+  // ---------------------------------------------------------------------
+  // 2. Whole-workspace export + 4. nonexistent objectId -> 404 (shared setup).
+  // ---------------------------------------------------------------------
+  it('whole-workspace export (no objectId) includes every created object across types, and a nonexistent objectId returns 404', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const task = await createObject(cookie, workspaceId, 'task', 'Task A');
+    const doc = await createObject(cookie, workspaceId, 'doc', 'Doc B');
+    const note = await createObject(cookie, workspaceId, 'note', 'Note C');
+
+    const beforeRequest = new Date();
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+    const afterRequest = new Date();
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    expect(body.workspaceId).toBe(workspaceId);
+
+    const exportedAt = new Date(body.exportedAt);
+    expect(exportedAt.toString()).not.toBe('Invalid Date');
+    expect(exportedAt.getTime()).toBeGreaterThanOrEqual(beforeRequest.getTime() - 1000);
+    expect(exportedAt.getTime()).toBeLessThanOrEqual(afterRequest.getTime() + 1000);
+
+    const exportedIds = body.objects.map((o) => o.id);
+    expect(exportedIds).toContain(task.id);
+    expect(exportedIds).toContain(doc.id);
+    expect(exportedIds).toContain(note.id);
+
+    // 4. Nonexistent objectId -> 404, on an otherwise real workspace.
+    const notFoundResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=json&objectId=does-not-exist'))
+      .set('Cookie', cookie);
+    expect(notFoundResponse.status).toBe(404);
+  });
+
+  // ---------------------------------------------------------------------
+  // 3. objectId narrowing.
+  // ---------------------------------------------------------------------
+  it('objectId narrowing: exports exactly the requested object, excluding all others', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const objectOne = await createObject(cookie, workspaceId, 'task', 'Object One');
+    const objectTwo = await createObject(cookie, workspaceId, 'task', 'Object Two');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=json&objectId=${objectOne.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    expect(body.objects).toHaveLength(1);
+    expect(body.objects[0]?.id).toBe(objectOne.id);
+    expect(body.objects.map((o) => o.id)).not.toContain(objectTwo.id);
+  });
+
+  // ---------------------------------------------------------------------
+  // 3b. objectId narrowing still includes the narrowed object's OWN
+  // relations to objects outside the narrowed set (security-review
+  // finding: a same-set-membership filter on both relation endpoints is
+  // always empty when the set has exactly one element, since self-relations
+  // are rejected by createRelation — narrowing must instead keep relations
+  // touching objectId whose COUNTERPART is any valid, visible object in the
+  // workspace, not just objects inside the narrowed export itself).
+  // ---------------------------------------------------------------------
+  it('objectId narrowing still includes relations touching the narrowed object, even though the counterpart object itself is excluded from `objects`', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const objectOne = await createObject(cookie, workspaceId, 'task', 'Object One');
+    const objectTwo = await createObject(cookie, workspaceId, 'task', 'Object Two');
+    await createReferenceRelation(cookie, workspaceId, objectOne.id, objectTwo.id);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=json&objectId=${objectOne.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    expect(body.objects).toHaveLength(1);
+    expect(body.objects[0]?.id).toBe(objectOne.id);
+
+    const match = body.relations.find(
+      (relation) =>
+        relation.fromId === objectOne.id &&
+        relation.toId === objectTwo.id &&
+        relation.kind === 'reference',
+    );
+    expect(match).toBeDefined();
+
+    // A relation NOT touching the narrowed object must still be excluded.
+    const objectThree = await createObject(cookie, workspaceId, 'task', 'Object Three');
+    await createReferenceRelation(cookie, workspaceId, objectTwo.id, objectThree.id);
+
+    const secondResponse = await request(server)
+      .get(exportUrl(workspaceId, `format=json&objectId=${objectOne.id}`))
+      .set('Cookie', cookie);
+    const secondBody = secondResponse.body as ExportBody;
+
+    const unrelatedMatch = secondBody.relations.find(
+      (relation) => relation.fromId === objectTwo.id && relation.toId === objectThree.id,
+    );
+    expect(unrelatedMatch).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------
+  // 5. lifecycle != 'deleted' inheritance.
+  // ---------------------------------------------------------------------
+  it('a soft-deleted object is excluded from a whole-workspace export (inherits the same lifecycle != "deleted" predicate as every other read path)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const survivor = await createObject(cookie, workspaceId, 'task', 'Survivor');
+    const doomed = await createObject(cookie, workspaceId, 'task', 'Doomed');
+
+    await deleteObject(cookie, workspaceId, doomed.id);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const exportedIds = body.objects.map((o) => o.id);
+    expect(exportedIds).toContain(survivor.id);
+    expect(exportedIds).not.toContain(doomed.id);
+  });
+
+  // ---------------------------------------------------------------------
+  // 6. Relations included, in both directions.
+  // ---------------------------------------------------------------------
+  it('relations between two objects are included in the export', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const objectA = await createObject(cookie, workspaceId, 'task', 'A');
+    const objectB = await createObject(cookie, workspaceId, 'task', 'B');
+
+    await createReferenceRelation(cookie, workspaceId, objectA.id, objectB.id);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const match = body.relations.find(
+      (relation) =>
+        relation.fromId === objectA.id &&
+        relation.toId === objectB.id &&
+        relation.kind === 'reference',
+    );
+    expect(match).toBeDefined();
+  });
+
+  // ---------------------------------------------------------------------
+  // 7. Dangling relations excluded when a counterpart is soft-deleted.
+  // ---------------------------------------------------------------------
+  it('a relation is excluded when its counterpart object is soft-deleted, but the surviving object still appears', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const objectA = await createObject(cookie, workspaceId, 'task', 'Surviving A');
+    const objectB = await createObject(cookie, workspaceId, 'task', 'Deleted B');
+
+    await createReferenceRelation(cookie, workspaceId, objectA.id, objectB.id);
+    await deleteObject(cookie, workspaceId, objectB.id);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const danglingMatch = body.relations.find(
+      (relation) => relation.fromId === objectA.id && relation.toId === objectB.id,
+    );
+    expect(danglingMatch).toBeUndefined();
+
+    const exportedIds = body.objects.map((o) => o.id);
+    expect(exportedIds).toContain(objectA.id);
+    expect(exportedIds).not.toContain(objectB.id);
+  });
+
+  // ---------------------------------------------------------------------
+  // 8. Field-definition schema included, role-filtered consistently with
+  // fieldValues.
+  // ---------------------------------------------------------------------
+  it('field definitions are included in the export and role-filtered consistently with fieldValues (hidden-for-guest is omitted from both)', async () => {
+    const { cookie: adminCookie, workspaceId } = await registerAdminWithWorkspace();
+    const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+
+    const secretField = await defineField(
+      adminCookie,
+      workspaceId,
+      'task',
+      'secret-export-field',
+      HIDDEN_FOR_GUEST_PERMISSIONS,
+    );
+
+    const task = await createObject(adminCookie, workspaceId, 'task', 'Task with secret field');
+    await setFieldValue(adminCookie, workspaceId, task.id, secretField.key, 'sensitive value');
+
+    // Admin/owner export: definition AND value both present.
+    const adminResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', adminCookie);
+
+    expect(adminResponse.status).toBe(200);
+    const adminBody = adminResponse.body as ExportBody;
+
+    const adminTaskDefinitionKeys = (adminBody.fieldDefinitions['task'] ?? []).map((fd) => fd.key);
+    expect(adminTaskDefinitionKeys).toContain(secretField.key);
+
+    const adminExportedTask = adminBody.objects.find((o) => o.id === task.id);
+    expect(adminExportedTask).toBeDefined();
+    expect(adminExportedTask?.fieldValues).toHaveProperty(secretField.key);
+
+    // Guest export: definition AND value both omitted (must not leak the
+    // SHAPE of a field the caller can't see the VALUE of either).
+    const guestResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', guestCookie);
+
+    expect(guestResponse.status).toBe(200);
+    const guestBody = guestResponse.body as ExportBody;
+
+    const guestTaskDefinitionKeys = (guestBody.fieldDefinitions['task'] ?? []).map((fd) => fd.key);
+    expect(guestTaskDefinitionKeys).not.toContain(secretField.key);
+
+    const guestExportedTask = guestBody.objects.find((o) => o.id === task.id);
+    expect(guestExportedTask).toBeDefined();
+    expect(guestExportedTask?.fieldValues).not.toHaveProperty(secretField.key);
+  });
+
+  // ---------------------------------------------------------------------
+  // 9. Multiple object types -> grouped fieldDefinitions.
+  // ---------------------------------------------------------------------
+  it('fieldDefinitions is grouped separately per object type present in the export', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const taskField = await defineField(
+      cookie,
+      workspaceId,
+      'task',
+      'task-only-field',
+      EDIT_ALL_PERMISSIONS,
+    );
+    const docField = await defineField(
+      cookie,
+      workspaceId,
+      'doc',
+      'doc-only-field',
+      EDIT_ALL_PERMISSIONS,
+    );
+
+    await createObject(cookie, workspaceId, 'task', 'A task');
+    await createObject(cookie, workspaceId, 'doc', 'A doc');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const taskKeys = (body.fieldDefinitions['task'] ?? []).map((fd) => fd.key);
+    const docKeys = (body.fieldDefinitions['doc'] ?? []).map((fd) => fd.key);
+
+    expect(taskKeys).toContain(taskField.key);
+    expect(taskKeys).not.toContain(docField.key);
+
+    expect(docKeys).toContain(docField.key);
+    expect(docKeys).not.toContain(taskField.key);
+  });
+
+  it('guard stack: unauthenticated requests are rejected with 401, non-members with 403', async () => {
+    const { cookie: ownerCookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const noSessionResponse = await request(server).get(exportUrl(workspaceId, 'format=json'));
+    expect(noSessionResponse.status).toBe(401);
+
+    const { cookie: outsiderCookie } = await registerUser();
+    const outsiderResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', outsiderCookie);
+    expect(outsiderResponse.status).toBe(403);
+
+    const ownerResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', ownerCookie);
+    expect(ownerResponse.status).toBe(200);
+  });
+});
