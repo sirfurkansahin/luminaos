@@ -28,6 +28,7 @@ export interface CreateRelationCommandInput {
   fromId: string;
   toId: string;
   kind: RelationKind;
+  causationEventId?: string;
 }
 
 /**
@@ -85,6 +86,9 @@ export class RelationsService {
         fromId: input.fromId,
         toId: input.toId,
         kind: input.kind,
+        ...(input.causationEventId !== undefined
+          ? { causationEventId: input.causationEventId }
+          : {}),
       },
       existingRelations,
     );

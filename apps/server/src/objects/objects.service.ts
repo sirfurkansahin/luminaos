@@ -177,7 +177,7 @@ export class ObjectsService {
   async create(
     workspaceId: string,
     actor: Actor,
-    input: { objectType: ObjectType; title: string },
+    input: { objectType: ObjectType; title: string; causationEventId?: string },
     callerRole: Role,
   ): Promise<ObjectWithFieldValues> {
     const objectId = newObjectId();
@@ -189,6 +189,7 @@ export class ObjectsService {
       objectType: input.objectType,
       title: input.title,
       actor,
+      ...(input.causationEventId !== undefined ? { causationEventId: input.causationEventId } : {}),
     });
 
     // Active field definitions for this object type, gathered BEFORE the
