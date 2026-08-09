@@ -18,5 +18,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   imports: [DbModule, AuthModule, EmbeddingProviderModule],
   controllers: [SearchController],
   providers: [SearchService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  exports: [SearchService],
 })
 export class SearchModule {}

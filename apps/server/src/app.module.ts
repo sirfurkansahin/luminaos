@@ -16,6 +16,7 @@ import { ObjectsModule } from './objects/objects.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
 import { LoggingModule } from './observability/logging.module.js';
 import { TracingModule } from './observability/tracing.module.js';
+import { QAModule } from './qa/qa.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { RelationsModule } from './relations/relations.module.js';
 import { SavedViewsModule } from './saved-views/saved-views.module.js';
@@ -50,6 +51,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     RelationsModule,
     SavedViewsModule,
     SearchModule,
+    QAModule,
   ],
   controllers: [AppController],
   providers: [
