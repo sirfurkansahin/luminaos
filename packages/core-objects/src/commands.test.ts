@@ -153,6 +153,39 @@ describe('createObject', () => {
       }),
     ).toThrow(ValidationError);
   });
+
+  it('includes causationEventId in the payload when provided (F1-T16, mirrors createRelation)', () => {
+    const CAUSATION_EVENT_ID = '01ARZ3NDEKTSV4RRFFQ69G5FBB';
+
+    const drafts = createObject({
+      objectId: OBJECT_ID,
+      workspaceId: WORKSPACE_ID,
+      objectType: 'task',
+      title: 'Write the ADR',
+      actor: ACTOR,
+      causationEventId: CAUSATION_EVENT_ID,
+    });
+
+    expect(drafts[0]?.payload).toMatchObject({
+      objectId: OBJECT_ID,
+      objectType: 'task',
+      workspaceId: WORKSPACE_ID,
+      title: 'Write the ADR',
+      causationEventId: CAUSATION_EVENT_ID,
+    });
+  });
+
+  it('omits causationEventId from the payload entirely when not provided (backward compatibility)', () => {
+    const drafts = createObject({
+      objectId: OBJECT_ID,
+      workspaceId: WORKSPACE_ID,
+      objectType: 'task',
+      title: 'Write the ADR',
+      actor: ACTOR,
+    });
+
+    expect(drafts[0]?.payload).not.toHaveProperty('causationEventId');
+  });
 });
 
 describe('renameObject', () => {

@@ -23,6 +23,7 @@ export interface CreateObjectInput {
   objectType: ObjectType;
   title: string;
   actor: Actor;
+  causationEventId?: string;
 }
 
 function assertValidTitle(objectType: ObjectType, title: unknown): asserts title is string {
@@ -59,6 +60,9 @@ export function createObject(input: CreateObjectInput): ObjectEventDraft[] {
         objectType: input.objectType,
         workspaceId: input.workspaceId,
         title: input.title,
+        ...(input.causationEventId !== undefined
+          ? { causationEventId: input.causationEventId }
+          : {}),
       },
     },
   ];
