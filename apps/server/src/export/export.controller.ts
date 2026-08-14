@@ -1,7 +1,7 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query, Req, Res, UseGuards } from '@nestjs/common';
 
 import type { Role } from '@luminaos/core-objects';
-import { ForbiddenError } from '@luminaos/shared';
+import { ForbiddenError, ValidationError } from '@luminaos/shared';
 
 import { exportQuerySchema } from './dto/export-query.schema.js';
 import { ExportService } from './export.service.js';
@@ -10,12 +10,11 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
 import type { ExportQuery } from './dto/export-query.schema.js';
-import type { WorkspaceJsonExport } from './export.service.js';
 import type { MembershipRole } from '../workspaces/membership.util.js';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 /**
- * `GET /workspaces/:workspaceId/export` (F1-T18 PR1). This class
+ * `GET /workspaces/:workspaceId/export` (F1-T18 PR1/PR2). This class
  * deliberately carries NO role-escalation check beyond the guard stack
  * below (`SessionAuthGuard` + `WorkspaceMembershipGuard`, the SAME stack as
  * every other read endpoint, e.g. `ObjectsController`) — this IS the
@@ -32,14 +31,45 @@ import type { Request } from 'express';
 export class ExportController {
   constructor(private readonly exportService: ExportService) {}
 
+  /**
+   * `format=json` and `format=markdown` have DIFFERENT response
+   * content-types (a JSON body vs. a raw `text/markdown` body), so both
+   * branches use `@Res() res: Response` WITHOUT `passthrough` and call
+   * `res.status(...).json(...)`/`res.status(...).type(...).send(...)`
+   * explicitly, rather than mixing `{ passthrough: true }` manual sends
+   * with plain `return`s (a known footgun -- double-send / "headers already
+   * sent" errors). Throwing inside this handler still correctly reaches the
+   * app's global exception filter even with a manual `@Res()` (Nest's
+   * exception pipeline wraps the whole request, not just return-value
+   * serialization) -- proven empirically by this endpoint's own 400/404/
+   * 401/403 integration tests all passing.
+   */
   @Get()
   async export(
     @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Query(new ZodValidationPipe(exportQuerySchema)) query: ExportQuery,
     @Req() req: Request,
-  ): Promise<WorkspaceJsonExport> {
+    @Res() res: Response,
+  ): Promise<void> {
     const callerRole = this.requireRole(req);
-    return this.exportService.exportJson(workspaceId, callerRole, query.objectId);
+
+    if (query.format === 'markdown') {
+      if (query.objectId === undefined) {
+        // Unreachable in practice (the zod schema's `.refine()` already
+        // rejects this), but narrows the type without a non-null assertion.
+        throw new ValidationError('objectId is required when format is "markdown"');
+      }
+      const markdown = await this.exportService.exportMarkdown(
+        workspaceId,
+        query.objectId,
+        callerRole,
+      );
+      res.status(200).type('text/markdown; charset=utf-8').send(markdown);
+      return;
+    }
+
+    const result = await this.exportService.exportJson(workspaceId, callerRole, query.objectId);
+    res.status(200).json(result);
   }
 
   /**
