@@ -1,18 +1,44 @@
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import ICAL from 'ical.js';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { calendarAccounts } from '../db/schema/calendar-accounts.js';
+import { calendarEventsCache } from '../db/schema/calendar-events-cache.js';
 import { documentSnapshots } from '../db/schema/document-snapshots.js';
 import { memberships } from '../db/schema/memberships.js';
 
 import type { Database } from '../db/client.js';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
+
+/**
+ * F1-T18 PR3 (RED step) additions below -- ADR-0016 §(e): `format=ical`
+ * (hand-written RFC5545 `VEVENT` generator, `./ical-generator.ts`, wired
+ * through `ExportService`/`ExportController` -- neither exists yet, so
+ * EVERY `format=ical` request below is expected to 400 via the SAME zod
+ * `format` enum rejection the existing "format is required" test above
+ * already exercises for `format=csv` (an unrecognized enum member), NOT via
+ * a 404 route-not-found the way PR1's own original RED-state comment
+ * describes -- `GET /workspaces/:workspaceId/export` itself already exists
+ * (PR1/PR2 merged), only the `'ical'` branch of its `format` handling is
+ * new. `ical.js` here is a TEST-ONLY devDependency (already installed, see
+ * `apps/server/package.json`) used purely to parse+validate the raw
+ * `text/calendar` response bodies below against a real, independent
+ * RFC5545 parser -- `ical-generator.ts` itself (the implementation) takes
+ * on NO new runtime dependency per ADR-0016 §(e).
+ *
+ * Only native `timeblock`-type `LuminaObject`s (scheduled via the existing
+ * `POST /workspaces/:workspaceId/objects/:objectId/timeblock` route, F1-T12
+ * PR5d, already merged) are ever eligible; `calendar_events_cache` rows
+ * (third-party-owned, read-only cache) are structurally excluded since
+ * `ExportService` only ever reads `LuminaObject`s off `objects_view`.
+ */
 
 /**
  * F1-T18 PR1: real, end-to-end integration test for the JSON data-export HTTP
@@ -405,6 +431,96 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
       workspaceId,
       createdAt: new Date(),
     });
+  }
+
+  /**
+   * F1-T18 PR3: schedules an existing `timeblock`-type object's `start`/
+   * `end` via the already-merged (F1-T12 PR5d)
+   * `POST /workspaces/:workspaceId/objects/:objectId/timeblock` route --
+   * NOT new scope introduced by this file, only reused as a fixture-setup
+   * helper for the `format=ical` tests below.
+   */
+  async function scheduleTimeblock(
+    cookie: string,
+    workspaceId: string,
+    objectId: string,
+    start: string,
+    end: string,
+  ): Promise<void> {
+    const response = await request(server)
+      .post(`/workspaces/${workspaceId}/objects/${objectId}/timeblock`)
+      .set('Cookie', cookie)
+      .send({ start, end });
+
+    expect(response.status).toBe(200);
+  }
+
+  /**
+   * F1-T18 PR3: inserts a real `calendar_accounts` row followed by a real
+   * `calendar_events_cache` row directly via `rawDb` (there is no HTTP
+   * endpoint that writes either -- both are populated by
+   * `CalendarSyncPollerService`'s periodic polling, out of scope here,
+   * mirroring `insertDocSnapshot`'s own bypass-HTTP rationale). Used ONLY
+   * to prove ADR-0016 §(e)'s exclusion-by-construction: these rows must
+   * NEVER surface in a `format=ical` response.
+   */
+  async function insertExternalCalendarEvent(
+    workspaceId: string,
+    userId: string,
+    title: string,
+    externalId: string,
+    eventStart: Date,
+    eventEnd: Date,
+  ): Promise<void> {
+    const [account] = await rawDb
+      .insert(calendarAccounts)
+      .values({
+        workspaceId,
+        userId,
+        provider: 'google',
+        encryptedAccessToken: 'placeholder-ciphertext',
+        encryptedRefreshToken: 'placeholder-ciphertext',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+      .returning({ id: calendarAccounts.id });
+
+    if (!account) {
+      throw new Error('failed to insert calendar_accounts fixture row');
+    }
+
+    await rawDb.insert(calendarEventsCache).values({
+      calendarAccountId: account.id,
+      workspaceId,
+      externalId,
+      title,
+      eventStart,
+      eventEnd,
+    });
+  }
+
+  type ParsedIcalComponent = InstanceType<typeof ICAL.Component>;
+  type ParsedIcalEvent = InstanceType<typeof ICAL.Event>;
+
+  /**
+   * Parses a raw `format=ical` response body (`response.text`, never
+   * `response.body` -- same "not a JSON response" precedent as
+   * `format=markdown` above) via the real `ical.js` parser. Mirrors
+   * `../export/ical-generator.test.ts`'s own `parseICalendar`/`parseVevents`
+   * helpers exactly (each test file stays self-contained per this repo's
+   * convention, so this is deliberately duplicated rather than imported).
+   */
+  function parseICalendar(raw: string): ParsedIcalComponent {
+    // `ICAL.parse`'s own shipped `.d.ts` declares its return type as the
+    // literal `any` -- narrowed here to `unknown[]` (assignable to
+    // `Component`'s own `any[] | string` constructor parameter) rather than
+    // left as `any`, per CLAUDE.md's `any` ban.
+    const jcalData = ICAL.parse(raw) as unknown[];
+    return new ICAL.Component(jcalData);
+  }
+
+  function parseVevents(raw: string): ParsedIcalEvent[] {
+    const component = parseICalendar(raw);
+    return component.getAllSubcomponents('vevent').map((vevent) => new ICAL.Event(vevent));
   }
 
   // ---------------------------------------------------------------------
@@ -913,5 +1029,275 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
       .set('Cookie', cookie);
 
     expect(response.status).toBe(404);
+  });
+
+  // =======================================================================
+  // F1-T18 PR3 (ADR-0016 §e): format=ical HTTP behavior.
+  // =======================================================================
+
+  // A. RBAC: same "no role gate" proof as JSON/Markdown, for ical.
+  it('format=ical: a "guest" role caller succeeds (200) for a workspace they have access to — same RBAC as JSON/Markdown export (ADR-0016 §a)', async () => {
+    const { cookie: adminCookie, workspaceId } = await registerAdminWithWorkspace();
+    const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+    const timeblock = await createObject(
+      adminCookie,
+      workspaceId,
+      'timeblock',
+      'Guest-visible block',
+    );
+    await scheduleTimeblock(
+      adminCookie,
+      workspaceId,
+      timeblock.id,
+      '2026-08-20T09:00:00.000Z',
+      '2026-08-20T10:00:00.000Z',
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical'))
+      .set('Cookie', guestCookie);
+
+    expect(response.status).toBe(200);
+  });
+
+  // B. Whole-workspace export: only scheduled timeblocks, never a task.
+  it('format=ical whole-workspace export includes only scheduled timeblock objects, excluding a co-existing task', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const blockOne = await createObject(cookie, workspaceId, 'timeblock', 'Block One');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      blockOne.id,
+      '2026-08-21T09:00:00.000Z',
+      '2026-08-21T09:30:00.000Z',
+    );
+    const blockTwo = await createObject(cookie, workspaceId, 'timeblock', 'Block Two');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      blockTwo.id,
+      '2026-08-21T11:00:00.000Z',
+      '2026-08-21T11:30:00.000Z',
+    );
+    const task = await createObject(cookie, workspaceId, 'task', 'Not a timeblock');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const events = parseVevents(response.text);
+    expect(events).toHaveLength(2);
+
+    const uids = events.map((event) => event.uid);
+    expect(uids).toContain(`${blockOne.id}@luminaos`);
+    expect(uids).toContain(`${blockTwo.id}@luminaos`);
+    expect(uids).not.toContain(`${task.id}@luminaos`);
+  });
+
+  // C. objectId narrowing.
+  it('format=ical&objectId= narrows to exactly the requested timeblock', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const blockOne = await createObject(cookie, workspaceId, 'timeblock', 'Narrow target');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      blockOne.id,
+      '2026-08-22T09:00:00.000Z',
+      '2026-08-22T09:30:00.000Z',
+    );
+    const blockTwo = await createObject(cookie, workspaceId, 'timeblock', 'Not the target');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      blockTwo.id,
+      '2026-08-22T11:00:00.000Z',
+      '2026-08-22T11:30:00.000Z',
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${blockOne.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const events = parseVevents(response.text);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.uid).toBe(`${blockOne.id}@luminaos`);
+  });
+
+  // D. Wrong type -> 400.
+  it('format=ical&objectId= pointing to a task-type object (not timeblock) returns 400', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const task = await createObject(cookie, workspaceId, 'task', 'Wrong type for ical');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${task.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(400);
+  });
+
+  // E. Nonexistent objectId -> 404.
+  it('format=ical&objectId= for a nonexistent objectId returns 404', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical&objectId=does-not-exist'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+  });
+
+  // F. Cross-workspace objectId -> 404 (mirrors the JSON/Markdown precedent
+  // at the bottom of this file).
+  it('format=ical&objectId= for a timeblock belonging to a DIFFERENT workspace returns 404, not the event', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const { cookie: otherCookie, workspaceId: otherWorkspaceId } =
+      await registerAdminWithWorkspace();
+    const foreignBlock = await createObject(
+      otherCookie,
+      otherWorkspaceId,
+      'timeblock',
+      'Not yours either',
+    );
+    await scheduleTimeblock(
+      otherCookie,
+      otherWorkspaceId,
+      foreignBlock.id,
+      '2026-08-23T09:00:00.000Z',
+      '2026-08-23T09:30:00.000Z',
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${foreignBlock.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+  });
+
+  // G. Unscheduled timeblock: excluded workspace-wide, and a valid empty
+  // calendar (not an error) when narrowed directly to it.
+  it('format=ical: an unscheduled timeblock object is excluded workspace-wide, and narrowing to it directly yields a VALID EMPTY calendar (200, 0 VEVENTs), not an error', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const scheduled = await createObject(cookie, workspaceId, 'timeblock', 'Scheduled');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      scheduled.id,
+      '2026-08-24T09:00:00.000Z',
+      '2026-08-24T09:30:00.000Z',
+    );
+    const unscheduled = await createObject(cookie, workspaceId, 'timeblock', 'Never scheduled');
+
+    const wholeWorkspaceResponse = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical'))
+      .set('Cookie', cookie);
+
+    expect(wholeWorkspaceResponse.status).toBe(200);
+    const wholeWorkspaceEvents = parseVevents(wholeWorkspaceResponse.text);
+    expect(wholeWorkspaceEvents.map((event) => event.uid)).not.toContain(
+      `${unscheduled.id}@luminaos`,
+    );
+    expect(wholeWorkspaceEvents.map((event) => event.uid)).toContain(`${scheduled.id}@luminaos`);
+
+    const narrowedResponse = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${unscheduled.id}`))
+      .set('Cookie', cookie);
+
+    expect(narrowedResponse.status).toBe(200);
+    expect(() => parseICalendar(narrowedResponse.text)).not.toThrow();
+    const narrowedEvents = parseVevents(narrowedResponse.text);
+    expect(narrowedEvents).toHaveLength(0);
+  });
+
+  // H. External calendar cache events never leak into iCal export.
+  it('format=ical: cached external calendar events (calendar_events_cache) never appear, even alongside a real native timeblock in the same workspace', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const { userId } = await registerUser();
+
+    const nativeBlock = await createObject(cookie, workspaceId, 'timeblock', 'Native block');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      nativeBlock.id,
+      '2026-08-25T09:00:00.000Z',
+      '2026-08-25T09:30:00.000Z',
+    );
+
+    await insertExternalCalendarEvent(
+      workspaceId,
+      userId,
+      'External Meeting (should never appear)',
+      'external-evt-should-not-leak',
+      new Date('2026-08-25T14:00:00.000Z'),
+      new Date('2026-08-25T15:00:00.000Z'),
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const events = parseVevents(response.text);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.uid).toBe(`${nativeBlock.id}@luminaos`);
+    expect(events.map((event) => event.summary)).not.toContain(
+      'External Meeting (should never appear)',
+    );
+  });
+
+  // I. UID determinism across two SEPARATE real HTTP calls.
+  it('format=ical: UID is deterministic across two separate HTTP export calls for the same timeblock', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const block = await createObject(cookie, workspaceId, 'timeblock', 'Determinism target');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      block.id,
+      '2026-08-26T09:00:00.000Z',
+      '2026-08-26T09:30:00.000Z',
+    );
+
+    const firstResponse = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${block.id}`))
+      .set('Cookie', cookie);
+    const secondResponse = await request(server)
+      .get(exportUrl(workspaceId, `format=ical&objectId=${block.id}`))
+      .set('Cookie', cookie);
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+
+    const firstEvents = parseVevents(firstResponse.text);
+    const secondEvents = parseVevents(secondResponse.text);
+
+    expect(firstEvents).toHaveLength(1);
+    expect(secondEvents).toHaveLength(1);
+    expect(firstEvents[0]?.uid).toBe(secondEvents[0]?.uid);
+    expect(firstEvents[0]?.uid).toBe(`${block.id}@luminaos`);
+  });
+
+  // J. Content-Type header.
+  it('format=ical: a successful response has Content-Type containing text/calendar', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const block = await createObject(cookie, workspaceId, 'timeblock', 'Content-Type check');
+    await scheduleTimeblock(
+      cookie,
+      workspaceId,
+      block.id,
+      '2026-08-27T09:00:00.000Z',
+      '2026-08-27T09:30:00.000Z',
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=ical'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.type).toContain('text/calendar');
   });
 });

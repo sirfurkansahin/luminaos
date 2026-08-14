@@ -32,9 +32,10 @@ export class ExportController {
   constructor(private readonly exportService: ExportService) {}
 
   /**
-   * `format=json` and `format=markdown` have DIFFERENT response
-   * content-types (a JSON body vs. a raw `text/markdown` body), so both
-   * branches use `@Res() res: Response` WITHOUT `passthrough` and call
+   * `format=json`, `format=markdown`, and `format=ical` (F1-T18 PR3,
+   * ADR-0016 §e) have DIFFERENT response content-types (a JSON body vs. raw
+   * `text/markdown`/`text/calendar` bodies), so every branch uses
+   * `@Res() res: Response` WITHOUT `passthrough` and calls
    * `res.status(...).json(...)`/`res.status(...).type(...).send(...)`
    * explicitly, rather than mixing `{ passthrough: true }` manual sends
    * with plain `return`s (a known footgun -- double-send / "headers already
@@ -65,6 +66,12 @@ export class ExportController {
         callerRole,
       );
       res.status(200).type('text/markdown; charset=utf-8').send(markdown);
+      return;
+    }
+
+    if (query.format === 'ical') {
+      const ical = await this.exportService.exportIcal(workspaceId, callerRole, query.objectId);
+      res.status(200).type('text/calendar; charset=utf-8').send(ical);
       return;
     }
 

@@ -3,12 +3,14 @@ import { Injectable } from '@nestjs/common';
 import type { FieldDefinition, Relation, Role } from '@luminaos/core-objects';
 import { NotFoundError, ValidationError } from '@luminaos/shared';
 
+import { generateICalendar } from './ical-generator.js';
 import { DocumentReconstructionService } from '../docs/document-reconstruction.service.js';
 import { extractMarkdownFromYjsUpdate } from '../docs/yjs-to-markdown.js';
 import { FieldDefinitionsService } from '../fields/field-definitions.service.js';
 import { ObjectsService } from '../objects/objects.service.js';
 import { RelationsService } from '../relations/relations.service.js';
 
+import type { TimeblockEvent } from './ical-generator.js';
 import type { ObjectWithFieldValues } from '../objects/objects.service.js';
 
 /**
@@ -163,5 +165,52 @@ export class ExportService {
       fieldDefinitions,
       relations,
     };
+  }
+
+  /**
+   * Builds a full (or, with `objectId`, single-object-narrowed) `VCALENDAR`
+   * export of a workspace's scheduled `timeblock` objects (F1-T18 PR3,
+   * ADR-0016 §e). Follows `exportJson`'s list-then-filter pattern -- NOT
+   * `exportMarkdown`'s `objectsService.get`-direct pattern -- because
+   * `objectId` here is OPTIONAL (workspace-wide export is the default/common
+   * case, same as `format=json`).
+   *
+   * `calendar_events_cache` rows (third-party-owned, read-only cache) are
+   * excluded by construction: `objectsService.list` only ever reads
+   * `LuminaObject`s off `objects_view`, which cache rows never populate.
+   * An unscheduled `timeblock` (no `timeBlock` set yet) is silently excluded
+   * from a whole-workspace export, but narrowing directly to it still
+   * succeeds with a valid, empty calendar -- it's a real, visible object,
+   * just one with nothing to schedule yet.
+   */
+  async exportIcal(workspaceId: string, callerRole: Role, objectId?: string): Promise<string> {
+    const { objects: allObjects } = await this.objectsService.list(workspaceId, callerRole);
+    const objects = objectId ? allObjects.filter((object) => object.id === objectId) : allObjects;
+
+    if (objectId && objects.length === 0) {
+      throw new NotFoundError('Lumina Object not found');
+    }
+
+    if (objectId) {
+      const [target] = objects;
+      if (target && target.type !== 'timeblock') {
+        throw new ValidationError('format=ical is only supported for timeblock-type objects');
+      }
+    }
+
+    const isScheduledTimeblock = (
+      object: ObjectWithFieldValues,
+    ): object is ObjectWithFieldValues & {
+      timeBlock: NonNullable<ObjectWithFieldValues['timeBlock']>;
+    } => object.type === 'timeblock' && object.timeBlock !== undefined;
+
+    const events: TimeblockEvent[] = objects.filter(isScheduledTimeblock).map((object) => ({
+      objectId: object.id,
+      title: object.title,
+      start: object.timeBlock.start,
+      end: object.timeBlock.end,
+    }));
+
+    return generateICalendar(events);
   }
 }
