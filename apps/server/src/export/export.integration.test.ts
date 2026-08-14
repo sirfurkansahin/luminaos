@@ -3,9 +3,11 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { documentSnapshots } from '../db/schema/document-snapshots.js';
 import { memberships } from '../db/schema/memberships.js';
 
 import type { Database } from '../db/client.js';
@@ -95,6 +97,11 @@ interface FieldPermissionsBody {
   guest: string;
 }
 
+interface ObjectContentBody {
+  format: string;
+  text: string;
+}
+
 interface ObjectBody {
   id: string;
   type: string;
@@ -105,6 +112,13 @@ interface ObjectBody {
   updatedAt: string;
   lifecycle: string;
   fieldValues: Record<string, unknown>;
+  /**
+   * F1-T18 PR2 (ADR-0016 §d): only present for `type === 'doc'` objects,
+   * derived from the doc's latest Yjs snapshot via
+   * `extractMarkdownFromYjsUpdate`. Absent (not merely empty) for every other
+   * object type.
+   */
+  content?: ObjectContentBody;
 }
 
 interface ObjectEnvelope {
@@ -177,6 +191,46 @@ let emailCounter = 0;
 function freshEmail(): string {
   emailCounter += 1;
   return `export-test-user-${String(emailCounter)}@example.com`;
+}
+
+/**
+ * F1-T18 PR2 additions (ADR-0016 §d) below. Builds a real Yjs full-state
+ * update (mirrors `../docs/yjs-to-markdown.test.ts`'s own `buildUpdate`
+ * helper and `../docs/yjs-plain-text.test.ts`'s `buildUpdate`) for direct
+ * insertion into `document_snapshots` via `rawDb`, exercising the SAME
+ * `'document-store'` fragment key `extractMarkdownFromYjsUpdate` reads.
+ */
+function buildDocSnapshotBuffer(populate: (fragment: Y.XmlFragment) => void): Buffer {
+  const ydoc = new Y.Doc();
+  const fragment = ydoc.getXmlFragment('document-store');
+  populate(fragment);
+  return Buffer.from(Y.encodeStateAsUpdate(ydoc));
+}
+
+/**
+ * Populates a fragment with the real BlockNote tree shape (a single
+ * top-level `blockGroup` wrapping one `blockContainer` wrapping one
+ * `paragraph`) holding `text` — the minimum real structure
+ * `extractMarkdownFromYjsUpdate` needs to render `text` back out verbatim
+ * (see `../docs/yjs-to-markdown.test.ts` for the full fixture-shape
+ * rationale). Deliberately NOT imported from that unit test file — each test
+ * file stays self-contained per this repo's convention.
+ */
+function populateSimpleDoc(text: string): (fragment: Y.XmlFragment) => void {
+  return (fragment) => {
+    const paragraph = new Y.XmlElement('paragraph');
+    const xmlText = new Y.XmlText();
+    xmlText.insert(0, text);
+    paragraph.insert(0, [xmlText]);
+
+    const container = new Y.XmlElement('blockContainer');
+    container.insert(0, [paragraph]);
+
+    const group = new Y.XmlElement('blockGroup');
+    group.insert(0, [container]);
+
+    fragment.insert(0, [group]);
+  };
 }
 
 describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest)', () => {
@@ -330,6 +384,27 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
 
   function exportUrl(workspaceId: string, query: string): string {
     return `/workspaces/${workspaceId}/export?${query}`;
+  }
+
+  /**
+   * F1-T18 PR2: inserts a real `document_snapshots` row directly via
+   * `rawDb`, bypassing HTTP (there is no snapshot-write HTTP endpoint —
+   * snapshots are written by the doc-collab projection, out of scope here).
+   * `version` is fixed at `1`: only the latest snapshot per `objectId` is
+   * ever read (`MAX(version)`), and these tests never write more than one.
+   */
+  async function insertDocSnapshot(
+    workspaceId: string,
+    objectId: string,
+    snapshot: Buffer,
+  ): Promise<void> {
+    await rawDb.insert(documentSnapshots).values({
+      objectId,
+      version: 1,
+      snapshot,
+      workspaceId,
+      createdAt: new Date(),
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -661,5 +736,182 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
       .get(exportUrl(workspaceId, 'format=json'))
       .set('Cookie', ownerCookie);
     expect(ownerResponse.status).toBe(200);
+  });
+
+  // =======================================================================
+  // F1-T18 PR2 (ADR-0016 §d): format=markdown HTTP behavior.
+  // =======================================================================
+
+  it('format=markdown requires objectId; a missing objectId returns 400', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=markdown'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('format=markdown with an objectId of the wrong type (e.g. a task, not a doc) returns 400', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const task = await createObject(cookie, workspaceId, 'task', 'Not a doc');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=markdown&objectId=${task.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('format=markdown with a nonexistent objectId returns 404', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=markdown&objectId=does-not-exist'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+  });
+
+  it('format=markdown for a doc object with a real snapshot returns 200, Content-Type text/markdown, and the converted Markdown as the raw text body', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const doc = await createObject(cookie, workspaceId, 'doc', 'A real doc');
+
+    const snapshot = buildDocSnapshotBuffer(populateSimpleDoc('Integration test content'));
+    await insertDocSnapshot(workspaceId, doc.id, snapshot);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=markdown&objectId=${doc.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.type).toContain('text/markdown');
+    expect(response.text).toBe('Integration test content');
+  });
+
+  it('format=markdown for a doc object with NO snapshot yet returns 200 with an empty string body (not 404 — an unedited doc is a valid empty document)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const doc = await createObject(cookie, workspaceId, 'doc', 'Doc without a snapshot');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=markdown&objectId=${doc.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('');
+  });
+
+  it('format=markdown: a "guest" role caller succeeds for a doc they have workspace access to — same RBAC as JSON export (ADR-0016 §a)', async () => {
+    const { cookie: adminCookie, workspaceId } = await registerAdminWithWorkspace();
+    const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+    const doc = await createObject(adminCookie, workspaceId, 'doc', 'Guest-visible doc');
+
+    const snapshot = buildDocSnapshotBuffer(populateSimpleDoc('Guest can read this'));
+    await insertDocSnapshot(workspaceId, doc.id, snapshot);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=markdown&objectId=${doc.id}`))
+      .set('Cookie', guestCookie);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('Guest can read this');
+  });
+
+  // =======================================================================
+  // F1-T18 PR2: JSON export enrichment with doc content.
+  // =======================================================================
+
+  it('format=json enriches a doc-type object with content: { format: "markdown", text } derived from its Yjs snapshot', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const doc = await createObject(cookie, workspaceId, 'doc', 'Doc with content');
+
+    const snapshot = buildDocSnapshotBuffer(populateSimpleDoc('Enriched doc body'));
+    await insertDocSnapshot(workspaceId, doc.id, snapshot);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const exportedDoc = body.objects.find((o) => o.id === doc.id);
+    expect(exportedDoc).toBeDefined();
+    expect(exportedDoc?.content).toEqual({ format: 'markdown', text: 'Enriched doc body' });
+  });
+
+  it('format=json: a doc-type object with NO snapshot has content: { format: "markdown", text: "" } — present but empty, not omitted', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const doc = await createObject(
+      cookie,
+      workspaceId,
+      'doc',
+      'Doc without snapshot for json export',
+    );
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const exportedDoc = body.objects.find((o) => o.id === doc.id);
+    expect(exportedDoc).toBeDefined();
+    expect(exportedDoc?.content).toEqual({ format: 'markdown', text: '' });
+  });
+
+  it('format=json: a task-type object has no content field at all (content is doc-specific, absent not empty)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const task = await createObject(cookie, workspaceId, 'task', 'Just a task');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, 'format=json'))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const body = response.body as ExportBody;
+
+    const exportedTask = body.objects.find((o) => o.id === task.id);
+    expect(exportedTask).toBeDefined();
+    expect(exportedTask?.content).toBeUndefined();
+  });
+
+  // =======================================================================
+  // Security-review follow-up (F1-T18 PR2): a real object id belonging to a
+  // DIFFERENT workspace must 404, not leak, for both format=json&objectId=
+  // and format=markdown&objectId= -- the existing "nonexistent objectId"
+  // tests above only prove an id that never existed anywhere 404s; these
+  // prove the SAME 404 for an id that is real but scoped elsewhere.
+  // =======================================================================
+  it('format=json&objectId= for an object belonging to a DIFFERENT workspace returns 404, not the object', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const { cookie: otherCookie, workspaceId: otherWorkspaceId } =
+      await registerAdminWithWorkspace();
+    const foreignObject = await createObject(otherCookie, otherWorkspaceId, 'task', 'Not yours');
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=json&objectId=${foreignObject.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+  });
+
+  it('format=markdown&objectId= for a doc belonging to a DIFFERENT workspace returns 404, not its content', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+    const { cookie: otherCookie, workspaceId: otherWorkspaceId } =
+      await registerAdminWithWorkspace();
+    const foreignDoc = await createObject(otherCookie, otherWorkspaceId, 'doc', 'Not yours either');
+
+    const snapshot = buildDocSnapshotBuffer(
+      populateSimpleDoc('Secret content from another workspace'),
+    );
+    await insertDocSnapshot(otherWorkspaceId, foreignDoc.id, snapshot);
+
+    const response = await request(server)
+      .get(exportUrl(workspaceId, `format=markdown&objectId=${foreignDoc.id}`))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
   });
 });
