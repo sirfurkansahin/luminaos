@@ -12,7 +12,7 @@ Bu adımlar `.github/workflows/ci.yml`'in devreye girmesiyle **bir kez, elle** y
      - **Require approvals**: `1`
    - **Require status checks to pass before merging**
      - **Require branches to be up to date before merging**
-     - Zorunlu status check'ler olarak şu iş adlarını seç (workflow ilk kez bir PR'da koştuktan sonra listede görünürler): `quality`, `security`
+     - Zorunlu status check'ler olarak şu iş adlarını seç (workflow ilk kez bir PR'da koştuktan sonra listede görünürler): `quality`, `security`, `desktop-build` (ADR-0019 Karar (e) — `apps/desktop`'ın Rust tarafı için `cargo fmt --check`/`cargo clippy -- -D warnings`/`cargo build` kalite kapısı; diğerleri gibi merge'i engellemeli)
    - **Do not allow bypassing the above settings** (repo admin'leri de dahil — istisna yok)
    - **Restrict who can push to matching branches** → kimseye doğrudan push izni verme (yalnız PR üzerinden birleştirme).
 5. **Force pushes**: kapalı bırak (izin verme).
@@ -27,5 +27,6 @@ Bu adımlar `.github/workflows/ci.yml`'in devreye girmesiyle **bir kez, elle** y
 
 ## İlgili
 
-- CI workflow: `.github/workflows/ci.yml` (`quality`, `security`, `pr-size-guard` job'ları).
-- Spec: `docs/specs/F0-E1/F0-T3-ci-boru-hatti.md`.
+- CI workflow: `.github/workflows/ci.yml` (`quality`, `security`, `desktop-build`, `ai-eval`, `pr-size-guard` job'ları).
+- Spec: `docs/specs/F0-E1/F0-T3-ci-boru-hatti.md`, `docs/specs/F2-E1/F2-T2b-desktop-app-iskeleti.md`.
+- ADR: `docs/adr/ADR-0019-desktop-app-iskeleti.md` (Karar e — `desktop-build` job'unun kapsamı ve gerekçesi).

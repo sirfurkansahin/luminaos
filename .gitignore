@@ -2,6 +2,8 @@ node_modules/
 dist/
 .turbo/
 coverage/
+# Rust build artifacts (apps/desktop/src-tauri) -- ADR-0019
+target/
 *.log
 ai-eval-results.json
 .env
