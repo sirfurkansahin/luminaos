@@ -155,6 +155,13 @@
       "when": 1786277526531,
       "tag": "0021_panoramic_molecule_man",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786786188430,
+      "tag": "0022_youthful_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

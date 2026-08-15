@@ -17,3 +17,6 @@ export * from './timeblock-external-pushes.js';
 export * from './user-availability.js';
 export * from './search-index.js';
 export * from './command-proposals.js';
+export * from './context-graph-nodes.js';
+export * from './context-graph-edges.js';
+export * from './context-graph-field-types.js';
