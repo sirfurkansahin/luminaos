@@ -1,6 +1,6 @@
 # F2-T2 — Bağlam API'si: "Bu Nesneyle İlgili Her Şey" Sorgusu (<100ms, İzin Süzgeçli)
 
-**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Taslak (spec — insan onayı bekliyor)
+**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Tamamlandı — ADR-0018 (#119), implementasyon PR (bkz. commit geçmişi)
 **Bağımlılık:** F2-T1 (bağlam grafiği projeksiyonu — `context_graph_nodes`/`context_graph_edges`, ADR-0017), F0-T6 (event store + projeksiyon çatısı), ADR-0016 (RBAC/export sınır kararları)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu görevin Açık Soru 1'i (canlı kablolama stratejisi), F0-T6'nın projeksiyon çatısının **tazelik garantisini ilk kez somutlaştırıyor** — bugüne kadar hiçbir projeksiyon (`objects_view`, `relations_view`, `search_index`, `context_graph_*`) için "sorgu anında ne kadar güncel olmalı" sorusu bir sözleşime bağlanmadı, her biri örtük olarak "yazma yolunda `catchUp` çağrılır" varsayımıyla yürüdü. `ContextGraphProjection` ise ADR-0017 Karar (h) gereği bilinçli olarak bu varsayımın DIŞINDA bırakıldı (hiçbir servis `catchUp` çağırmıyor). Bu görev, F2-T2'nin API'sinin hangi tazelik garantisini verdiğine karar vermeden kod yazamaz; bu karar yalnızca bu görevi değil, gelecekteki tüm F2/F3 görevlerinin context-fabric okumalarını (ör. F2-T4 ilgililik skorlama, F3'ün ajan bağlam sorguları) bağlar — CLAUDE.md'nin ADR kriteri (b)'ye (birden fazla pakete/gelecekteki görevlere dayatılan sözleşim) giriyor. ADR gerekir; architect taslağı + insan onayı koddan önce.
@@ -49,10 +49,10 @@ F2-T1'in ürettiği bağlam grafiğinin (`context_graph_nodes`/`context_graph_ed
 
 ## Kabul Kriterleri
 
-- [ ] `GET /workspaces/:workspaceId/context/:objectId` endpoint'i gerçek Postgres'e karşı (Testcontainers, `object-query-performance.integration.test.ts` deseni) `<100ms` performans testiyle kanıtlı.
-- [ ] Alan-düzeyi RBAC filtrelemesi, mevcut `ObjectsService.filterFieldValuesForRole` mekanizmasıyla tutarlı şekilde komşu `entity` düğümlerine uygulanıyor ve her rol (`owner`/`admin`/`member`/`guest`) için testli.
-- [ ] Tazelik/canlı-kablolama kararı (Açık Soru 1) bir ADR ile sabitlendi ve insan tarafından onaylandı; implementasyon ADR'de seçilen yaklaşımı uyguluyor.
-- [ ] Cross-workspace izolasyon (bir workspace'in `objectId`'siyle başka workspace'in context sorgusu yapılamaması, tüm sorguların `workspaceId` süzgeçli olması) security-reviewer'dan geçti.
-- [ ] F2-T1'in ürettiği 4 düğüm türünün (`entity`, `person`, `time`, `topic`) ve 4 kenar türünün (`entity-entity`, `entity-person`, `entity-time`, `entity-topic`) tamamı yanıt şeklinde temsil ediliyor; her tür için en az bir entegrasyon testi var.
-- [ ] Var olmayan veya erişilemeyen (`objectId` başka workspace'e ait) bir nesne sorgusu için beklenen hata davranışı (`packages/shared/errors` sınıflarıyla, çıplak `throw` yok) testli.
-- [ ] Yanıt hiçbir sıralama/skorlama mantığı içermiyor (F2-T4 kapsamına sızma yok) — bu, kod incelemesinde ve varsa test isimlerinde açıkça doğrulanabilir olmalı.
+- [x] `GET /workspaces/:workspaceId/context/:objectId` endpoint'i gerçek Postgres'e karşı (Testcontainers, `object-query-performance.integration.test.ts` deseni) `<100ms` performans testiyle kanıtlı.
+- [x] Alan-düzeyi RBAC filtrelemesi, mevcut `ObjectsService.filterFieldValuesForRole` mekanizmasıyla tutarlı şekilde komşu `entity` düğümlerine uygulanıyor ve her rol (`owner`/`admin`/`member`/`guest`) için testli.
+- [x] Tazelik/canlı-kablolama kararı (Açık Soru 1) bir ADR ile sabitlendi ve insan tarafından onaylandı; implementasyon ADR'de seçilen yaklaşımı uyguluyor.
+- [x] Cross-workspace izolasyon (bir workspace'in `objectId`'siyle başka workspace'in context sorgusu yapılamaması, tüm sorguların `workspaceId` süzgeçli olması) security-reviewer'dan geçti.
+- [x] F2-T1'in ürettiği 4 düğüm türünün (`entity`, `person`, `time`, `topic`) ve 4 kenar türünün (`entity-entity`, `entity-person`, `entity-time`, `entity-topic`) tamamı yanıt şeklinde temsil ediliyor; her tür için en az bir entegrasyon testi var.
+- [x] Var olmayan veya erişilemeyen (`objectId` başka workspace'e ait) bir nesne sorgusu için beklenen hata davranışı (`packages/shared/errors` sınıflarıyla, çıplak `throw` yok) testli.
+- [x] Yanıt hiçbir sıralama/skorlama mantığı içermiyor (F2-T4 kapsamına sızma yok) — bu, kod incelemesinde ve varsa test isimlerinde açıkça doğrulanabilir olmalı.

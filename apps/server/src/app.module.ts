@@ -9,6 +9,7 @@ import { CalendarModule } from './calendar/calendar.module.js';
 import { CommandsModule } from './commands/commands.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
+import { ContextModule } from './context/context.module.js';
 import { DbModule } from './db/db.module.js';
 import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
@@ -48,6 +49,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     CalendarModule,
     AvailabilityModule,
     ObjectsModule,
+    ContextModule,
     DocsModule,
     ExportModule,
     FieldsModule,
