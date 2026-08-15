@@ -1,6 +1,6 @@
 # F2-T2b — `apps/desktop` Uygulama İskeleti Kurulumu
 
-**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Taslak
+**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Tamamlandı — ADR-0019 (#121), implementasyon PR (bkz. commit geçmişi)
 **Bağımlılık:** F0-T1 (monorepo + paket iskelet deseni), F0-T2 (ortak lint/format/tsconfig kuralları), F0-T3 (CI boru hattı)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: `apps/desktop` yalnızca F2-T3'e (masaüstü sinyal toplayıcılar) değil, Faz 3'ün birden fazla vizyonuna (Agent Runtime, Ambient Intelligence, Sakin Yazılım) dayatılan bir temel — CLAUDE.md'nin ADR kriteri (b)'ye ("birden fazla pakete veya gelecekteki görevlere dayatılan bir sözleşim tanımlıyorsa") tam giriyor. `docs/PLAN.md` §2.1 masaüstü kabuk için Tauri'yi öneriyor ama bu bugüne kadar bağlayıcı olmayan bir plan-notu; bu görev, framework seçimini, frontend katmanını, IPC/güvenlik modelini ve CI entegrasyonunu resmi bir ADR ile sabitler — architect taslağı + insan onayı, koddan önce. Sıfırdan app iskeleti + framework + build/paketleme kendi başına büyük bir iş; dar kapsamlı sinyal-toplama görevinin (F2-T3) PR'ına sığdırılmaz, bilinçli olarak ayrı bir görev olarak açıldı.
@@ -56,12 +56,12 @@
 
 ## Kabul Kriterleri
 
-- [ ] Framework kararı (Tauri) `docs/adr/ADR-0019-*.md` (veya architect'in belirlediği güncel numara) ile sabitlendi ve insan tarafından onaylandı.
-- [ ] `apps/desktop` paketi F0-T1/F0-T2 konvansiyonlarına uygun kuruldu: `package.json` (`@luminaos/desktop`), `tsconfig.json` (kök `tooling/` konfigini extend eden, strict), `src-tauri/` + `src/` ayrımı.
-- [ ] `pnpm --filter @luminaos/desktop build` (veya ADR'de kararlaştırılan eşdeğer komut) hatasız tamamlanır.
-- [ ] CI'ye bağlı: F0-T3'ün `.github/workflows/ci.yml` boru hattına `apps/desktop` build/lint/typecheck adımları eklendi, mevcut job'lar kırılmadı.
-- [ ] Minimal pencere açılıp kapanabiliyor (manuel veya otomatik smoke test ile doğrulanır).
-- [ ] `packages/ui` veya `packages/shared`'dan en az bir gerçek import çalışıyor (workspace-linking kanıtı, testle veya build çıktısıyla doğrulanır).
-- [ ] IPC/native-modül temel deseni (en az bir örnek Tauri komutu) ADR'de kararlaştırılan izin modeliyle kuruldu.
-- [ ] security-reviewer: Tauri allowlist/IPC yüzeyinin en az ayrıcalık ilkesine uyduğu denetlendi.
-- [ ] **Not:** Bu görev tamamlandığında F2-T3'ün spec dosyası (`docs/specs/F2-E1/F2-T3-*.md`, henüz yazılmadı) F2-T2b'yi bağımlılık olarak referans alacak şekilde yazılmalı/güncellenmeli.
+- [x] Framework kararı (Tauri) `docs/adr/ADR-0019-desktop-app-iskeleti.md` ile sabitlendi ve insan tarafından onaylandı.
+- [x] `apps/desktop` paketi F0-T1/F0-T2 konvansiyonlarına uygun kuruldu: `package.json` (`@luminaos/desktop`), `tsconfig.json` (kök `tooling/` konfigini extend eden, strict), `src-tauri/` + `src/` ayrımı.
+- [x] `pnpm --filter @luminaos/desktop build` (frontend, `tsc && vite build`) hatasız tamamlanır; Rust linklemesi CI'nin `desktop-build` job'undaki ayrı `cargo build` adımıyla doğrulanır (bu makinede MSVC linker yok, implementer-seviyesi CI tasarım düzeltmesi — bkz. commit geçmişi).
+- [x] CI'ye bağlı: `.github/workflows/ci.yml`'e Windows-only `desktop-build` job'u eklendi (`cargo fmt --check` + `cargo clippy -D warnings` + `cargo build`), mevcut job'lar kırılmadı.
+- [x] Minimal pencere açılıp kapanabiliyor (`App.test.tsx` smoke testi ile doğrulandı).
+- [x] `packages/ui`'den en az bir gerçek import çalışıyor (workspace-linking kanıtı, `App.test.tsx` ile testli).
+- [x] IPC/native-modül temel deseni: v1'de SIFIR komut/plugin (ADR Karar f) — `src-tauri-config.integration.test.ts` bunu regresyon testiyle sabitliyor.
+- [x] security-reviewer: Tauri allowlist/IPC yüzeyinin en az ayrıcalık ilkesine uyduğu denetlendi (bulgu: CSP `null` yerine kısıtlayıcı bir politika ayarlandı, testle sabitlendi).
+- [x] **Not:** F2-T3'ün spec dosyası bu görevden SONRA yazılacak, F2-T2b'yi bağımlılık olarak referans alacak.
