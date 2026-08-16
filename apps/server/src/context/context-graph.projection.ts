@@ -97,6 +97,8 @@ export class ContextGraphProjection implements Projection {
     'FieldDefined',
     'FieldArchived',
     'FieldValueChanged',
+    'DesktopSignalCaptured',
+    'DesktopSignalConsentRevoked',
   ];
 
   /**
@@ -495,6 +497,125 @@ export class ContextGraphProjection implements Projection {
             event.occurredAt,
           );
         }
+        return;
+      }
+      case 'DesktopSignalCaptured': {
+        // ADR-0020 Karar h/h.0: desktop signals derive `person`/`time`/
+        // `topic` nodes and `person-topic`/`person-time` edges, scoped by
+        // `sourceFieldKey = signalType` on BOTH edge types (Karar h.5
+        // correction) so a later `DesktopSignalConsentRevoked` can
+        // selectively delete only that signalType's edges.
+        const signalType = requireStringPayloadField(event, 'signalType');
+        const value = requireStringPayloadField(event, 'value');
+
+        const personNodeId = await this.getOrCreateNode(
+          dbTx,
+          event.workspaceId,
+          'person',
+          event.actor.id,
+          null,
+          event.occurredAt,
+        );
+
+        const timeNodeId = await this.getOrCreateNode(
+          dbTx,
+          event.workspaceId,
+          'time',
+          toUtcDayKey(event.occurredAt),
+          null,
+          event.occurredAt,
+        );
+
+        const topicNodeId = await this.getOrCreateNode(
+          dbTx,
+          event.workspaceId,
+          'topic',
+          value,
+          null,
+          event.occurredAt,
+        );
+
+        // Full-refresh (Karar h.4): delete every existing `person-topic`
+        // edge scoped to THIS `(person, signalType)` pair before adding the
+        // fresh one, mirroring `FieldValueChanged`'s `entity-topic`
+        // full-refresh above.
+        await dbTx
+          .delete(contextGraphEdges)
+          .where(
+            and(
+              eq(contextGraphEdges.workspaceId, event.workspaceId),
+              eq(contextGraphEdges.edgeType, 'person-topic'),
+              eq(contextGraphEdges.fromNodeId, personNodeId),
+              eq(contextGraphEdges.sourceFieldKey, signalType),
+            ),
+          );
+
+        await this.createEdgeIfAbsent(
+          dbTx,
+          event.workspaceId,
+          'person-topic',
+          personNodeId,
+          topicNodeId,
+          signalType,
+          null,
+          event.occurredAt,
+        );
+
+        await this.createEdgeIfAbsent(
+          dbTx,
+          event.workspaceId,
+          'person-time',
+          personNodeId,
+          timeNodeId,
+          signalType,
+          null,
+          event.occurredAt,
+        );
+        return;
+      }
+      case 'DesktopSignalConsentRevoked': {
+        // ADR-0020 Karar h.0 (KRİTİK): retroactively deletes ONLY this
+        // (person, signalType) pair's `person-topic`/`person-time` edges —
+        // never the `topic`/`time` nodes themselves, never another
+        // signalType's or another person's edges.
+        const signalType = requireStringPayloadField(event, 'signalType');
+
+        const [personNode] = await dbTx
+          .select({ id: contextGraphNodes.id })
+          .from(contextGraphNodes)
+          .where(
+            and(
+              eq(contextGraphNodes.workspaceId, event.workspaceId),
+              eq(contextGraphNodes.nodeType, 'person'),
+              eq(contextGraphNodes.naturalKey, event.actor.id),
+            ),
+          );
+
+        if (!personNode) {
+          return;
+        }
+
+        await dbTx
+          .delete(contextGraphEdges)
+          .where(
+            and(
+              eq(contextGraphEdges.workspaceId, event.workspaceId),
+              eq(contextGraphEdges.edgeType, 'person-topic'),
+              eq(contextGraphEdges.fromNodeId, personNode.id),
+              eq(contextGraphEdges.sourceFieldKey, signalType),
+            ),
+          );
+
+        await dbTx
+          .delete(contextGraphEdges)
+          .where(
+            and(
+              eq(contextGraphEdges.workspaceId, event.workspaceId),
+              eq(contextGraphEdges.edgeType, 'person-time'),
+              eq(contextGraphEdges.fromNodeId, personNode.id),
+              eq(contextGraphEdges.sourceFieldKey, signalType),
+            ),
+          );
         return;
       }
       default:
