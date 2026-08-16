@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-active-window-app-name"
+description = "Permits reading the foreground window's process/application name (never the window title text)."
+commands.allow = ["get_active_window_app_name"]

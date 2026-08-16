@@ -49,31 +49,26 @@ describe('src-tauri/capabilities/default.json — zero-command allowlist', () =>
   });
 });
 
-describe('src-tauri/src/lib.rs — no custom commands, no plugins registered', () => {
-  it('does not define any #[tauri::command]', () => {
-    const source = readSrcTauriFile('src', 'lib.rs');
-    expect(source).not.toContain('#[tauri::command]');
-  });
-
+describe('src-tauri/src/lib.rs — no plugins registered, allowlist is explicit not empty (ADR-0019 Karar f, extended by ADR-0020)', () => {
+  // ADR-0019 Karar (f)'s "zero-command allowlist" described the v1 SKELETON
+  // only. F2-T3 PR3 (ADR-0020 Karar e/f/g) deliberately adds the first
+  // command, `get_active_window_app_name`, under its own least-privilege
+  // `desktop-signals` capability -- this is the natural extension ADR-0019
+  // itself anticipated ("F2-T3 will add its own commands ... in its own
+  // PR"), not a regression of the allowlist principle. What still must hold
+  // is: no plugins, and `generate_handler!` is no longer empty but contains
+  // EXACTLY the commands intentionally registered.
   it('does not register any Tauri plugin (.plugin( call)', () => {
     const source = readSrcTauriFile('src', 'lib.rs');
     expect(source).not.toContain('.plugin(');
   });
 
-  it('generate_handler! is empty when present (no command names registered)', () => {
+  it('generate_handler! is no longer empty — it contains exactly get_active_window_app_name (ADR-0020 Karar f, F2-T3 PR3)', () => {
     const source = readSrcTauriFile('src', 'lib.rs');
     const match = source.match(/generate_handler!\s*\[([^\]]*)\]/);
 
-    if (match) {
-      // If the macro call is present at all, its argument list must be
-      // whitespace-only — i.e. `generate_handler![]`, zero commands.
-      expect(match[1].trim()).toBe('');
-    } else {
-      // Some minimal skeletons may omit invoke_handler()/generate_handler!
-      // entirely (default Tauri behavior with no commands at all) — that
-      // also satisfies "zero commands registered".
-      expect(source).not.toContain('generate_handler!');
-    }
+    expect(match).not.toBeNull();
+    expect(match?.[1].trim()).toBe('get_active_window_app_name');
   });
 });
 
