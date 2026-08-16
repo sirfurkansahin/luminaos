@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 interface WorkspaceContextModuleLike {
   getWorkspaceId: () => string | null;
+  setWorkspaceId: (id: string) => void;
 }
 
 /**
@@ -28,8 +29,7 @@ interface WorkspaceContextModuleLike {
  * whole-suite-unresolved state IS this file's RED signal.
  */
 async function importWorkspaceContextModule(): Promise<WorkspaceContextModuleLike> {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- RED step: apps/desktop/src/workspace-context.ts does not exist yet.
-  return (await import('./workspace-context')) as unknown as WorkspaceContextModuleLike;
+  return await import('./workspace-context');
 }
 
 const STORAGE_KEY = 'luminaos.workspaceId';
@@ -61,5 +61,51 @@ describe('getWorkspaceId (F2-T3 PR4, ADR-0020 -- real workspace-selection UI def
     expect(getWorkspaceId()).toBe('ws-99');
     localStorage.removeItem(STORAGE_KEY);
     expect(getWorkspaceId()).toBeNull();
+  });
+});
+
+/**
+ * RED-step tests for F2-T3b's `setWorkspaceId` addition (see
+ * `docs/specs/F2-E1/F2-T3b-desktop-login-session.md`, "HEDEF ŞEKİL" item 4)
+ * -- `./workspace-context.ts` does not export a `setWorkspaceId` function
+ * yet. This is the real workspace-selection write path that replaces manual
+ * `localStorage.setItem('luminaos.workspaceId', ...)` (README's dev-only
+ * step) with a real function `SessionContext`/`WorkspacePicker` call.
+ *
+ * Contract for `implementer`:
+ *
+ *   export function setWorkspaceId(id: string): void;
+ *
+ * Writes `localStorage.setItem('luminaos.workspaceId', id)` -- no
+ * validation beyond that (the caller is responsible for passing a real
+ * workspace id).
+ */
+describe('setWorkspaceId (F2-T3b)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('writes the given id under the "luminaos.workspaceId" localStorage key', async () => {
+    const { setWorkspaceId } = await importWorkspaceContextModule();
+    setWorkspaceId('ws-77');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('ws-77');
+  });
+
+  it('a value written by setWorkspaceId is immediately visible to getWorkspaceId', async () => {
+    const { setWorkspaceId, getWorkspaceId } = await importWorkspaceContextModule();
+    expect(getWorkspaceId()).toBeNull();
+    setWorkspaceId('ws-88');
+    expect(getWorkspaceId()).toBe('ws-88');
+  });
+
+  it('overwrites a previously stored workspace id', async () => {
+    localStorage.setItem(STORAGE_KEY, 'ws-old');
+    const { setWorkspaceId, getWorkspaceId } = await importWorkspaceContextModule();
+    setWorkspaceId('ws-new');
+    expect(getWorkspaceId()).toBe('ws-new');
   });
 });

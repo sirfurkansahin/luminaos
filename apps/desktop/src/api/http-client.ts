@@ -136,3 +136,59 @@ export async function listCalendarEvents(
   );
   return events;
 }
+
+// F2-T3b (docs/specs/F2-E1/F2-T3b-desktop-login-session.md) — session-cookie
+// login/logout/register/whoami, consuming `apps/server`'s already-existing
+// `/auth/login` / `/auth/logout` / `/auth/register` / `GET /me` endpoints.
+
+export interface MeUser {
+  id: string;
+  email: string;
+}
+
+export interface MeWorkspace {
+  id: string;
+  name: string;
+}
+
+export interface MeResult {
+  user: MeUser;
+  workspaces: MeWorkspace[];
+}
+
+export async function login(email: string, password: string): Promise<MeUser> {
+  const { user } = await request<{ user: MeUser }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  return user;
+}
+
+export async function logout(): Promise<void> {
+  await request<undefined>('/auth/logout', { method: 'POST' });
+}
+
+export async function register(email: string, password: string): Promise<MeUser> {
+  const { user } = await request<{ user: MeUser }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  return user;
+}
+
+/**
+ * `null` means "not logged in" (a 401 from `GET /me`) — an EXPECTED outcome
+ * on app startup, not an error condition, so it is deliberately swallowed
+ * here rather than left for every caller to special-case. Any other error
+ * (network failure, 500, etc.) is re-thrown unchanged.
+ */
+export async function getMe(): Promise<MeResult | null> {
+  try {
+    return await request<MeResult>('/me', { method: 'GET' });
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401) {
+      return null;
+    }
+    throw error;
+  }
+}

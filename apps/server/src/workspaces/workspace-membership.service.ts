@@ -5,6 +5,7 @@ import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { memberships } from '../db/schema/memberships.js';
+import { workspaces } from '../db/schema/workspaces.js';
 
 import type { Database } from '../db/client.js';
 
@@ -98,5 +99,25 @@ export class WorkspaceMembershipService {
         throw new ForbiddenError();
       }
     }
+  }
+
+  /**
+   * Lists every workspace `userId` is a member of (possibly empty), as a
+   * bare `{id, name}` summary — used by `GET /me` (F2-T3b) so `apps/desktop`
+   * can auto-select a workspace for a single-workspace user or show a
+   * picker for a multi-workspace one, without a separate `GET /workspaces`
+   * endpoint (Open Question 1, Option B in
+   * `docs/specs/F2-E1/F2-T3b-desktop-login-session.md`).
+   */
+  async listWorkspacesForUser(userId: string): Promise<{ id: string; name: string }[]> {
+    if (typeof userId !== 'string' || userId.length === 0) {
+      throw new UnauthorizedError();
+    }
+
+    return this.db
+      .select({ id: workspaces.id, name: workspaces.name })
+      .from(memberships)
+      .innerJoin(workspaces, eq(memberships.workspaceId, workspaces.id))
+      .where(eq(memberships.userId, userId));
   }
 }

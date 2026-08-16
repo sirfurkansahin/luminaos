@@ -65,6 +65,21 @@ interface ApiErrorLike extends Error {
   statusCode: number;
 }
 
+interface MeUserLike {
+  id: string;
+  email: string;
+}
+
+interface MeWorkspaceLike {
+  id: string;
+  name: string;
+}
+
+interface MeResultLike {
+  user: MeUserLike;
+  workspaces: MeWorkspaceLike[];
+}
+
 /**
  * `./http-client.ts` doesn't exist yet -- same `*Like` escape hatch as
  * `../signals/active-window.test.ts`'s `ActiveWindowModuleLike`/
@@ -93,6 +108,12 @@ interface HttpClientModuleLike {
     workspaceId: string,
     range: { start: string; end: string },
   ) => Promise<CachedCalendarEventLike[]>;
+  // F2-T3b additions (see `docs/specs/F2-E1/F2-T3b-desktop-login-session.md`,
+  // "HEDEF ŞEKİL" item 3).
+  login: (email: string, password: string) => Promise<MeUserLike>;
+  logout: () => Promise<void>;
+  register: (email: string, password: string) => Promise<MeUserLike>;
+  getMe: () => Promise<MeResultLike | null>;
 }
 
 async function importHttpClientModule(): Promise<HttpClientModuleLike> {
@@ -104,8 +125,8 @@ async function importHttpClientModule(): Promise<HttpClientModuleLike> {
   // creates the file. That whole-suite-unresolved state IS this file's RED
   // signal; the moment `http-client.ts` exists, collection succeeds and
   // every `it()` below starts asserting for real.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- RED step: apps/desktop/src/api/http-client.ts does not exist yet.
-  return (await import('./http-client')) as unknown as HttpClientModuleLike;
+
+  return await import('./http-client');
 }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -246,5 +267,129 @@ describe('apps/desktop http-client (F2-T3 PR4, ADR-0020)', () => {
     await expect(captureDesktopSignal('ws-1', 'active-window', 'Code.exe')).rejects.toBeInstanceOf(
       ApiError,
     );
+  });
+});
+
+/**
+ * F2-T3b RED-step additions -- `login`/`logout`/`register`/`getMe` don't
+ * exist on `./http-client.ts` yet (see
+ * `docs/specs/F2-E1/F2-T3b-desktop-login-session.md`, "HEDEF ŞEKİL" item 3).
+ *
+ * Contract for `implementer`:
+ * - `login(email, password)`: `POST /auth/login`, body `{email, password}`,
+ *   `credentials: 'include'`, unwraps the server's `{user}` envelope and
+ *   returns the bare `{id, email}` object.
+ * - `logout()`: `POST /auth/logout`, `credentials: 'include'`, resolves
+ *   `void`.
+ * - `register(email, password)`: `POST /auth/register`, same shape as
+ *   `login`.
+ * - `getMe()`: `GET /me`, `credentials: 'include'`. On a 200 response,
+ *   returns `{user, workspaces}` verbatim. On an `ApiError` with
+ *   `statusCode === 401` (no session / expired session -- an EXPECTED
+ *   "not logged in" outcome, not an error), returns `null` instead of
+ *   throwing. On any OTHER `ApiError` (e.g. 500), re-throws it unchanged --
+ *   only 401 is special-cased.
+ */
+describe('apps/desktop http-client -- login/logout/register/getMe (F2-T3b)', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(url: string, init?: RequestInit) => Promise<Response>>>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('login(email, password) POSTs {email, password} to /auth/login with credentials:include and unwraps {user}', async () => {
+    const user: MeUserLike = { id: 'u-1', email: 'user@example.com' };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { user }));
+
+    const { login } = await importHttpClientModule();
+    const result = await login('user@example.com', 'super-secret');
+
+    expect(result).toEqual(user);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/auth/login');
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: 'user@example.com',
+      password: 'super-secret',
+    });
+  });
+
+  it('logout() POSTs to /auth/logout with credentials:include', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(204, undefined));
+
+    const { logout } = await importHttpClientModule();
+    await logout();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/auth/logout');
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('register(email, password) POSTs {email, password} to /auth/register and unwraps {user}', async () => {
+    const user: MeUserLike = { id: 'u-2', email: 'new-user@example.com' };
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { user }));
+
+    const { register } = await importHttpClientModule();
+    const result = await register('new-user@example.com', 'another-secret');
+
+    expect(result).toEqual(user);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/auth/register');
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: 'new-user@example.com',
+      password: 'another-secret',
+    });
+  });
+
+  it('getMe() GETs /me with credentials:include and returns {user, workspaces} verbatim on 200', async () => {
+    const meResult: MeResultLike = {
+      user: { id: 'u-1', email: 'user@example.com' },
+      workspaces: [{ id: 'ws-1', name: 'Acme Corp' }],
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, meResult));
+
+    const { getMe } = await importHttpClientModule();
+    const result = await getMe();
+
+    expect(result).toEqual(meResult);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/me');
+    expect(init.method).toBe('GET');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('getMe() returns null (does not throw) when the server responds 401', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'Oturum bulunamadı' } }),
+    );
+
+    const { getMe } = await importHttpClientModule();
+    const result = await getMe();
+
+    expect(result).toBeNull();
+  });
+
+  it('getMe() RE-THROWS a non-401 ApiError (e.g. 500) instead of swallowing it', async () => {
+    const errorBody = {
+      error: { code: 'INTERNAL_ERROR', message: 'Beklenmeyen bir hata oluştu' },
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, errorBody));
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, errorBody));
+
+    const { getMe, ApiError } = await importHttpClientModule();
+
+    await expect(getMe()).rejects.toBeInstanceOf(ApiError);
+    await expect(getMe()).rejects.toMatchObject({ code: 'INTERNAL_ERROR', statusCode: 500 });
   });
 });
