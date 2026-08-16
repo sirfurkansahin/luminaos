@@ -1,11 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { contextGraphEdges } from '../db/schema/context-graph-edges.js';
 import { memberships } from '../db/schema/memberships.js';
 
 import type { Database } from '../db/client.js';
@@ -630,5 +632,197 @@ describe('F2-T2 (RED step): GET /workspaces/:workspaceId/context/:objectId (real
 
     const ownerResponse = await getContext(ownerCookie, workspaceId, root.id);
     expect(ownerResponse.status).toBe(200);
+  });
+
+  function getContextSorted(
+    cookie: string,
+    workspaceId: string,
+    objectId: string,
+    sort: string,
+  ): request.Test {
+    return request(server)
+      .get(`${contextUrl(workspaceId, objectId)}?sort=${sort}`)
+      .set('Cookie', cookie);
+  }
+
+  /**
+   * F2-T4 (RED step, `sort=relevance` half, ADR-0021). `relevance-scoring.ts`
+   * / `ContextService.getContext`'s third `options` parameter /
+   * `ContextController`'s `sort` query param do not exist yet -- every `it`
+   * below is expected to fail RED today: either a 400 from the (not-yet-
+   * relaxed) `.strict()` query validation rejecting an unknown `sort` key, a
+   * 500 from `ContextService.getContext` being called with an unsupported
+   * third argument, or an assertion failure because the response is simply
+   * unsorted.
+   */
+  it('8. GET .../context/:objectId with NO sort param carries the exact same DTO shape as today -- no relevanceScore field anywhere, top-level keys unchanged (ADR-0021 Karar a regression proof)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const root = await createObject(cookie, workspaceId, 'No-sort shape root');
+    const neighbor = await createObject(cookie, workspaceId, 'No-sort shape neighbor');
+    await createRelation(cookie, workspaceId, root.id, neighbor.id);
+
+    await syncOnce();
+
+    const response = await getContext(cookie, workspaceId, root.id);
+    expect(response.status).toBe(200);
+    const body = response.body as ContextResponseBody;
+
+    expect(Object.keys(body).sort()).toEqual(['asOf', 'edges', 'entity'].sort());
+    expect(body.edges.length).toBeGreaterThan(0);
+    for (const edge of body.edges) {
+      expect(edge).not.toHaveProperty('relevanceScore');
+    }
+  });
+
+  it('9. GET .../context/:objectId?sort=relevance orders scorable entity-topic edges by descending relevance -- a recently-set value ranks before an older one of the same edge type/weight', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, {
+      key: 'old-topic',
+      label: 'Old Topic',
+      fieldType: 'select',
+      config: { options: [{ value: 'stale-value', label: 'Stale Value' }] },
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+    await defineField(cookie, workspaceId, {
+      key: 'new-topic',
+      label: 'New Topic',
+      fieldType: 'select',
+      config: { options: [{ value: 'fresh-value', label: 'Fresh Value' }] },
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+
+    const root = await createObject(cookie, workspaceId, 'Relevance order root');
+    await setFieldValues(cookie, workspaceId, root.id, {
+      'old-topic': 'stale-value',
+      'new-topic': 'fresh-value',
+    });
+
+    await syncOnce();
+
+    // Backdate the "old-topic" edge's `createdAt` by 30 days (> 1 half-life)
+    // directly via `rawDb`, so it unambiguously scores lower than the
+    // "new-topic" edge despite sharing the identical `entity-topic` base
+    // weight -- isolating the assertion to the damping factor alone.
+    const [oldEdgeRow] = await rawDb
+      .select({ id: contextGraphEdges.id })
+      .from(contextGraphEdges)
+      .where(
+        and(
+          eq(contextGraphEdges.workspaceId, workspaceId),
+          eq(contextGraphEdges.edgeType, 'entity-topic'),
+          eq(contextGraphEdges.sourceFieldKey, 'old-topic'),
+        ),
+      );
+    expect(oldEdgeRow).toBeDefined();
+    if (!oldEdgeRow) {
+      throw new Error('old-topic entity-topic edge row not found');
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await rawDb
+      .update(contextGraphEdges)
+      .set({ createdAt: thirtyDaysAgo })
+      .where(eq(contextGraphEdges.id, oldEdgeRow.id));
+
+    const response = await getContextSorted(cookie, workspaceId, root.id, 'relevance');
+    expect(response.status).toBe(200);
+    const body = response.body as ContextResponseBody;
+
+    const newTopicIndex = body.edges.findIndex(
+      (edge) => edge.edgeType === 'entity-topic' && edge.sourceFieldKey === 'new-topic',
+    );
+    const oldTopicIndex = body.edges.findIndex(
+      (edge) => edge.edgeType === 'entity-topic' && edge.sourceFieldKey === 'old-topic',
+    );
+
+    expect(newTopicIndex).toBeGreaterThanOrEqual(0);
+    expect(oldTopicIndex).toBeGreaterThanOrEqual(0);
+    expect(newTopicIndex).toBeLessThan(oldTopicIndex);
+  });
+
+  it('10. GET .../context/:objectId?sort=relevance places the structural entity-entity edge AFTER every scorable edge, regardless of age (ADR-0021 Karar d)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, {
+      key: 'structural-check-topic',
+      label: 'Structural Check Topic',
+      fieldType: 'select',
+      config: { options: [{ value: 'topic-value', label: 'Topic Value' }] },
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+
+    const root = await createObject(cookie, workspaceId, 'Structural order root');
+    const neighbor = await createObject(cookie, workspaceId, 'Structural order neighbor');
+    await createRelation(cookie, workspaceId, root.id, neighbor.id);
+    await setFieldValues(cookie, workspaceId, root.id, { 'structural-check-topic': 'topic-value' });
+
+    await syncOnce();
+
+    const response = await getContextSorted(cookie, workspaceId, root.id, 'relevance');
+    expect(response.status).toBe(200);
+    const body = response.body as ContextResponseBody;
+
+    const entityEntityIndex = body.edges.findIndex(
+      (edge) => edge.edgeType === 'entity-entity' && edge.node.entityId === neighbor.id,
+    );
+    expect(entityEntityIndex).toBeGreaterThanOrEqual(0);
+
+    const scorableIndices = body.edges
+      .map((edge, index) => ({ edgeType: edge.edgeType, index }))
+      .filter((entry) =>
+        ['entity-time', 'entity-topic', 'person-topic', 'person-time'].includes(entry.edgeType),
+      )
+      .map((entry) => entry.index);
+    expect(scorableIndices.length).toBeGreaterThan(0);
+
+    for (const scorableIndex of scorableIndices) {
+      expect(entityEntityIndex).toBeGreaterThan(scorableIndex);
+    }
+  });
+
+  it('11. GET .../context/:objectId?sort=invalid is rejected with 400 (zod .strict() enum validation)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const root = await createObject(cookie, workspaceId, 'Invalid sort root');
+    await syncOnce();
+
+    const response = await getContextSorted(cookie, workspaceId, root.id, 'invalid');
+    expect(response.status).toBe(400);
+  });
+
+  it('12. GET .../context/:objectId?sort=relevance preserves the exact ContextEdgeSummary DTO shape -- no new relevanceScore field leaks out even though the ORDER changed (ADR-0021 Karar a)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+    await defineField(cookie, workspaceId, {
+      key: 'shape-check-topic',
+      label: 'Shape Check Topic',
+      fieldType: 'select',
+      config: { options: [{ value: 'shape-value', label: 'Shape Value' }] },
+      permissions: EDIT_ALL_PERMISSIONS,
+    });
+
+    const root = await createObject(cookie, workspaceId, 'Shape check root');
+    await setFieldValues(cookie, workspaceId, root.id, { 'shape-check-topic': 'shape-value' });
+
+    await syncOnce();
+
+    const response = await getContextSorted(cookie, workspaceId, root.id, 'relevance');
+    expect(response.status).toBe(200);
+    const body = response.body as ContextResponseBody;
+
+    expect(Object.keys(body).sort()).toEqual(['asOf', 'edges', 'entity'].sort());
+    expect(body.edges.length).toBeGreaterThan(0);
+
+    const expectedEdgeKeys = [
+      'direction',
+      'edgeType',
+      'node',
+      'sourceFieldKey',
+      'sourceRelationId',
+    ];
+    for (const edge of body.edges) {
+      expect(Object.keys(edge).sort()).toEqual([...expectedEdgeKeys].sort());
+      expect(edge).not.toHaveProperty('relevanceScore');
+    }
   });
 });

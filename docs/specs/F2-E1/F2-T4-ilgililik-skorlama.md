@@ -1,6 +1,6 @@
 # F2-T4 — İlgililik Skorlama + Zaman Aşımıyla Sönümleme
 
-**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Onaylandı — plan/ADR aşamasında. İnsan kararları: (Açık Soru 5) tüketici olmadan şimdi yapılacak, F2-T2'nin bir `sort=relevance` parametresi olarak sunulacak; (Açık Soru 1) Seçenek A — sorgu-zamanında, ephemeral; (Açık Soru 2) Seçenek B — `ContextResponse` sözleşmesi genişletilmeden, ayrı sort parametresi/mekanizma; (Açık Soru 4) yalnızca zaman/konu-türevi kenarlar (`entity-time`/`entity-topic`/`person-topic`/`person-time`) skora dahil, `entity-entity`/`entity-person` yapısal kabul edilip sönümlenmez.
+**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Tamamlandı — ADR-0021, implementasyon PR (bkz. commit geçmişi).
 **Bağımlılık:** F2-T1 (bağlam grafiği projeksiyonu — `context_graph_nodes`/`context_graph_edges`, ADR-0017), F2-T2 (bağlam API'si — `ContextService.getContext` → `ContextResponse`, ADR-0018), F2-T3 (masaüstü sinyal toplayıcılar — `person-topic`/`person-time` kenarları, ADR-0020), ADR-0013 (global arama — `SearchService.search`'ün sorgu-zamanı ağırlıklı skorlama deseni, en yakın emsal)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu görev, CLAUDE.md'nin ADR kriteri (b)'sine giriyor — F2-T2/ADR-0018'in tanımladığı `ContextResponse` sözleşmesini (`edges: ContextEdgeSummary[]`, açıkça HİÇBİR skorlama/sıralama taşımayacak şekilde tasarlanmıştı) genişletme ya da ona paralel yeni bir sözleşim ekleme kararı, F2-T4'ün kendisiyle sınırlı kalmıyor; ADR-0018'in kendi Kapsam DIŞI maddesi ("F2-T4 ... bu API'nin YALNIZCA ham grafik yapısını döner") ile doğrudan temas ediyor ve gelecekteki her context-fabric tüketicisine (ajan bağlam çağrıları, F3'ün ambient önerileri) dayatılacak bir veri şekli kararı. Ayrıca skorun NE ZAMAN hesaplandığı kararı (sorgu-zamanı vs. periyodik ön-hesaplama) F2-T2'nin `<100ms` performans bütçesiyle doğrudan gerilim yaratabilir. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -53,13 +53,13 @@ F2-T1'in ürettiği bağlam grafiğindeki (`context_graph_nodes`/`context_graph_
 
 ## Kabul Kriterleri
 
-- [ ] Sönümleme formülü (Açık Soru 3'te ADR ile sabitlenen) deterministik ve test edilebilir — aynı kenar + aynı hesaplama anı için her zaman aynı skoru ürettiği testli.
-- [ ] Skorun hangi kenar türlerinden (Açık Soru 4'te ADR ile sabitlenen) ve hangi temel ağırlıklarla türediği testli; dahil edilmeyen kenar türleri (varsa) skora katkı yapmadığı doğrulanmış.
-- [ ] Skorun ne zaman (sorgu-zamanı vs. ön-hesaplama, Açık Soru 1) ve nerede (Açık Soru 2) sunulduğuna dair ADR yazıldı ve insan tarafından onaylandı; implementasyon ADR'de seçilen yaklaşımı uyguluyor.
-- [ ] Seçilen yaklaşımın F2-T2'nin `<100ms` performans hedefine etkisi ölçüldü (`object-query-performance.integration.test.ts`/ADR-0018'in performans testi deseniyle tutarlı bir testle) ve ADR'de/kabul kriterlerinde açıkça kabul edildi.
-- [ ] Cross-workspace izolasyon (skorlama sorgusunun/hesaplamasının `workspaceId` süzgeci) security-reviewer tarafından denetlendi.
-- [ ] Açık Soru 5'in insan kararı (şimdi mi yapılsın, yoksa bir tüketici netleşene kadar ertelensin mi) ADR'de veya spec'in "Durum" alanında açıkça kayıt altına alındı.
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Sönümleme formülü (üstel, 14 günlük yarı-ömür) deterministik ve test edilebilir — aynı kenar + aynı hesaplama anı için her zaman aynı skoru ürettiği testli.
+- [x] Skorun hangi kenar türlerinden (`entity-time`/`entity-topic`/`person-topic`/`person-time`) ve hangi temel ağırlıklarla (1.0/0.8/0.6/0.4) türediği testli; `entity-entity`/`entity-person` skora katkı yapmadığı doğrulanmış.
+- [x] Skorun sorgu-zamanında (ephemeral) ve `sort=relevance` query param'ı olarak (ContextResponse sözleşmesi genişletilmeden) sunulduğuna dair ADR-0021 yazıldı ve insan tarafından onaylandı; implementasyon ADR'de seçilen yaklaşımı uyguluyor.
+- [x] Performans etkisi ölçüldü (ısınma+3-örnek-minimum deseni) ve `<100ms` bütçesinin çok altında kaldığı doğrulandı (~22-30ms).
+- [x] Cross-workspace izolasyon security-reviewer tarafından denetlendi (bulgu yok; yeni sorgu yüzeyi açılmadığı doğrulandı).
+- [x] Açık Soru 5'in insan kararı (tüketici olmadan şimdi yapılması) ADR-0021'de kayıt altına alındı.
+- [x] `pnpm typecheck && pnpm lint && pnpm test` yeşil (regresyon yok).
 
 ---
 
