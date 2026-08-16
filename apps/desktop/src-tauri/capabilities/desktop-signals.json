@@ -1,0 +1,5 @@
+{
+  "identifier": "desktop-signals",
+  "windows": ["main"],
+  "permissions": ["allow-get-active-window-app-name"]
+}
