@@ -5,6 +5,7 @@ import type { FieldPermissions, Role } from '@luminaos/core-objects';
 import { canViewField, isValidFieldPermissions } from '@luminaos/core-objects';
 import { NotFoundError } from '@luminaos/shared';
 
+import { sortEdgesByRelevance } from './relevance-scoring.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { contextGraphEdges } from '../db/schema/context-graph-edges.js';
 import { contextGraphNodes } from '../db/schema/context-graph-nodes.js';
@@ -42,7 +43,22 @@ export interface ContextResponse {
   edges: ContextEdgeSummary[];
 }
 
+export interface GetContextOptions {
+  sort?: 'relevance';
+}
+
 type ContextGraphNodeRow = typeof contextGraphNodes.$inferSelect;
+
+/**
+ * Internal-only representation carrying `createdAt` alongside the public
+ * `ContextEdgeSummary` shape -- ADR-0021 Karar (a): `edge.createdAt` is
+ * needed for `sortEdgesByRelevance` but must NEVER leak into the public
+ * `ContextEdgeSummary` DTO. Converted back to `ContextEdgeSummary` (dropping
+ * `createdAt`) as the very last step before returning.
+ */
+interface ScorableContextEdge extends ContextEdgeSummary {
+  createdAt: Date;
+}
 
 /** A lightweight neighbor-entity object summary -- never `fieldValues` (ADR-0018 Karar b). */
 interface NeighborObjectSummary {
@@ -68,6 +84,7 @@ export class ContextService {
     workspaceId: string,
     objectId: string,
     callerRole: Role,
+    options?: GetContextOptions,
   ): Promise<ContextResponse> {
     const entityNode = await this.findEntityNode(workspaceId, objectId);
 
@@ -108,7 +125,7 @@ export class ContextService {
       entityNode.objectType,
     );
 
-    const edges: ContextEdgeSummary[] = [];
+    const scorableEdges: ScorableContextEdge[] = [];
 
     for (const edge of edgeRows) {
       // ADR-0018 Karar (c) -- CRITICAL: the root entity's OWN `entity-topic`
@@ -129,14 +146,33 @@ export class ContextService {
         continue;
       }
 
-      edges.push({
+      scorableEdges.push({
         edgeType: edge.edgeType,
         direction: edge.fromNodeId === entityNode.id ? 'outgoing' : 'incoming',
         node: this.toNodeSummary(neighborNode, neighborObjectById),
         sourceFieldKey: edge.sourceFieldKey,
         sourceRelationId: edge.sourceRelationId,
+        createdAt: edge.createdAt,
       });
     }
+
+    // ADR-0021 Karar (a): `sort` opsiyonel -- verilmezse davranış bugünküyle
+    // BİREBİR AYNI kalır (ham Postgres sırası). `sortEdgesByRelevance` yalnızca
+    // internal `ScorableContextEdge`'ler üzerinde çalışır; `createdAt`, son
+    // adımdaki `ContextEdgeSummary`'ye dönüşümde bilerek düşürülür -- dışa
+    // hiç sızmaz.
+    const orderedScorableEdges =
+      options?.sort === 'relevance'
+        ? sortEdgesByRelevance(scorableEdges, new Date())
+        : scorableEdges;
+
+    const edges: ContextEdgeSummary[] = orderedScorableEdges.map((edge) => ({
+      edgeType: edge.edgeType,
+      direction: edge.direction,
+      node: edge.node,
+      sourceFieldKey: edge.sourceFieldKey,
+      sourceRelationId: edge.sourceRelationId,
+    }));
 
     const asOf = await this.readAsOf();
 
