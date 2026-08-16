@@ -123,6 +123,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       aiCostBudgetUsdPerWorkspace: 10,
       aiRefreshDebounceMs: 5_000,
       webOrigin: 'http://localhost:5173',
+      desktopOrigin: 'http://localhost:1420',
       docSnapshotDebounceMs: 10_000,
       docSnapshotMaxUpdates: 100,
       docMaxConnectionsPerRoom: 50,

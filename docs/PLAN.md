@@ -239,7 +239,8 @@ Süreler, 2–4 mühendis + Claude Code paralel oturumları varsayımıyla veril
 - F2-T1: Olaylardan bağlam grafiği türetme (varlık-kişi-zaman-konu düğümleri).
 - F2-T2: Bağlam API'si: "bu nesneyle ilgili her şey" sorgusu (<100ms, izin süzgeçli).
 - F2-T2b: `apps/desktop` uygulama iskeleti kurulumu (framework seçimi — bkz. §2.1 "Tauri" önerisi — ADR ile sabitlenir; build/paketleme temeli). F2-T3'ün ve Faz 3'ün masaüstü-bağımlı görevlerinin (Agent Runtime, Ambient Intelligence, Sakin Yazılım) ortak ön koşulu; F2-T3'ten kasıtlı olarak ayrıştırıldı çünkü framework/iskelet kararı tek başına ADR gerektiren, dar kapsamlı bir sinyal-toplama görevinin PR'ına sığmayacak büyüklükte bir karar.
-- F2-T3: Masaüstü kabuktan sinyal toplayıcılar (takvim durumu, aktif pencere başlığı — **açık rıza + yerinde işleme**, bkz. F2-E2). **Bağımlılık: F2-T2b** (apps/desktop iskeleti onaylanıp kurulana kadar bekletilir).
+- F2-T3: Masaüstü kabuktan sinyal toplayıcılar (takvim durumu, aktif pencere başlığı — **açık rıza + yerinde işleme**, bkz. F2-E2). **Bağımlılık: F2-T2b** (apps/desktop iskeleti onaylanıp kurulana kadar bekletilir). F2-T3'ün PR4'ü (frontend entegrasyonu) mevcut bir oturuma bağımlı çalışır — gerçek login akışı F2-T3b'ye ertelendi.
+- F2-T3b: `apps/desktop` login/session mekanizması (Tauri webview'inde kimlik doğrulama, `apps/server`'ın mevcut `/auth/login`/session-cookie modeliyle). F2-T3'ten kasıtlı olarak ayrıştırıldı — login yalnızca sinyal toplayıcılara değil `apps/desktop`'ın TAMAMINA gereken temel altyapı, dar kapsamlı bir sinyal-toplama PR'ına sığmayacak büyüklükte bir karar (F2-T2b'nin F2-T3'ten ayrıştırılma gerekçesiyle aynı desen). **Bağımlılık: F2-T2b.**
 - F2-T4: İlgililik skorlama + zaman aşımıyla sönümleme.
 
 **Epik F2-E2: Memory Passport (Kapsam F)**
