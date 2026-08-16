@@ -23,6 +23,8 @@ export interface Env {
   aiRefreshDebounceMs: number;
   /** CORS allowlist origin for `apps/web` (F1-T7). Absent -> Vite's default dev origin; present -> used as-is, no shape validation (a malformed origin just fails every preflight, which is self-evident at request time). */
   webOrigin: string;
+  /** CORS allowlist origin for `apps/desktop`'s Tauri webview (F2-T3 PR4, ADR-0020). Absent -> matches ADR-0019's `tauri.conf.json` `devUrl` (`http://localhost:1420`); present -> used as-is, no shape validation, mirrors `readWebOrigin()` exactly. */
+  desktopOrigin: string;
   /** `DocCollabGateway`'s snapshot debounce window in milliseconds (F1-T11 PR4b): idle time after the last client edit before a room's `Y.Doc` is flushed to a `DocumentContentSnapshotted` event. Absent/blank -> default; present-but-invalid -> fatal. */
   docSnapshotDebounceMs: number;
   /** `DocCollabGateway`'s per-room accumulated-update threshold (F1-T11 PR4b): once this many client updates land since the last snapshot, the room is flushed immediately regardless of the debounce timer. Absent/blank -> default; present-but-invalid -> fatal. */
@@ -89,6 +91,7 @@ function readEnv(): Env {
       DEFAULT_AI_REFRESH_DEBOUNCE_MS,
     ),
     webOrigin: readWebOrigin(),
+    desktopOrigin: readDesktopOrigin(),
     docSnapshotDebounceMs: readPositiveIntegerEnv(
       'DOC_SNAPSHOT_DEBOUNCE_MS',
       DEFAULT_DOC_SNAPSHOT_DEBOUNCE_MS,
@@ -118,6 +121,17 @@ function readWebOrigin(): string {
   }
 
   return rawWebOrigin;
+}
+
+/** `DESKTOP_ORIGIN`: absent/blank -> `apps/desktop`'s Tauri dev-server origin (`http://localhost:1420`, matching ADR-0019's `tauri.conf.json` `devUrl`), same "absence is not a misconfiguration" style as `readWebOrigin`. */
+function readDesktopOrigin(): string {
+  const rawDesktopOrigin = process.env['DESKTOP_ORIGIN'];
+
+  if (rawDesktopOrigin === undefined || rawDesktopOrigin.trim() === '') {
+    return 'http://localhost:1420';
+  }
+
+  return rawDesktopOrigin;
 }
 
 function readLogLevel(): LogLevel {

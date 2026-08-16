@@ -1,6 +1,6 @@
 # F2-T3 — Masaüstü Kabuktan Sinyal Toplayıcılar (Takvim Durumu, Aktif Pencere Başlığı)
 
-**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Taslak — insan onayı bekliyor
+**Epik:** F2-E1 (Lumina Context Fabric) · **Durum:** Tamamlandı — ADR-0020 (#123), implementasyon PR1-4 (bkz. commit geçmişi). Not: gerçek login/workspace-seçim UI'ı `F2-T3b`'ye ertelendi, PR4 mevcut bir oturuma bağımlı çalışır (bkz. `apps/desktop/README.md`).
 **Bağımlılık:** F2-T2b (apps/desktop iskeleti — Tauri v2, ADR-0019), F2-T1 (bağlam grafiği — ADR-0017, `context_graph_nodes`/`context_graph_edges`), ADR-0012 (takvim senkron — `calendar_events_cache` ve `GET /workspaces/:workspaceId/calendar/events`)
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu görev CLAUDE.md'nin "hassas veri sınıfları buluta ham gönderilmez" mimari değişmezine (bkz. `docs/adr/ADR-000X-hibrit-ai.md`) doğrudan dokunuyor — aktif pencere başlığı ve takvim durumu kullanıcının en hassas ham verilerinden ikisi. Ayrıca burada tanımlanacak sinyal → olay → bağlam-grafiği yazma yolu (yeni bir domain event tipi + yeni bir ingestion sözleşimi), repoda hiç emsali olmayan bir desen kurup gelecekteki F2-T4 ve Faz 3 masaüstü-bağımlı görevlerine (Agent Runtime, Ambient Intelligence) dayatılacak. CLAUDE.md'nin ADR kriteri (a) ve (b)'sine göre ADR gerekir — architect subagent ile yazılıp insan onayından önce kod yazılmamalı. ADR-0019 Karar (f), bu komutların kendi rıza/yerinde-işleme modeli netleşmeden eklenmemesini bu göreve devretmişti; bu spec o netleştirmeyi yapıyor.
@@ -60,12 +60,12 @@ Masaüstü kabuktan (Tauri, `apps/desktop`) iki sinyal sınıfını — **takvim
 
 ## Kabul Kriterleri
 
-- [ ] Rıza akışı olmadan hiçbir sinyal toplanmadığı testli (rıza reddedilmiş/verilmemiş durumda `invoke()` çağrısının hiç tetiklenmediği veya sunucunun ingestion isteğini reddettiği).
-- [ ] Ham hassas veri (ham pencere başlığı, ham takvim olay detayı) sunucuya hiç gitmediği — yalnızca ADR'de tanımlanan türetilmiş/özetlenmiş sinyalin gönderildiği testli/denetlenmiş.
-- [ ] Yeni Tauri komutları en az ayrıcalık ilkesiyle (isimlendirilmiş, dar kapsamlı capability) eklendiği security-reviewer tarafından denetlendi.
-- [ ] F2-T1'in ürettiği bağlam grafiğine sinyallerin `DesktopSignalCaptured` (veya ADR'de kararlaştırılan eşdeğeri) üzerinden nasıl aktığı, `ContextGraphProjection`'ın bunu işlediği testli.
-- [ ] Rıza durumu (verildi/geri alındı) event log'a yansıyan bir olay olarak modellendiği ve F0-T6'nın `Projection` çatısı üzerinden okunabildiği testli (Açık Soru 1, Seçenek A onaylanırsa).
-- [ ] Takvim durumu, mevcut `GET /workspaces/:workspaceId/calendar/events` endpoint'i üzerinden okunuyor — yeni bir sunucu-taraflı takvim entegrasyonu eklenmediği kod incelemesiyle teyit edildi.
-- [ ] `rebuild` komutu, sinyal-türevi düğüm/kenarlar dahil, sıfırdan aynı grafiği ürettiği testli (F0-T6 determinizm kabul kriteriyle tutarlı).
-- [ ] ADR yazıldı ve insan tarafından onaylandı (rıza modeli, sinyal-ingestion sözleşimi, yerinde işleme sınırı, Tauri capability modeli kararları dahil).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Rıza akışı olmadan hiçbir sinyal toplanmadığı testli (rıza reddedilmiş/verilmemiş durumda `invoke()` çağrısının hiç tetiklenmediği veya sunucunun ingestion isteğini reddettiği).
+- [x] Ham hassas veri (ham pencere başlığı, ham takvim olay detayı) sunucuya hiç gitmediği — yalnızca ADR'de tanımlanan türetilmiş/özetlenmiş sinyalin gönderildiği testli/denetlenmiş.
+- [x] Yeni Tauri komutları en az ayrıcalık ilkesiyle (isimlendirilmiş, dar kapsamlı capability) eklendiği security-reviewer tarafından denetlendi.
+- [x] F2-T1'in ürettiği bağlam grafiğine sinyallerin `DesktopSignalCaptured` üzerinden nasıl aktığı, `ContextGraphProjection`'ın bunu işlediği testli (`person-topic`/`person-time` kenar türleri).
+- [x] Rıza durumu (verildi/geri alındı) event log'a yansıyan bir olay olarak modellendi ve F0-T6'nın `Projection` çatısı üzerinden okunabiliyor (Açık Soru 1, Seçenek A onaylandı) — ayrıca revoke geriye dönük silme (ADR Karar h.0) testli.
+- [x] Takvim durumu, mevcut `GET /workspaces/:workspaceId/calendar/events` endpoint'i üzerinden okunuyor — yeni bir sunucu-taraflı takvim entegrasyonu eklenmedi.
+- [x] `rebuild` komutu, sinyal-türevi düğüm/kenarlar dahil, sıfırdan aynı grafiği ürettiği testli (F0-T6 determinizm kabul kriteriyle tutarlı).
+- [x] ADR-0020 yazıldı ve insan tarafından onaylandı (rıza modeli, sinyal-ingestion sözleşimi, yerinde işleme sınırı, Tauri capability modeli kararları dahil).
+- [x] `pnpm typecheck && pnpm lint && pnpm test` yeşil (regresyon yok).
