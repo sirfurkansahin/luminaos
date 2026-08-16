@@ -20,5 +20,9 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   imports: [DbModule, AuthModule, EventStoreModule],
   controllers: [DesktopSignalConsentsController],
   providers: [DesktopSignalConsentsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  // Exported (F2-T3 PR2) so `DesktopSignalsModule` can inject
+  // `DesktopSignalConsentsService` directly for its ingestion consent-gate
+  // check, without duplicating this module's own DB/event-store wiring.
+  exports: [DesktopSignalConsentsService],
 })
 export class DesktopSignalConsentsModule {}

@@ -11,6 +11,7 @@ import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
 import { ContextModule } from './context/context.module.js';
 import { DesktopSignalConsentsModule } from './context/desktop-signal-consents.module.js';
+import { DesktopSignalsModule } from './context/desktop-signals.module.js';
 import { DbModule } from './db/db.module.js';
 import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
@@ -52,6 +53,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     ObjectsModule,
     ContextModule,
     DesktopSignalConsentsModule,
+    DesktopSignalsModule,
     DocsModule,
     ExportModule,
     FieldsModule,
