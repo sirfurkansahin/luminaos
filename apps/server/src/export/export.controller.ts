@@ -1,7 +1,7 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query, Req, Res, UseGuards } from '@nestjs/common';
 
 import type { Role } from '@luminaos/core-objects';
-import { ForbiddenError, ValidationError } from '@luminaos/shared';
+import { ForbiddenError, UnauthorizedError, ValidationError } from '@luminaos/shared';
 
 import { exportQuerySchema } from './dto/export-query.schema.js';
 import { ExportService } from './export.service.js';
@@ -75,7 +75,16 @@ export class ExportController {
       return;
     }
 
-    const result = await this.exportService.exportJson(workspaceId, callerRole, query.objectId);
+    if (!req.user) {
+      throw new UnauthorizedError();
+    }
+
+    const result = await this.exportService.exportJson(
+      workspaceId,
+      callerRole,
+      req.user.id,
+      query.objectId,
+    );
     res.status(200).json(result);
   }
 
