@@ -17,6 +17,7 @@ import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
 import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
+import { MemoryModule } from './memory/memory.module.js';
 import { ObjectsModule } from './objects/objects.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
 import { LoggingModule } from './observability/logging.module.js';
@@ -55,6 +56,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     DesktopSignalConsentsModule,
     DesktopSignalsModule,
     DocsModule,
+    MemoryModule,
     ExportModule,
     FieldsModule,
     RelationsModule,

@@ -21,3 +21,4 @@ export * from './context-graph-nodes.js';
 export * from './context-graph-edges.js';
 export * from './context-graph-field-types.js';
 export * from './desktop-signal-consents.js';
+export * from './memory-records.js';
