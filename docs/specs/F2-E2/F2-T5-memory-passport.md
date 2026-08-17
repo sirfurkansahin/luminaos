@@ -1,6 +1,6 @@
 # F2-T5 — Memory Passport: Bellek Deposu (Satır-Düzeyi Görünür/Düzenlenebilir/Silinebilir Kayıtlar)
 
-**Epik:** F2-E2 (Memory Passport) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E2 (Memory Passport) · **Durum:** Tamamlandı — PR #131 (docs: ADR-0022 + spec), PR #132 (PR1: packages/memory), PR #133 (PR2: apps/server/src/memory), PR #134 (PR3: F1-T18 export entegrasyonu).
 **Bağımlılık:** F0-T6 (event store — `EventStoreService.append`/`readStream`, `ProjectionRunner.catchUp`, ADR-0002), F2-T1 (bağlam grafiği — en yakın mimari emsal: PLAN.md'nin `packages/context-fabric` haritasını izlemeyip doğrudan `apps/server/src/context/` altında kurulmuştu, ADR-0017), `DesktopSignalConsentsService` (`apps/server/src/context/desktop-signal-consents.service.ts`, F2-T3/ADR-0020 — en yakın "kullanıcı-sahipli, self-service, event-sourced satır" emsali), `core-objects`'in `softDeleteObject`/lifecycle deseni (`packages/core-objects/src/commands.ts`, ADR-0003 — en yakın "silme = event" emsali).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: Bu görev CLAUDE.md'nin her iki ADR kriterine de giriyor. (a) "Mimari Değişmezler" listesi Memory Passport'u AÇIKÇA adıyla anıyor: "Silme = olayla yayılan tombstone (ajan önbellekleri dahil temizlenir)" — bu mekanizma repoda hiç yok, ilk kez burada tasarlanacak. (b) Bu görevin ürettiği bellek kaydı şekli (`kaynak_olay_id`, tombstone event tipi, paket konumu) F2-E2'nin geri kalan üç görevine (F2-T6 "Hakkımda ne biliyorsun?" ekranı, F2-T7 içe/dışa aktarım JSON-LD şeması, F2-T8 erişim politikası manifestoları) dayatılan bir sözleşim. Ayrıca F2-T1'in PLAN.md'nin paket haritasından (`packages/context-fabric`) sessizce sapıp `apps/server/src/context/` altında kurulmuş olması, F2-T5'in de aynı sapmayı mı izleyeceği yoksa PLAN.md'nin `packages/memory` haritasına mı sadık kalacağı konusunda AÇIK bir öncül karar gerektiriyor — bu, gelecekteki F3-T1 (Agent Runtime) gibi görevlerin bellek paketine framework-bağımsız mı yoksa `apps/server`'a gömülü mü erişeceğini belirleyecek. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -53,15 +53,19 @@ Kullanıcı başına, satır-düzeyinde görünür/düzenlenebilir/silinebilir b
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR-0022'de (numara yazım sırasında teyit edilir) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] `MemoryRecordAdded`/`MemoryRecordEdited`/`MemoryRecordDeleted` olayları `DomainEvent` zarfına uyuyor, testli.
-- [ ] Bellek kaydı CRUD API'si (`list`/`create`/`edit`/`delete`) yalnızca kaydın SAHİBİ tarafından erişilebilir — başka bir kullanıcının veya workspace'in bellek kaydına erişim/düzenleme/silme denendiğinde reddedildiği testli.
-- [ ] Silme (`MemoryRecordDeleted`) sonrası kayıt hiçbir okuma yolunda (`list`/`get`) bir daha görünmüyor — tombstone semantiği testli.
-- [ ] `kaynak_olay_id` her kayıtta dolu ve ADR-0022'nin kararına uygun şekilde dolduruluyor, testli.
-- [ ] Bellek kayıtları F1-T18'in mevcut JSON export akışına dahil edildi — export'tan hariç tutulmadığı testli (Mimari Değişmez: "veri dışa aktarma kısıtlanamaz").
-- [ ] Cross-workspace ve cross-user izolasyon security-reviewer tarafından denetlendi (bulgu yok).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR-0022'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] `MemoryRecordAdded`/`MemoryRecordEdited`/`MemoryRecordDeleted` olayları `DomainEvent` zarfına uyuyor, testli (`packages/memory`, 28/28 test).
+- [x] Bellek kaydı CRUD API'si (`list`/`create`/`edit`/`delete`) yalnızca kaydın SAHİBİ tarafından erişilebilir — başka bir kullanıcının veya workspace'in bellek kaydına erişim/düzenleme/silme denendiğinde reddedildiği testli (`apps/server/src/memory`, 15/15 entegrasyon testi).
+- [x] Silme (`MemoryRecordDeleted`) sonrası kayıt hiçbir okuma yolunda (`list`/`get`) bir daha görünmüyor — tombstone semantiği testli.
+- [x] `kaynak_olay_id` her kayıtta dolu ve ADR-0022'nin kararına uygun şekilde dolduruluyor, testli.
+- [x] Bellek kayıtları F1-T18'in mevcut JSON export akışına dahil edildi — export'tan hariç tutulmadığı testli (Mimari Değişmez: "veri dışa aktarma kısıtlanamaz"; 37/37 export entegrasyon testi).
+- [x] Cross-workspace ve cross-user izolasyon security-reviewer tarafından denetlendi (bulgu yok).
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil (tüm 3 alt-PR için ayrı ayrı doğrulandı).
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa, Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile `docs/adr/ADR-0022-memory-passport.md` (numaralandırma yazım sırasında teyit edilir) taslağına dökülür; ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T5 kapandı, F2-E2'nin bir sonraki görevi F2-T6 ("Hakkımda ne biliyorsun?" ekranı + kaynak izi, `docs/PLAN.md` satır 249). F2-T6'nın henüz bir spec dosyası yok — F2-T5'te izlenen ritüelin aynısıyla önce spec yazılmalı:
+
+```
+docs/specs/F2-E2/F2-T6-hakkimda-ne-biliyorsun.md spec dosyasını yaz, sonra Plan Mode ile F2-T6'yı planla.
+```
