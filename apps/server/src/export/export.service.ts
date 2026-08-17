@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
 import type { FieldDefinition, Relation, Role } from '@luminaos/core-objects';
+import type { MemoryRecord } from '@luminaos/memory';
 import { NotFoundError, ValidationError } from '@luminaos/shared';
 
 import { generateICalendar } from './ical-generator.js';
 import { DocumentReconstructionService } from '../docs/document-reconstruction.service.js';
 import { extractMarkdownFromYjsUpdate } from '../docs/yjs-to-markdown.js';
 import { FieldDefinitionsService } from '../fields/field-definitions.service.js';
+import { MemoryRecordsService } from '../memory/memory-records.service.js';
 import { ObjectsService } from '../objects/objects.service.js';
 import { RelationsService } from '../relations/relations.service.js';
 
@@ -30,6 +32,7 @@ export interface WorkspaceJsonExport {
   objects: ExportedObject[];
   fieldDefinitions: Record<string, FieldDefinition[]>;
   relations: Relation[];
+  memoryRecords: MemoryRecord[];
 }
 
 /**
@@ -51,6 +54,7 @@ export class ExportService {
     private readonly relationsService: RelationsService,
     private readonly fieldDefinitionsService: FieldDefinitionsService,
     private readonly documentReconstructionService: DocumentReconstructionService,
+    private readonly memoryRecordsService: MemoryRecordsService,
   ) {}
 
   /**
@@ -92,10 +96,18 @@ export class ExportService {
    * through to `objectsService.list`/`fieldDefinitionsService.list` so this
    * export never leaks a shape or value the caller couldn't already see via
    * the normal read endpoints (ADR-0016 §a).
+   *
+   * F2-T5 PR3 (ADR-0022 Karar g): `callerUserId` is threaded through to
+   * `memoryRecordsService.list`, which already scopes to the exact
+   * `(workspaceId, userId)` pair AND excludes tombstoned rows -- that
+   * filtering is NOT re-implemented here. `memoryRecords` is deliberately
+   * never narrowed by `objectId` (unlike `objects`/`relations`): a memory
+   * record has no relationship to any single object.
    */
   async exportJson(
     workspaceId: string,
     callerRole: Role,
+    callerUserId: string,
     objectId?: string,
   ): Promise<WorkspaceJsonExport> {
     const { objects: allObjects } = await this.objectsService.list(workspaceId, callerRole);
@@ -158,12 +170,15 @@ export class ExportService {
       return text === undefined ? object : { ...object, content: { format: 'markdown', text } };
     });
 
+    const memoryRecords = await this.memoryRecordsService.list(workspaceId, callerUserId);
+
     return {
       workspaceId,
       exportedAt: new Date().toISOString(),
       objects: enrichedObjects,
       fieldDefinitions,
       relations,
+      memoryRecords,
     };
   }
 

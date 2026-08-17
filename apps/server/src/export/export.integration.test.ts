@@ -176,6 +176,29 @@ interface RelationEnvelope {
   relation: RelationBody;
 }
 
+/**
+ * F2-T5 PR3 (ADR-0022 Karar g): mirrors `../memory/memory-records
+ * .integration.test.ts`'s own `MemoryRecordBody` shape verbatim (each test
+ * file stays self-contained per this repo's convention) — this IS the same
+ * underlying `MemoryRecord` type `GET /workspaces/:workspaceId/memory`
+ * already returns, reused here as the pinned shape for the export's new
+ * `memoryRecords` field.
+ */
+interface MemoryRecordBody {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  content: string;
+  kaynakOlayId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+interface MemoryRecordEnvelope {
+  record: MemoryRecordBody;
+}
+
 interface WorkspaceEnvelope {
   workspace: { id: string };
 }
@@ -190,6 +213,16 @@ interface ExportBody {
   objects: ObjectBody[];
   fieldDefinitions: Record<string, FieldDefinitionBody[]>;
   relations: RelationBody[];
+  /**
+   * F2-T5 PR3 (ADR-0022 Karar g, RED step below): the calling user's OWN,
+   * non-tombstoned Memory Passport records — always present as an array
+   * (never omitted/undefined, same "always present, empty array"
+   * convention as `objects`/`relations`), unfiltered by `objectId`
+   * narrowing (memory records have no relationship to any single object).
+   * Does not exist on `WorkspaceJsonExport` yet — every assertion against
+   * this field is expected to fail today (`undefined` is not an array).
+   */
+  memoryRecords: MemoryRecordBody[];
 }
 
 function toCookieHeader(setCookie: string[] | undefined): string {
@@ -410,6 +443,44 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
 
   function exportUrl(workspaceId: string, query: string): string {
     return `/workspaces/${workspaceId}/export?${query}`;
+  }
+
+  /**
+   * F2-T5 PR3: real HTTP seeding for Memory Passport records, mirroring
+   * `../memory/memory-records.integration.test.ts`'s own `memoryUrl`/
+   * `createRecord`/`deleteRecord` helpers exactly — reaches the real
+   * `POST/DELETE /workspaces/:workspaceId/memory[/:id]` routes (guarded by
+   * the same `SessionAuthGuard`+`WorkspaceMembershipGuard` stack as export
+   * itself) rather than the DB/service layer directly.
+   */
+  function memoryUrl(workspaceId: string): string {
+    return `/workspaces/${workspaceId}/memory`;
+  }
+
+  async function createMemoryRecord(
+    cookie: string,
+    workspaceId: string,
+    content: string,
+  ): Promise<MemoryRecordBody> {
+    const response = await request(server)
+      .post(memoryUrl(workspaceId))
+      .set('Cookie', cookie)
+      .send({ content });
+
+    expect(response.status).toBe(201);
+    return (response.body as MemoryRecordEnvelope).record;
+  }
+
+  async function deleteMemoryRecord(
+    cookie: string,
+    workspaceId: string,
+    recordId: string,
+  ): Promise<void> {
+    const response = await request(server)
+      .delete(`${memoryUrl(workspaceId)}/${recordId}`)
+      .set('Cookie', cookie);
+
+    expect([200, 204]).toContain(response.status);
   }
 
   /**
@@ -1299,5 +1370,134 @@ describe('Data export (real Postgres + real HTTP, via Testcontainers + supertest
 
     expect(response.status).toBe(200);
     expect(response.type).toContain('text/calendar');
+  });
+
+  // =======================================================================
+  // F2-T5 PR3 (ADR-0022 Karar g, RED step): `format=json` export gains a
+  // `memoryRecords` field carrying the CALLING user's own, non-tombstoned
+  // Memory Passport records, so a deleted-tombstoned or never-created
+  // memory table is never silently excluded from a workspace export.
+  //
+  // EXPECTED RED STATE (today): `ExportService.exportJson`/
+  // `WorkspaceJsonExport` do not have a `memoryRecords` field at all —
+  // every assertion against `body.memoryRecords` below fails because the
+  // field is `undefined` (e.g. "expected undefined to be an array" /
+  // "expected undefined to equal []"), NOT because the route 404s (the
+  // route itself already exists and returns 200 today).
+  //
+  // CONTRACT PINNED BY THIS BLOCK (implementer must match precisely):
+  //   - `WorkspaceJsonExport.memoryRecords: MemoryRecordBody[]` — same
+  //     `MemoryRecord` shape `GET /workspaces/:workspaceId/memory` already
+  //     returns per record: `{id, workspaceId, userId, content,
+  //     kaynakOlayId, createdAt, updatedAt, deletedAt}`.
+  //   - Always present as an array, even when empty (never omitted or
+  //     `undefined`) — same convention as `objects`/`relations`.
+  //   - Scoped to the CALLING user only (`req.user.id`), via
+  //     `MemoryRecordsService.list(workspaceId, callerUserId)` — the ONLY
+  //     correct source of "current, non-deleted memory records" (already
+  //     excludes tombstoned rows and filters to the exact
+  //     (workspaceId, userId) pair). Do not re-implement that filtering in
+  //     `ExportService`.
+  //   - NOT narrowed by `objectId` — memory records have no relationship
+  //     to any single object, unlike `objects`/`relations`.
+  // =======================================================================
+  describe("F2-T5 PR3 (ADR-0022 Karar g): format=json export includes the caller's own Memory Passport records", () => {
+    it("includes memoryRecords: [] -> [record] containing the calling user's own memory record, matching GET /workspaces/:workspaceId/memory's MemoryRecord shape", async () => {
+      const { cookie, workspaceId } = await registerAdminWithWorkspace();
+      const created = await createMemoryRecord(cookie, workspaceId, 'A memory worth exporting');
+
+      const response = await request(server)
+        .get(exportUrl(workspaceId, 'format=json'))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportBody;
+
+      expect(Array.isArray(body.memoryRecords)).toBe(true);
+      const exported = body.memoryRecords.find((record) => record.id === created.id);
+      expect(exported).toBeDefined();
+      expect(exported).toEqual(created);
+    });
+
+    it("a tombstoned (deleted) memory record does not appear in the export's memoryRecords", async () => {
+      const { cookie, workspaceId } = await registerAdminWithWorkspace();
+      const record = await createMemoryRecord(
+        cookie,
+        workspaceId,
+        'This memory will be tombstoned before export',
+      );
+
+      await deleteMemoryRecord(cookie, workspaceId, record.id);
+
+      const response = await request(server)
+        .get(exportUrl(workspaceId, 'format=json'))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportBody;
+      expect(body.memoryRecords.map((r) => r.id)).not.toContain(record.id);
+    });
+
+    it("cross-user isolation: a caller's export never contains another member's memory records, even within the same workspace", async () => {
+      const { cookie: cookieA, workspaceId } = await registerAdminWithWorkspace();
+      const cookieB = await addMemberWithRole(workspaceId, 'member');
+
+      const recordA = await createMemoryRecord(cookieA, workspaceId, 'User A private memory');
+      const recordB = await createMemoryRecord(cookieB, workspaceId, 'User B private memory');
+
+      const responseA = await request(server)
+        .get(exportUrl(workspaceId, 'format=json'))
+        .set('Cookie', cookieA);
+      expect(responseA.status).toBe(200);
+      const idsA = (responseA.body as ExportBody).memoryRecords.map((r) => r.id);
+      expect(idsA).toContain(recordA.id);
+      expect(idsA).not.toContain(recordB.id);
+
+      const responseB = await request(server)
+        .get(exportUrl(workspaceId, 'format=json'))
+        .set('Cookie', cookieB);
+      expect(responseB.status).toBe(200);
+      const idsB = (responseB.body as ExportBody).memoryRecords.map((r) => r.id);
+      expect(idsB).toContain(recordB.id);
+      expect(idsB).not.toContain(recordA.id);
+    });
+
+    it('a workspace with zero memory records for the caller still returns memoryRecords: [] — present, not omitted or undefined', async () => {
+      const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+      const response = await request(server)
+        .get(exportUrl(workspaceId, 'format=json'))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportBody;
+      expect(body.memoryRecords).toEqual([]);
+    });
+
+    it("objectId narrowing does not filter memoryRecords -- the caller's full, unfiltered set of records is still returned", async () => {
+      const { cookie, workspaceId } = await registerAdminWithWorkspace();
+      const object = await createObject(cookie, workspaceId, 'task', 'Narrowing target');
+      const otherObject = await createObject(cookie, workspaceId, 'task', 'Not the target');
+      const record = await createMemoryRecord(
+        cookie,
+        workspaceId,
+        'Unrelated to any particular object',
+      );
+
+      const response = await request(server)
+        .get(exportUrl(workspaceId, `format=json&objectId=${object.id}`))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportBody;
+
+      // Sanity: objectId narrowing IS still narrowing `objects`.
+      expect(body.objects).toHaveLength(1);
+      expect(body.objects[0]?.id).toBe(object.id);
+      expect(body.objects.map((o) => o.id)).not.toContain(otherObject.id);
+
+      // But memoryRecords is untouched by that same narrowing.
+      expect(body.memoryRecords.map((r) => r.id)).toContain(record.id);
+    });
   });
 });
