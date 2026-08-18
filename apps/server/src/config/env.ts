@@ -37,6 +37,29 @@ export interface Env {
   encryptionKey?: Buffer;
   /** `SearchIndexEmbeddingScheduler`'s debounce window in milliseconds (F1-T13 PR4, ADR-0013 §(e)). Absent/blank -> default (matches `SearchIndexEmbeddingScheduler`'s own pure default); present-but-invalid -> fatal. */
   searchIndexEmbeddingDebounceMs: number;
+  /** The server's OWN public address (F2-T10 PR1, ADR-0026 §k) -- used to build the FIXED, workspace-independent MCP OAuth callback `redirect_uri` (`${serverPublicUrl}/integrations/:connectorType/oauth/callback`, ADR-0026 §j). Distinct from `webOrigin`/`desktopOrigin` (client-side CORS origins) -- this is the server's own address. Absent/blank -> `http://localhost:3000` (matches `main.ts`'s `app.listen(3000)` default); never fatal. */
+  serverPublicUrl: string;
+  /** `GOOGLE_DRIVE_CLIENT_ID`/`GOOGLE_DRIVE_CLIENT_SECRET` (F2-T10, ADR-0026 §k). Absent -> `undefined` (DI-layer signal to fall back to Mock, Karar l/m); PR2+ wires actual usage, PR1 only adds the reader shape. */
+  googleDriveOAuth?: OAuthAppCredentials;
+  /** `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET` (F2-T10, ADR-0026 §k). Same absent/mismatched-pair semantics as `googleDriveOAuth`. */
+  gmailOAuth?: OAuthAppCredentials;
+  /** `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` (F2-T10, ADR-0026 §k). Same absent/mismatched-pair semantics as `googleDriveOAuth`. */
+  slackOAuth?: OAuthAppCredentials;
+  /** `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` (F2-T10, ADR-0026 §k). Same absent/mismatched-pair semantics as `googleDriveOAuth`. */
+  githubOAuth?: OAuthAppCredentials;
+  /** `NOTION_CLIENT_ID`/`NOTION_CLIENT_SECRET` (F2-T10 PR1, ADR-0026 §k) -- the reference connector; PR1 actually WIRES this one into `McpConnectorsModule`'s DI factory (ADR-0026 §m). */
+  notionOAuth?: OAuthAppCredentials;
+}
+
+/**
+ * A configured OAuth application's client credentials (F2-T10, ADR-0026 §k)
+ * -- one pair per MCP connector provider, application-level (not
+ * workspace-level, ADR-0026 §f): a single LuminaOS deployment shares one
+ * OAuth app per provider across all workspaces.
+ */
+export interface OAuthAppCredentials {
+  clientId: string;
+  clientSecret: string;
 }
 
 /**
@@ -71,6 +94,11 @@ function readEnv(): Env {
 
   const anthropicApiKey = readAnthropicApiKey();
   const encryptionKey = readEncryptionKey();
+  const googleDriveOAuth = readOAuthAppCredentials('GOOGLE_DRIVE');
+  const gmailOAuth = readOAuthAppCredentials('GMAIL');
+  const slackOAuth = readOAuthAppCredentials('SLACK');
+  const githubOAuth = readOAuthAppCredentials('GITHUB');
+  const notionOAuth = readOAuthAppCredentials('NOTION');
 
   return {
     databaseUrl,
@@ -78,6 +106,12 @@ function readEnv(): Env {
     redisUrl,
     ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}),
     ...(encryptionKey !== undefined ? { encryptionKey } : {}),
+    serverPublicUrl: readServerPublicUrl(),
+    ...(googleDriveOAuth !== undefined ? { googleDriveOAuth } : {}),
+    ...(gmailOAuth !== undefined ? { gmailOAuth } : {}),
+    ...(slackOAuth !== undefined ? { slackOAuth } : {}),
+    ...(githubOAuth !== undefined ? { githubOAuth } : {}),
+    ...(notionOAuth !== undefined ? { notionOAuth } : {}),
     aiTokenQuotaPerWorkspace: readPositiveIntegerEnv(
       'AI_TOKEN_QUOTA_PER_WORKSPACE',
       DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE,
@@ -110,6 +144,47 @@ function readEnv(): Env {
       DEFAULT_SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS,
     ),
   };
+}
+
+/** `SERVER_PUBLIC_URL` (F2-T10 PR1, ADR-0026 §k): absent/blank -> `http://localhost:3000`, matching `main.ts`'s `app.listen(3000)` default -- never fatal, same "absence is not a misconfiguration" style as `readWebOrigin`. */
+function readServerPublicUrl(): string {
+  const rawServerPublicUrl = process.env['SERVER_PUBLIC_URL'];
+
+  if (rawServerPublicUrl === undefined || rawServerPublicUrl.trim() === '') {
+    return 'http://localhost:3000';
+  }
+
+  return rawServerPublicUrl;
+}
+
+/**
+ * `${prefix}_CLIENT_ID`/`${prefix}_CLIENT_SECRET` (F2-T10, ADR-0026 §k):
+ * BOTH absent/blank -> `undefined` (the DI-layer signal to fall back to
+ * Mock/unregistered, Karar l/m). Only ONE present -> FATAL (a broken/half
+ * configuration is a user error, never silently ignored) -- adapts
+ * `readEncryptionKey`'s "present but wrong shape -> fatal" principle to this
+ * pair-completeness shape. The values themselves are not shape-validated
+ * (mirrors `readAnthropicApiKey`) -- an invalid client_id/secret is rejected
+ * by the provider's own OAuth endpoint at call time.
+ */
+function readOAuthAppCredentials(prefix: string): OAuthAppCredentials | undefined {
+  const clientId = process.env[`${prefix}_CLIENT_ID`];
+  const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
+  const hasId = clientId !== undefined && clientId.trim() !== '';
+  const hasSecret = clientSecret !== undefined && clientSecret.trim() !== '';
+
+  if (!hasId && !hasSecret) {
+    return undefined;
+  }
+
+  if (hasId !== hasSecret) {
+    process.stderr.write(
+      `FATAL: ${prefix}_CLIENT_ID/${prefix}_CLIENT_SECRET must both be set or both unset.\n`,
+    );
+    process.exit(1);
+  }
+
+  return { clientId: clientId as string, clientSecret: clientSecret as string };
 }
 
 /** `WEB_ORIGIN`: absent/blank -> Vite's default dev origin (`http://localhost:5173`), matching `readLogLevel`'s "absence is not a misconfiguration" style. */

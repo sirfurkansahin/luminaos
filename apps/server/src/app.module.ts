@@ -17,6 +17,8 @@ import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
 import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
+import { IntegrationsModule } from './integrations/integrations.module.js';
+import { McpConnectorsModule } from './integrations/mcp-connectors.module.js';
 import { MemoryModule } from './memory/memory.module.js';
 import { ObjectsModule } from './objects/objects.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
@@ -64,6 +66,8 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     SearchModule,
     QAModule,
     CommandsModule,
+    IntegrationsModule,
+    McpConnectorsModule,
   ],
   controllers: [AppController],
   providers: [
