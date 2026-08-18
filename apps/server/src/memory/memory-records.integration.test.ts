@@ -612,4 +612,202 @@ describe('F2-T5 PR2 (RED step): MemoryRecordsService/Controller/Projection — e
 
     expect(afterRebuild).toEqual(beforeRebuild);
   });
+
+  // ==========================================================================
+  // F2-T7 PR1 (RED step) — `GET /workspaces/:workspaceId/memory/export?format
+  // =json-ld`, per ADR-0023 Karar (b)/(c)/(d)/(e)
+  // (`docs/adr/ADR-0023-ice-disa-aktarim-json-ld.md`). New `@Get('export')`
+  // route on the EXISTING `MemoryRecordsController`, same
+  // `SessionAuthGuard`+`WorkspaceMembershipGuard` stack, identity from
+  // `req.user.id` via the existing `list()` service call, mapped through
+  // `packages/memory/src/memory-record-json-ld.ts`'s `toMemoryRecordJsonLd`
+  // (PR1's other half, see `memory-record-json-ld.test.ts`).
+  //
+  // EXPECTED RED STATE (today): `MemoryRecordsController` has no `export`
+  // method and `memoryRecordExportQuerySchema` does not exist yet — every
+  // `GET .../memory/export` request in this block 404s (unmatched route,
+  // Nest's default 404), including the unauthenticated/non-member cases
+  // (which expect 401/403 but will actually see 404 today).
+  // ==========================================================================
+  describe('F2-T7 PR1 (RED step): GET /workspaces/:workspaceId/memory/export?format=json-ld (ADR-0023)', () => {
+    interface MemoryRecordJsonLdBody {
+      '@context': {
+        schema: string;
+        luminaos: string;
+        content: string;
+        createdAt: string;
+        updatedAt: string;
+        kaynakOlayId: string;
+      };
+      '@type': string;
+      '@id': string;
+      content: string;
+      createdAt: string;
+      updatedAt: string;
+      kaynakOlayId: string;
+    }
+
+    interface ExportEnvelope {
+      records: MemoryRecordJsonLdBody[];
+    }
+
+    async function exportRecords(
+      cookie: string,
+      workspaceId: string,
+      queryString = '?format=json-ld',
+    ): Promise<request.Response> {
+      return request(server)
+        .get(`${memoryUrl(workspaceId)}/export${queryString}`)
+        .set('Cookie', cookie);
+    }
+
+    it("1. GET .../export?format=json-ld -> 200, {records: [...]} with the exact pinned JSON-LD shape for the caller's own record", async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const content = freshContent('export happy path');
+      const created = await createRecord(cookie, workspaceId, { content });
+      const record = (created.body as RecordEnvelope).record;
+
+      const response = await exportRecords(cookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      expect(Array.isArray(body.records)).toBe(true);
+      const entry = body.records.find(
+        (r) => r['@id'] === `urn:luminaos:memory-record:${record.id}`,
+      );
+      expect(entry).toBeDefined();
+      expect(entry?.['@type']).toBe('schema:Note');
+      expect(entry?.content).toBe(content);
+      expect(entry?.createdAt).toBe(record.createdAt);
+      expect(entry?.updatedAt).toBe(record.updatedAt);
+      expect(entry?.kaynakOlayId).toBe(record.kaynakOlayId);
+      expect(entry?.['@context']).toEqual({
+        schema: 'https://schema.org/',
+        luminaos: 'https://luminaos.dev/vocab#',
+        content: 'schema:text',
+        createdAt: 'schema:dateCreated',
+        updatedAt: 'schema:dateModified',
+        kaynakOlayId: 'luminaos:kaynakOlayId',
+      });
+    });
+
+    it('2. exported entries do NOT carry workspaceId, userId, or deletedAt (ADR-0023 §c)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const content = freshContent('export excludes internal fields');
+      await createRecord(cookie, workspaceId, { content });
+
+      const response = await exportRecords(cookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      const entry = body.records.find((r) => r.content === content);
+      expect(entry).toBeDefined();
+      expect(entry).not.toHaveProperty('workspaceId');
+      expect(entry).not.toHaveProperty('userId');
+      expect(entry).not.toHaveProperty('deletedAt');
+    });
+
+    it('3. missing "format" query param -> 400 (ADR-0023 §d, memoryRecordExportQuerySchema requires the literal "json-ld")', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+      const response = await exportRecords(cookie, workspaceId, '');
+
+      expect(response.status).toBe(400);
+    });
+
+    it('4. wrong "format" value (?format=xml) -> 400', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+      const response = await exportRecords(cookie, workspaceId, '?format=xml');
+
+      expect(response.status).toBe(400);
+    });
+
+    it('5. a tombstoned (deleted) record does NOT appear in the export (mirrors GET / tombstone-invisibility, ADR-0022 Karar d)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const content = freshContent('export excludes tombstoned record');
+      const created = await createRecord(cookie, workspaceId, { content });
+      const record = (created.body as RecordEnvelope).record;
+
+      const deleteResponse = await deleteRecord(cookie, workspaceId, record.id);
+      expect([200, 204]).toContain(deleteResponse.status);
+
+      const response = await exportRecords(cookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      expect(body.records.map((r) => r['@id'])).not.toContain(
+        `urn:luminaos:memory-record:${record.id}`,
+      );
+    });
+
+    it("6. cross-user isolation: a DIFFERENT member's export never contains another user's memory records (same workspace, ADR-0022 Karar f inherited via list())", async () => {
+      const { cookie: ownerCookie, workspaceId } = await registerOwnerWithWorkspace();
+      const { cookie: otherCookie } = await addMemberWithRole(workspaceId, 'member');
+
+      const content = freshContent('export owner-only');
+      const created = await createRecord(ownerCookie, workspaceId, { content });
+      const record = (created.body as RecordEnvelope).record;
+
+      const response = await exportRecords(otherCookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      expect(body.records.map((r) => r['@id'])).not.toContain(
+        `urn:luminaos:memory-record:${record.id}`,
+      );
+    });
+
+    it("7. cross-workspace isolation: a record created in workspace A never appears in workspace B's export, even for a member of B", async () => {
+      const { cookie: cookieA, workspaceId: workspaceIdA } = await registerOwnerWithWorkspace();
+      const { cookie: cookieB, workspaceId: workspaceIdB } = await registerOwnerWithWorkspace();
+
+      const content = freshContent('export workspace A only');
+      const created = await createRecord(cookieA, workspaceIdA, { content });
+      const record = (created.body as RecordEnvelope).record;
+
+      const response = await exportRecords(cookieB, workspaceIdB);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      expect(body.records.map((r) => r['@id'])).not.toContain(
+        `urn:luminaos:memory-record:${record.id}`,
+      );
+    });
+
+    it('8. unauthenticated -> 401; authenticated non-member -> 403 (same guard stack as every other route in this controller)', async () => {
+      const { workspaceId } = await registerOwnerWithWorkspace();
+      const { cookie: outsiderCookie } = await registerUser();
+
+      const unauthResponse = await request(server).get(
+        `${memoryUrl(workspaceId)}/export?format=json-ld`,
+      );
+      expect(unauthResponse.status).toBe(401);
+
+      const nonMemberResponse = await exportRecords(outsiderCookie, workspaceId);
+      expect(nonMemberResponse.status).toBe(403);
+    });
+
+    it('9. a workspace with zero memory records still returns {records: []} (empty array, not omitted/undefined)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+      const response = await exportRecords(cookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      const body = response.body as ExportEnvelope;
+      expect(body.records).toEqual([]);
+    });
+
+    it('10. route-collision sanity: GET .../memory/export resolves to the export handler, not swallowed by any :id-param route (200, not a not-found-style error)', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      await createRecord(cookie, workspaceId, { content: freshContent('route collision sanity') });
+
+      const response = await exportRecords(cookie, workspaceId);
+
+      expect(response.status).toBe(200);
+      expect(response.status).not.toBe(404);
+      const body = response.body as ExportEnvelope;
+      expect(Array.isArray(body.records)).toBe(true);
+    });
+  });
 });

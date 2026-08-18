@@ -1,12 +1,28 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 
-import type { MemoryRecord } from '@luminaos/memory';
+import { toMemoryRecordJsonLd } from '@luminaos/memory';
+import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import { UnauthorizedError } from '@luminaos/shared';
 
 import {
   memoryRecordContentSchema,
   type MemoryRecordContentInput,
 } from './dto/memory-record-content.schema.js';
+import {
+  memoryRecordExportQuerySchema,
+  type MemoryRecordExportQueryInput,
+} from './dto/memory-record-export-query.schema.js';
 import { MemoryRecordsService } from './memory-records.service.js';
 import { SessionAuthGuard } from '../auth/session-auth.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -40,6 +56,22 @@ export class MemoryRecordsController {
     const records = await this.memoryRecordsService.list(workspaceId, req.user.id);
 
     return { records };
+  }
+
+  @Get('export')
+  async export(
+    @Param('workspaceId') workspaceId: string,
+    @Query(new ZodValidationPipe(memoryRecordExportQuerySchema))
+    _query: MemoryRecordExportQueryInput,
+    @Req() req: Request,
+  ): Promise<{ records: MemoryRecordJsonLd[] }> {
+    if (!req.user) {
+      throw new UnauthorizedError();
+    }
+
+    const records = await this.memoryRecordsService.list(workspaceId, req.user.id);
+
+    return { records: records.map(toMemoryRecordJsonLd) };
   }
 
   @Post()
