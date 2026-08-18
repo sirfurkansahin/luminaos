@@ -1,6 +1,6 @@
 # F2-T8 — Bellek Kullanım Politikası: Ajan Erişim Manifestoları
 
-**Epik:** F2-E2 (Memory Passport) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E2 (Memory Passport) · **Durum:** Tamamlandı — PR #142 (docs: ADR-0024 + spec), PR #143 (kod: grant/revoke servisi/controller/projeksiyon). F2-E2 epiği bu görevle kapandı.
 **Bağımlılık:** F2-T5 (Memory Passport CRUD backend'i — `apps/server/src/memory/`, `packages/memory`, ADR-0022; merged), F2-T7 (JSON-LD export/import, ADR-0023; merged), ADR-0015 (`konusma-komutlari-ajan-aksiyon-sozlesmesi` — repodaki tek gerçek "ajan aksiyonu" sözleşmesi emsali), `packages/ai-gateway` (tüm AI çağrılarının tek geçidi).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin (b) fıkrasına giriyor — bu görevin tanımlayacağı "ajan kimliği" (`agentIdentifier`) ve politika manifestosu şeması, gelecekteki F3-T1 (Agent Runtime, Faz 3) ile UZLAŞMASI gereken bir sözleşim kuruyor; F3-T1 henüz yok, dolayısıyla bu görev bir kimlik şemasını kör noktada tasarlıyor ve F3-T1'in bununla nasıl uzlaşacağı önceden bilinmiyor. Ayrıca görevin adı ("hangi bellek SEGMENTİNE") `MemoryRecord`'da (ADR-0022) hiç var olmayan bir kategorileştirme kavramını varsayıyor — bu ya yeni bir şema alanı eklemeyi (ADR-0022'nin sabitlediği, üç görev tarafından zaten tüketilen bir sözleşmeyi değiştirmek) ya da segment granülerliğinin bilinçli olarak ertelenmesini gerektiriyor. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -48,13 +48,17 @@ Kullanıcının bellek kayıtlarına hangi "ajan"ın (bugün: adlandırılmış 
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR'de (numara yazım sırasında teyit edilir) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] `MemoryAccessPolicySet`/`MemoryAccessPolicyRevoked` olayları `DomainEvent` zarfına uyuyor, testli.
-- [ ] Politika CRUD API'si yalnızca kaydın SAHİBİ tarafından erişilebilir — başka bir kullanıcının/workspace'in politikasına erişim/düzenleme denendiğinde reddedildiği testli.
-- [ ] `isAgentAllowedToAccessMemory` saf fonksiyonu: tanımlı `allow` politikası → true, tanımlı `deny` politikası → false, hiç politika yok → false (fail-closed), testli.
-- [ ] Cross-workspace ve cross-user izolasyon security-reviewer tarafından denetlendi (bulgu yok).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR-0024'te kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu. Açık Soru 1'in çerçevelediği `allow`/`deny` enum'u yerine `architect` gerekçeli bir grant/revoke modeli seçti (ADR-0024 Karar f) — insan tarafından kilitlenen kararları değiştirmeden.
+- [x] `MemoryAccessGranted`/`MemoryAccessRevoked` olayları `DomainEvent` zarfına uyuyor, testli.
+- [x] Politika CRUD API'si yalnızca kaydın SAHİBİ tarafından erişilebilir — başka bir kullanıcının/workspace'in politikasına erişim/düzenleme denendiğinde reddedildiği testli.
+- [x] `isAgentAllowedToAccessMemory` saf fonksiyonu: tanımlı, geri alınmamış politika → true, tanımlı-ama-geri-alınmış politika → false, hiç politika yok → false (fail-closed), testli.
+- [x] Cross-workspace ve cross-user izolasyon security-reviewer tarafından denetlendi (bulgu yok).
+- [x] `pnpm --filter @luminaos/memory` ve `@luminaos/server` typecheck/lint/test yeşil (regresyon yok).
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile bir ADR taslağına dökülür (numaralandırma yazım sırasında teyit edilir); ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir. Bu görev tamamlandığında F2-E2 (Memory Passport) epiği kapanmış olur; sıradaki epik F2-E3 (MCP-native Entegrasyon, F2-T9'dan başlar).
+**Sıradaki adım:** F2-T8 kapandı — bu, F2-E2 (Memory Passport) epiğinin son görevi olduğundan epik tamamen kapandı (F2-T5/T6/T7/T8 hepsi merge edildi). Sıradaki epik F2-E3 (MCP-native Entegrasyon), F2-T9 ile başlıyor: "MCP istemci çatısı + bağlayıcı yaşam döngüsü (kimlik, oran sınırı, sağlık)" (`docs/PLAN.md` satır 255). F2-T9'un henüz bir spec dosyası yok — önce spec yazılmalı:
+
+```
+docs/specs/F2-E3/F2-T9-mcp-istemci-catisi.md spec dosyasını yaz, sonra Plan Mode ile F2-T9'u planla.
+```
