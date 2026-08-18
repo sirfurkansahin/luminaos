@@ -23,3 +23,5 @@ export * from './context-graph-field-types.js';
 export * from './desktop-signal-consents.js';
 export * from './memory-records.js';
 export * from './memory-access-policies.js';
+export * from './connector-credentials.js';
+export * from './connector-rate-limit-buckets.js';
