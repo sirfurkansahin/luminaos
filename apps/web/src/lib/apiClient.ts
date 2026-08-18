@@ -4,7 +4,7 @@ import type {
   RecurrenceRule,
   SavedView,
 } from '@luminaos/core-objects';
-import type { MemoryRecord } from '@luminaos/memory';
+import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
@@ -422,6 +422,15 @@ export type MemoryRecordUpdateInput = MemoryRecordCreateInput;
 export function getMemoryRecords(workspaceId: string): Promise<{ records: MemoryRecord[] }> {
   return request<{ records: MemoryRecord[] }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/memory`,
+    { method: 'GET' },
+  );
+}
+
+export function getMemoryRecordsJsonLdExport(
+  workspaceId: string,
+): Promise<{ records: MemoryRecordJsonLd[] }> {
+  return request<{ records: MemoryRecordJsonLd[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/memory/export?format=json-ld`,
     { method: 'GET' },
   );
 }

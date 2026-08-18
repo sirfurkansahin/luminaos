@@ -11,12 +11,31 @@ import {
   Skeleton,
 } from '@luminaos/ui';
 
+import { MemoryImportWizard } from './MemoryImportWizard.js';
 import {
   useCreateMemoryRecordMutation,
   useDeleteMemoryRecordMutation,
   useMemoryRecordsQuery,
   useUpdateMemoryRecordMutation,
 } from '../../hooks/useMemoryRecordsQuery.js';
+import { getMemoryRecordsJsonLdExport } from '../../lib/apiClient.js';
+
+/**
+ * Triggers a browser download of every memory record for `workspaceId` in
+ * JSON-LD form (ADR-0023 §b/e). Kept deliberately simple — no retry/error UI
+ * beyond letting the promise rejection surface, no dedicated test pins this
+ * exact behavior (F2-T7 PR2 task note).
+ */
+async function downloadMemoryRecordsJsonLdExport(workspaceId: string): Promise<void> {
+  const result = await getMemoryRecordsJsonLdExport(workspaceId);
+  const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'memory-export.json';
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 export interface MemoryPassportPanelProps {
   workspaceId: string;
@@ -213,6 +232,17 @@ export function MemoryPassportPanel({ workspaceId }: MemoryPassportPanelProps) {
               Ekle
             </Button>
           </div>
+          <MemoryImportWizard workspaceId={workspaceId} />
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid="memory-passport-export-trigger"
+            onClick={() => {
+              void downloadMemoryRecordsJsonLdExport(workspaceId);
+            }}
+          >
+            Dışa Aktar (JSON-LD)
+          </Button>
         </DialogContent>
       </DialogRoot>
     </>
