@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isAgentAllowedToAccessMemory,
+  memoryAccessGrantedPayloadSchema,
+  memoryAccessRevokedPayloadSchema,
   memoryRecordAddedPayloadSchema,
   memoryRecordDeletedPayloadSchema,
   memoryRecordEditedPayloadSchema,
 } from './index.js';
+
+import type { MemoryAccessPolicy } from './index.js';
 
 /**
  * F2-T5 PR1 (RED step) — public export-surface smoke test for
@@ -25,6 +30,15 @@ import {
  * it is a compile-time-only interface with no runtime schema, matching
  * `core-objects`'s `LuminaObject` precedent, which likewise has no
  * dedicated test file).
+ *
+ * F2-T8 (RED step, ADR-0024) additionally pins the barrel re-exporting
+ * `./memory-access-policy-events.js` (`memoryAccessGrantedPayloadSchema`/
+ * `memoryAccessRevokedPayloadSchema`) and
+ * `./is-agent-allowed-to-access-memory.js`
+ * (`isAgentAllowedToAccessMemory`) — `MemoryAccessPolicy` itself
+ * (`./memory-access-policy.js`) is, like `MemoryRecord`, a compile-time-only
+ * interface with no runtime schema and is only exercised here as a type,
+ * not a dedicated runtime test.
  */
 
 describe('packages/memory public export surface', () => {
@@ -38,5 +52,31 @@ describe('packages/memory public export surface', () => {
 
   it('re-exports memoryRecordDeletedPayloadSchema', () => {
     expect(memoryRecordDeletedPayloadSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('re-exports memoryAccessGrantedPayloadSchema (ADR-0024 §g)', () => {
+    expect(
+      memoryAccessGrantedPayloadSchema.safeParse({ agentIdentifier: 'answer-question' }).success,
+    ).toBe(true);
+  });
+
+  it('re-exports memoryAccessRevokedPayloadSchema (ADR-0024 §g)', () => {
+    expect(
+      memoryAccessRevokedPayloadSchema.safeParse({ agentIdentifier: 'answer-question' }).success,
+    ).toBe(true);
+  });
+
+  it('re-exports isAgentAllowedToAccessMemory (ADR-0024 §l)', () => {
+    expect(isAgentAllowedToAccessMemory(undefined)).toBe(false);
+
+    const policy: MemoryAccessPolicy = {
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      agentIdentifier: 'answer-question',
+      grantedAt: new Date('2026-01-01T00:00:00.000Z'),
+      revokedAt: null,
+    };
+    expect(isAgentAllowedToAccessMemory(policy)).toBe(true);
   });
 });

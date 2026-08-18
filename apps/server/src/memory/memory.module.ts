@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { MemoryAccessPolicyController } from './memory-access-policies.controller.js';
+import { MemoryAccessPolicyService } from './memory-access-policies.service.js';
 import { MemoryRecordsController } from './memory-records.controller.js';
 import { MemoryRecordsService } from './memory-records.service.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -18,8 +20,13 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  */
 @Module({
   imports: [DbModule, AuthModule, EventStoreModule],
-  controllers: [MemoryRecordsController],
-  providers: [MemoryRecordsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
-  exports: [MemoryRecordsService],
+  controllers: [MemoryRecordsController, MemoryAccessPolicyController],
+  providers: [
+    MemoryRecordsService,
+    MemoryAccessPolicyService,
+    WorkspaceMembershipGuard,
+    WorkspaceMembershipService,
+  ],
+  exports: [MemoryRecordsService, MemoryAccessPolicyService],
 })
 export class MemoryModule {}
