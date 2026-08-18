@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedView } from '@luminaos/core-objects';
-import type { MemoryRecord } from '@luminaos/memory';
+import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import type { QuerySpec } from '@luminaos/shared';
 
 import {
@@ -11,6 +11,7 @@ import {
   deleteMemoryRecord,
   deleteSavedView,
   getMemoryRecords,
+  getMemoryRecordsJsonLdExport,
   getSavedViews,
   patchFieldValues,
   postObjectsQuery,
@@ -116,6 +117,21 @@ import type { SavedViewCreateInput, SavedViewUpdateInput } from './apiClient.js'
  *
  * `SavedView` itself is imported from `@luminaos/core-objects` (already
  * exported there by PR1) — apiClient.ts does not redefine it.
+ *
+ * F2-T7 PR2 addition (ADR-0023 §b/e) — JSON-LD export client, backend
+ * route already merged in PR1
+ * (`apps/server/src/memory/memory-records.controller.ts`'s
+ * `GET /workspaces/:workspaceId/memory/export?format=json-ld`):
+ *
+ *   export function getMemoryRecordsJsonLdExport(
+ *     workspaceId: string,
+ *   ): Promise<{ records: MemoryRecordJsonLd[] }>;
+ *       // GETs /workspaces/:workspaceId/memory/export?format=json-ld —
+ *       // mirrors getMemoryRecords's request/error-handling shape exactly
+ *       // (credentials: 'include', ApiError on non-ok, resolves with the
+ *       // parsed `{ records }` envelope per ADR-0023 Karar (e)).
+ *       // `MemoryRecordJsonLd` is imported from `@luminaos/memory` (already
+ *       // exported there as of the merged PR1), not redefined here.
  */
 
 function mockFetchOnce(status: number, body: unknown, ok = status >= 200 && status < 300): void {
@@ -517,6 +533,28 @@ function makeMemoryRecordFixture(overrides: Partial<MemoryRecord> = {}): MemoryR
   };
 }
 
+function makeMemoryRecordJsonLdFixture(
+  overrides: Partial<MemoryRecordJsonLd> = {},
+): MemoryRecordJsonLd {
+  return {
+    '@context': {
+      schema: 'https://schema.org/',
+      luminaos: 'https://luminaos.dev/vocab#',
+      content: 'schema:text',
+      createdAt: 'schema:dateCreated',
+      updatedAt: 'schema:dateModified',
+      kaynakOlayId: 'luminaos:kaynakOlayId',
+    },
+    '@type': 'schema:Note',
+    '@id': 'urn:luminaos:memory-record:mem-1',
+    content: 'Kahve yerine çay tercih ederim.',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    kaynakOlayId: 'evt-1',
+    ...overrides,
+  };
+}
+
 // F2-T6 — Memory Passport CRUD client (apps/server's F2-T5
 // memory.controller.ts, already merged). Mirrors the getSavedViews/
 // createSavedView/updateSavedView/deleteSavedView precedent immediately
@@ -557,6 +595,51 @@ describe('getMemoryRecords', () => {
 
     await expect(getMemoryRecords(workspaceId)).rejects.toBeInstanceOf(ApiError);
     await expect(getMemoryRecords(workspaceId)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+});
+
+// F2-T7 PR2 (ADR-0023 §b/e) — JSON-LD export client. Backend route already
+// merged (PR1): GET /workspaces/:workspaceId/memory/export?format=json-ld.
+// Mirrors getMemoryRecords's test style exactly.
+describe('getMemoryRecordsJsonLdExport', () => {
+  const workspaceId = 'ws-1';
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnce(200, { records: [] });
+
+    await getMemoryRecordsJsonLdExport(workspaceId);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('GETs /workspaces/:workspaceId/memory/export?format=json-ld', async () => {
+    mockFetchOnce(200, { records: [] });
+
+    await getMemoryRecordsJsonLdExport(workspaceId);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/memory/export?format=json-ld`);
+    expect(init.method).toBe('GET');
+  });
+
+  it('resolves with the parsed { records } body of MemoryRecordJsonLd entries on success', async () => {
+    const record = makeMemoryRecordJsonLdFixture();
+    mockFetchOnce(200, { records: [record] });
+
+    const result = await getMemoryRecordsJsonLdExport(workspaceId);
+
+    expect(result).toEqual({ records: [record] });
+  });
+
+  it('rejects with an ApiError carrying the server error code/message on a non-ok response', async () => {
+    mockFetchOnce(403, { error: { code: 'FORBIDDEN', message: 'Not a member' } });
+
+    await expect(getMemoryRecordsJsonLdExport(workspaceId)).rejects.toBeInstanceOf(ApiError);
+    await expect(getMemoryRecordsJsonLdExport(workspaceId)).rejects.toMatchObject({
       code: 'FORBIDDEN',
       statusCode: 403,
     });
