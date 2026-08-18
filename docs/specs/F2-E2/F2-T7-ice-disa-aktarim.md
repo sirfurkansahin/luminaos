@@ -1,6 +1,6 @@
 # F2-T7 — İçe/Dışa Aktarım: Açık Şema (JSON-LD) + ChatGPT/Claude Bellek İçe Aktarma Sihirbazı
 
-**Epik:** F2-E2 (Memory Passport) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E2 (Memory Passport) · **Durum:** Tamamlandı — PR #138 (docs: ADR-0023 + spec), PR #139 (PR1: JSON-LD export backend), PR #140 (PR2: içe aktarma sihirbazı + export düğmesi).
 **Bağımlılık:** F2-T5 (Memory Passport CRUD API'si — `apps/server/src/memory/`, `packages/memory`, ADR-0022; merged), F2-T6 (`apps/web`'in Memory Passport paneli, `MemoryPassportPanel.tsx`; merged), F1-T18/ADR-0016 (mevcut export altyapısı — `apps/server/src/export/`, tek-uç-nokta-çok-format deseni, RBAC=salt üyelik kararı).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin (b) fıkrasına giriyor — "açık şema (JSON-LD)" tanımı, tanım gereği LuminaOS'in dışına açılan, gelecekteki görevlere (F2-T8'in erişim politikası manifestoları bellek segmentlerini bu şemaya göre tarif edebilir; F2-T12'nin MCP sunucusu bu şemayı dışarı sunabilir) ve olası dış tüketicilere dayatılan bir sözleşim. Ayrıca "ChatGPT/Claude bellek içe aktarma sihirbazı" ifadesi, BU İKİ ÜRÜNÜN kendi bellek özelliklerinin gerçek, kararlı, herkese açık dokümante edilmiş bir dışa aktarma formatına sahip olduğunu VARSAYIYOR — bu varsayım kod tabanında hiçbir yerde doğrulanmamış ve ben (Claude) bu iki ürünün güncel/kararlı bir export şemasının var olup olmadığını güvenilir şekilde bilmiyorum. Bu görev için gerçek bir dış-format uydurmak yerine, kapsam bilinçli olarak genel bir içe aktarma biçimiyle sınırlanmalı — bu, ADR-0016 §(d)'nin BlockNote'un belgelenmemiş şemasını reverse-engineer etmek yerine daha küçük/kanıtlanmış bir yol seçmesiyle aynı türde bir risk-azaltma kararı. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -51,15 +51,19 @@ Memory Passport kayıtları (F2-T5) için (1) LuminaOS dışına taşınabilir, 
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR'de (numara yazım sırasında teyit edilir) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] JSON-LD export uç noktası, geçerli bir `@context`/`@type`/`@id` içeren, caller'ın kendi (tombstone hariç) kayıtlarını döndürüyor, testli.
-- [ ] Cross-user/cross-workspace izolasyon JSON-LD export'ta da korunuyor (F2-T5'in `list()` metodunun aynı garantisi), testli.
-- [ ] İçe aktarma sihirbazı: yapıştır/yükle → önizleme → onay → kayıtların oluşturulması uçtan uca çalışıyor, testli.
-- [ ] Kısmi başarısızlık durumunda hangi kayıtların oluşturulup hangilerinin başarısız olduğu kullanıcıya gösteriliyor, testli.
-- [ ] İçe aktarılan kayıtlar F2-T5'in event-sourced `MemoryRecordAdded` akışından geçiyor (doğrudan DB yazımı YOK) — mevcut CRUD API'si yeniden kullanılıyor.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: içe aktarma sırasında `userId`/`workspaceId` yalnızca session'dan, kullanıcı girdisinden asla).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR-0023'te kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] JSON-LD export uç noktası, geçerli bir `@context`/`@type`/`@id` içeren, caller'ın kendi (tombstone hariç) kayıtlarını döndürüyor, testli (10 saf fonksiyon testi + 25 entegrasyon testi).
+- [x] Cross-user/cross-workspace izolasyon JSON-LD export'ta da korunuyor (F2-T5'in `list()` metodunun aynı garantisi), testli.
+- [x] İçe aktarma sihirbazı: yapıştır/yükle → önizleme → onay → kayıtların oluşturulması uçtan uca çalışıyor, testli.
+- [x] Kısmi başarısızlık durumunda hangi kayıtların oluşturulup hangilerinin başarısız olduğu kullanıcıya gösteriliyor, testli.
+- [x] İçe aktarılan kayıtlar F2-T5'in event-sourced `MemoryRecordAdded` akışından geçiyor (doğrudan DB yazımı YOK) — mevcut CRUD API'si (`useCreateMemoryRecordMutation`) yeniden kullanılıyor.
+- [x] `security-reviewer` denetiminde bulgu yok (hem PR1 backend hem PR2 frontend için ayrı ayrı denetlendi) — içe aktarma sırasında `userId`/`workspaceId` yalnızca session'dan, kullanıcı girdisinden asla; `parseImportInput` hiçbir zaman `content` dışında bir alan taşımıyor.
+- [x] `pnpm --filter @luminaos/memory` ve `pnpm --filter @luminaos/server`/`@luminaos/web` typecheck/lint/test yeşil (regresyon yok).
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile bir ADR taslağına dökülür (numaralandırma yazım sırasında teyit edilir); ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T7 kapandı, F2-E2'nin bir sonraki (ve son) görevi F2-T8 ("Bellek kullanım politikası: hangi ajanın hangi bellek segmentine erişebildiği manifestolarla", `docs/PLAN.md` satır 251). F2-T8'in henüz bir spec dosyası yok — önce spec yazılmalı:
+
+```
+docs/specs/F2-E2/F2-T8-bellek-kullanim-politikasi.md spec dosyasını yaz, sonra Plan Mode ile F2-T8'i planla.
+```

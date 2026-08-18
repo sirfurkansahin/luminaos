@@ -28,8 +28,8 @@ Keşif iki bağlayıcı emsali doğruladı:
 
 v1, `parseImportInput` (`apps/web`) adlı saf bir fonksiyonla üç girdi şeklini SIRAYLA tanır:
 
-1. Elemanları `schema:text` alanı taşıyan bir JSON dizisi — yani LuminaOS'in KENDİ JSON-LD export şekli. Bu bilinçli bir round-trip tasarımı: bir kullanıcı önce export edip sonra aynı dosyayı (veya başka bir workspace'e) re-import edebilir, hiçbir alan kaybı olmadan.
-2. Elemanları `content` alanı taşıyan bir JSON dizisi (`{content: string}[]`) — basit, format-agnostik bir "dış" JSON şekli.
+1. Elemanları LİTERAL `schema:text` anahtarı taşıyan bir JSON dizisi — tam-genişletilmiş (fully-expanded) bir JSON-LD üreticisi için ileriye-dönük bir kanca. **Uygulama notu (PR2'de doğrulandı):** `toMemoryRecordJsonLd`'nin (Karar c) gerçek çıktısı bu anahtarı LİTERAL OLARAK taşımaz — `@context` yalnızca semantik `content` teriminin `schema:text` IRI'sine eşlendiğini belirtir, emitted nesnenin kendi property adı hâlâ `content`'tir. Dolayısıyla bugünkü gerçek LuminaOS export'u bu şekli DEĞİL, şekil (2)'yi eşler — round-trip yine de kayıpsız çalışır, yalnızca hangi şeklin eşleştiği ADR'nin ilk yazımındaki varsayımdan farklı. Şekil (1) bu yüzden bugün hiçbir gerçek üretici tarafından tetiklenmeyen, zararsız bir ek kontrol olarak kalıyor.
+2. Elemanları `content` alanı taşıyan bir JSON dizisi (`{content: string}[]`) — hem basit, format-agnostik bir "dış" JSON şekli HEM DE (yukarıdaki not gereği) LuminaOS'in kendi JSON-LD export'unun gerçek round-trip yolu.
 3. Yukarıdakilerin hiçbiri değilse: düz metin, satır satır bölünür, boş satırlar elenir.
 
 ChatGPT/Claude'a özel bir dosya-formatı ayrıştırıcısı YAZILMAZ — bu iki ürünün export şeması bu oturumda doğrulanamadı (bkz. üstteki blockquote). UI kopyası kullanıcıyı "ChatGPT/Claude'dan kopyaladığın metni buraya yapıştır" şeklinde yönlendirebilir; bu yönlendirme zaten şekil (3)'ün (serbest metin) doğal bir kullanım örneği, ayrı bir kod yolu gerektirmiyor.
