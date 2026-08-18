@@ -129,6 +129,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       docMaxConnectionsPerRoom: 50,
       docMaxRooms: 1_000,
       searchIndexEmbeddingDebounceMs: 5_000,
+      serverPublicUrl: 'http://localhost:3000',
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 

@@ -470,3 +470,41 @@ export function deleteMemoryRecord(workspaceId: string, recordId: string): Promi
     { method: 'DELETE' },
   );
 }
+
+/** F2-T10 PR1 (ADR-0026 §c/§n) -- one entry per connectorType this deployment
+ * knows an OAuth provider config for, `connected` = whether the caller
+ * (workspaceId, userId) has stored credentials for it. */
+export interface IntegrationConnectorStatus {
+  connectorType: string;
+  connected: boolean;
+}
+
+export function getIntegrations(
+  workspaceId: string,
+): Promise<{ connectors: IntegrationConnectorStatus[] }> {
+  return request<{ connectors: IntegrationConnectorStatus[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/integrations`,
+    { method: 'GET' },
+  );
+}
+
+/** Starts the OAuth authorize flow for `connectorType` -- the caller is
+ * expected to navigate the browser to the returned `authorizeUrl`. */
+export function connectIntegration(
+  workspaceId: string,
+  connectorType: string,
+): Promise<{ authorizeUrl: string }> {
+  return request<{ authorizeUrl: string }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/integrations/${encodeURIComponent(connectorType)}/oauth/authorize`,
+    { method: 'POST' },
+  );
+}
+
+export function disconnectIntegration(workspaceId: string, connectorType: string): Promise<void> {
+  // No explicit `<void>` type argument, matching deleteMemoryRecord's/
+  // deleteSavedView's rationale above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/integrations/${encodeURIComponent(connectorType)}`,
+    { method: 'DELETE' },
+  );
+}
