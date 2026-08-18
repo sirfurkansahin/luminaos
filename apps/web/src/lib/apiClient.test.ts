@@ -1,15 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedView } from '@luminaos/core-objects';
+import type { MemoryRecord } from '@luminaos/memory';
 import type { QuerySpec } from '@luminaos/shared';
 
 import {
+  createMemoryRecord,
   createObject,
   createSavedView,
+  deleteMemoryRecord,
   deleteSavedView,
+  getMemoryRecords,
   getSavedViews,
   patchFieldValues,
   postObjectsQuery,
+  updateMemoryRecord,
   updateSavedView,
   ApiError,
 } from './apiClient.js';
@@ -492,6 +497,207 @@ describe('deleteSavedView', () => {
 
     await expect(deleteSavedView(workspaceId, savedViewId)).rejects.toBeInstanceOf(ApiError);
     await expect(deleteSavedView(workspaceId, savedViewId)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+});
+
+function makeMemoryRecordFixture(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
+  return {
+    id: 'mem-1',
+    workspaceId: 'ws-1',
+    userId: 'user-1',
+    content: 'Kahve yerine çay tercih ederim.',
+    kaynakOlayId: 'evt-1',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+// F2-T6 — Memory Passport CRUD client (apps/server's F2-T5
+// memory.controller.ts, already merged). Mirrors the getSavedViews/
+// createSavedView/updateSavedView/deleteSavedView precedent immediately
+// above, including the 204-no-content handling for delete.
+describe('getMemoryRecords', () => {
+  const workspaceId = 'ws-1';
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnce(200, { records: [] });
+
+    await getMemoryRecords(workspaceId);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('GETs /workspaces/:workspaceId/memory', async () => {
+    mockFetchOnce(200, { records: [] });
+
+    await getMemoryRecords(workspaceId);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/memory`);
+    expect(init.method).toBe('GET');
+  });
+
+  it('resolves with the parsed { records } body on success', async () => {
+    const record = makeMemoryRecordFixture();
+    mockFetchOnce(200, { records: [record] });
+
+    const result = await getMemoryRecords(workspaceId);
+
+    expect(result).toEqual({ records: [record] });
+  });
+
+  it('rejects with an ApiError carrying the server error code/message on a non-ok response', async () => {
+    mockFetchOnce(403, { error: { code: 'FORBIDDEN', message: 'Not a member' } });
+
+    await expect(getMemoryRecords(workspaceId)).rejects.toBeInstanceOf(ApiError);
+    await expect(getMemoryRecords(workspaceId)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+});
+
+describe('createMemoryRecord', () => {
+  const workspaceId = 'ws-1';
+  const input = { content: 'Kahve yerine çay tercih ederim.' };
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnce(201, { record: makeMemoryRecordFixture(input) });
+
+    await createMemoryRecord(workspaceId, input);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('POSTs to /workspaces/:workspaceId/memory with { content } as the JSON body', async () => {
+    mockFetchOnce(201, { record: makeMemoryRecordFixture(input) });
+
+    await createMemoryRecord(workspaceId, input);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/memory`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+
+  it('never sends a userId or workspaceId key in the request body — the server derives identity from the session', async () => {
+    mockFetchOnce(201, { record: makeMemoryRecordFixture(input) });
+
+    await createMemoryRecord(workspaceId, input);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    const parsedBody = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(parsedBody)).toEqual(['content']);
+    expect(parsedBody).not.toHaveProperty('userId');
+    expect(parsedBody).not.toHaveProperty('workspaceId');
+  });
+
+  it('resolves with the parsed { record } body on success', async () => {
+    const record = makeMemoryRecordFixture(input);
+    mockFetchOnce(201, { record });
+
+    const result = await createMemoryRecord(workspaceId, input);
+
+    expect(result).toEqual({ record });
+  });
+
+  it('rejects with an ApiError on a non-ok response', async () => {
+    mockFetchOnce(422, { error: { code: 'VALIDATION_ERROR', message: 'İçerik boş olamaz' } });
+
+    await expect(createMemoryRecord(workspaceId, input)).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('updateMemoryRecord', () => {
+  const workspaceId = 'ws-1';
+  const recordId = 'mem-1';
+  const input = { content: 'Güncellenmiş içerik.' };
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnce(200, { record: makeMemoryRecordFixture({ id: recordId, ...input }) });
+
+    await updateMemoryRecord(workspaceId, recordId, input);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('PATCHes to /workspaces/:workspaceId/memory/:recordId with { content } as the JSON body', async () => {
+    mockFetchOnce(200, { record: makeMemoryRecordFixture({ id: recordId, ...input }) });
+
+    await updateMemoryRecord(workspaceId, recordId, input);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/memory/${recordId}`);
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+
+  it('resolves with the parsed { record } body on success', async () => {
+    const record = makeMemoryRecordFixture({ id: recordId, ...input });
+    mockFetchOnce(200, { record });
+
+    const result = await updateMemoryRecord(workspaceId, recordId, input);
+
+    expect(result).toEqual({ record });
+  });
+
+  it('rejects with an ApiError when a non-owner caller is refused (403)', async () => {
+    mockFetchOnce(403, {
+      error: { code: 'FORBIDDEN', message: 'Not the owner of this memory record' },
+    });
+
+    await expect(updateMemoryRecord(workspaceId, recordId, input)).rejects.toBeInstanceOf(ApiError);
+    await expect(updateMemoryRecord(workspaceId, recordId, input)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+});
+
+describe('deleteMemoryRecord', () => {
+  const workspaceId = 'ws-1';
+  const recordId = 'mem-1';
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnceNoContent(204);
+
+    await deleteMemoryRecord(workspaceId, recordId);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('DELETEs to /workspaces/:workspaceId/memory/:recordId', async () => {
+    mockFetchOnceNoContent(204);
+
+    await deleteMemoryRecord(workspaceId, recordId);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/memory/${recordId}`);
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('resolves without attempting to parse a response body (server returns 204 No Content)', async () => {
+    mockFetchOnceNoContent(204);
+
+    await expect(deleteMemoryRecord(workspaceId, recordId)).resolves.toBeUndefined();
+  });
+
+  it('rejects with an ApiError carrying the server error code/message on a non-ok response', async () => {
+    mockFetchOnce(403, {
+      error: { code: 'FORBIDDEN', message: 'Only the owner may delete this memory record' },
+    });
+
+    await expect(deleteMemoryRecord(workspaceId, recordId)).rejects.toBeInstanceOf(ApiError);
+    await expect(deleteMemoryRecord(workspaceId, recordId)).rejects.toMatchObject({
       code: 'FORBIDDEN',
       statusCode: 403,
     });

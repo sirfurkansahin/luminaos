@@ -14,6 +14,7 @@ import { SaveViewButton } from './views/SaveViewButton';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
+import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
 import { ViewSwitcher } from './views/ViewSwitcher';
@@ -101,6 +102,7 @@ export function App() {
     <main>
       <h1>LuminaOS</h1>
       <CommandPalette workspaceId={DEV_WORKSPACE_ID} />
+      <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
