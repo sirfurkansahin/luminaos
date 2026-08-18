@@ -1,6 +1,6 @@
 # F2-T6 — "Hakkımda Ne Biliyorsun?" Ekranı + Kaynak İzi
 
-**Epik:** F2-E2 (Memory Passport) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E2 (Memory Passport) · **Durum:** Tamamlandı — PR #136.
 **Bağımlılık:** F2-T5 (Memory Passport backend'i — `apps/server/src/memory/`, `packages/memory`, ADR-0022; merged), `apps/web`'in TanStack Query + `apiClient.ts` deseni (en yakın emsal: `useSavedViewsQuery.ts` + `SavedViewsList.tsx`), `@luminaos/ui`'nin `DialogRoot`/`DialogContent` bileşenleri (en yakın emsal: `CommandPalette.tsx`).
 
 ## Amaç
@@ -53,16 +53,20 @@ Kullanıcının, LuminaOS'in kendisi hakkında "bildiği" her bellek kaydını (
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-4'ün insan kararları bu plan onayı sırasında alındı.
-- [ ] Kullanıcı kendi memory passport kayıtlarını (tombstone hariç) panelde görebiliyor, testli.
-- [ ] Kayıt düzenleme (`PATCH`) çalışıyor, testli.
-- [ ] Kayıt silme (`DELETE`) çalışıyor ve silinen kayıt listeden kalkıyor, testli.
-- [ ] (Açık Soru 3'ün kararına bağlı) yeni kayıt ekleme çalışıyor, testli.
-- [ ] Her kayıt satırında en azından `createdAt` tabanlı bir kaynak izi gösteriliyor.
-- [ ] Boş durum ve hata durumu `EmptyState` ile ele alınıyor, testli.
-- [ ] UI hiçbir zaman `userId`/`workspaceId`'yi istek gövdesinde göndermiyor — kimlik yalnızca session çerezinden (backend zaten garanti ediyor, ama istemci kodu da bunu asla body'ye eklemiyor).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-4'ün insan kararları bu plan onayı sırasında alındı.
+- [x] Kullanıcı kendi memory passport kayıtlarını (tombstone hariç) panelde görebiliyor, testli.
+- [x] Kayıt düzenleme (`PATCH`) çalışıyor, testli.
+- [x] Kayıt silme (`DELETE`) çalışıyor ve silinen kayıt listeden kalkıyor, testli.
+- [x] Yeni kayıt ekleme çalışıyor, testli (Açık Soru 3 kararı: dahil edildi).
+- [x] Her kayıt satırında en azından `createdAt` tabanlı bir kaynak izi gösteriliyor.
+- [x] Boş durum ve hata durumu `EmptyState` ile ele alınıyor, testli.
+- [x] UI hiçbir zaman `userId`/`workspaceId`'yi istek gövdesinde göndermiyor — `security-reviewer` tarafından doğrulandı, bulgu yok.
+- [x] `pnpm --filter @luminaos/web typecheck && lint && test` yeşil (455/455 test, 67'si yeni; regresyon yok).
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilir; bu görev "salt görünüm-katmanı" niteliğinde olduğundan (CLAUDE.md'nin ADR kriterlerinden hiçbirine girmiyor — mimari değişmezlere dokunmuyor, gelecekteki görevlere dayatılan bir sözleşim tanımlamıyor) ayrı bir ADR gerekmez; Açık Sorular 1-4'ün insan kararları doğrudan plan dosyasında gerekçeleriyle kayıt altına alınır, ardından `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T6 kapandı (PR #136). F2-E2'nin bir sonraki görevi F2-T7 ("İçe/dışa aktarım: açık şema (JSON-LD) + ChatGPT/Claude bellek içe aktarma sihirbazı", `docs/PLAN.md` satır 250). F2-T7'nin henüz bir spec dosyası yok — önce spec yazılmalı:
+
+```
+docs/specs/F2-E2/F2-T7-ice-disa-aktarim.md spec dosyasını yaz, sonra Plan Mode ile F2-T7'yi planla.
+```
