@@ -1,6 +1,6 @@
 # F2-T9 — MCP İstemci Çatısı + Bağlayıcı Yaşam Döngüsü (Kimlik, Oran Sınırı, Sağlık)
 
-**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Tamamlandı. ADR: `docs/adr/ADR-0025-mcp-istemci-catisi.md`. PR'lar: #145-146 (PR1: `packages/integrations/src/mcp/` protokol katmanı), #147 (PR2: `apps/server/src/integrations/` kimlik-bilgisi/oran-sınırı/sağlık servisleri).
 **Bağımlılık:** `packages/integrations` (zaten var, F1-T12 PR4'ten `CalendarConnector` arayüzü — `packages/ai-gateway`'in `AIProvider` desenine benzer şekilde modellenmiş, ADR-0012), `apps/server/src/calendar/` (kimlik-bilgisi/token şifreleme emsali, ADR-0012), `apps/server/src/ai/ai-usage.service.ts` (kota/limit izleme emsali, ADR-0014), `apps/server/src/health/health.service.ts` (sağlık-kontrolü deseni), `packages/shared/src/secrets/token-encryption.ts` (şifreleme yardımcı fonksiyonları).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin HER İKİ fıkrasına da giriyor. (a) "Mimari Değişmezler" listesi MCP'yi AÇIKÇA adıyla anıyor: "Her dış girdi (MCP, webhook, form) şema ile doğrulanır (zod)" — bu görev bu değişmezin MCP tarafını ilk kez somut bir mekanizmaya döken görev. (b) Bu görevin tanımlayacağı bağlayıcı yaşam döngüsü sözleşimi (kimlik/kimlik-bilgisi saklama şekli, oran sınırı mekanizması, sağlık-kontrolü arayüzü), F2-T10 (ilk 6 bağlayıcı), F2-T11 (Connected Search) ve F2-T12 (MCP sunucusu) için dayatılan bir temel — bu üç görev de F2-T9'un kuracağı sözleşmeyi aynen tüketecek. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -53,16 +53,20 @@ LuminaOS'in dış kaynaklara (Google Drive, Gmail, Slack, GitHub, Notion, Takvim
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR'de (numara yazım sırasında teyit edilir) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] Bağlayıcı yaşam döngüsü sözleşimi (`register`/`connect`/`disconnect`/durum) saf TypeScript arayüz(ler) olarak tanımlı, testli.
-- [ ] Kimlik-bilgisi saklama servisi: kimlik bilgileri her zaman şifreli saklanıyor, public metotlardan asla düz metin dönmüyor, testli.
-- [ ] Oran sınırlama: yapılandırılan limit aşıldığında çağrı reddediliyor, eşzamanlı çağrılar arasında yarış durumu (race condition) yok, testli.
-- [ ] Sağlık kontrolü: bir bağlayıcının `checkHealth()`'i zaman aşımına uğradığında veya hata fırlattığında sistemin geri kalanını engellemiyor, testli.
-- [ ] Referans/mock bağlayıcı uçtan uca çalışıyor (kayıt→bağlan→sağlık-kontrolü→bağlantı-kes), testli.
-- [ ] Her dış girdi (MCP mesajları dahil) zod ile doğrulanıyor (Mimari Değişmez).
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: kimlik bilgilerinin loglanmadığı, şifreleme doğru kullanıldığı).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR'de (ADR-0025) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] Bağlayıcı yaşam döngüsü sözleşimi (`register`/`connect`/`disconnect`/durum) saf TypeScript arayüz(ler) olarak tanımlı, testli (PR1: `McpConnector`, `McpConnectorRegistry`).
+- [x] Kimlik-bilgisi saklama servisi: kimlik bilgileri her zaman şifreli saklanıyor, public metotlardan asla düz metin dönmüyor, testli (PR2: `ConnectorCredentialsService`, 9/9 entegrasyon testi, `security-reviewer` tarafından doğrulandı).
+- [x] Oran sınırlama: yapılandırılan limit aşıldığında çağrı reddediliyor, eşzamanlı çağrılar arasında yarış durumu (race condition) yok, testli (PR2: `ConnectorRateLimitService`, `pg_advisory_lock` korumalı, 6/6 entegrasyon testi eşzamanlılık yarış testi dahil).
+- [x] Sağlık kontrolü: bir bağlayıcının `checkHealth()`'i zaman aşımına uğradığında veya hata fırlattığında sistemin geri kalanını engellemiyor, testli (PR2: `ConnectorHealthService`, 4/4 test).
+- [x] Referans/mock bağlayıcı uçtan uca çalışıyor (kayıt→bağlan→sağlık-kontrolü→bağlantı-kes), testli (PR1: `MockMcpConnector`).
+- [x] Her dış girdi (MCP mesajları dahil) zod ile doğrulanıyor (Mimari Değişmez) — ADR-0025'in `McpConnector` sözleşimi bunu her somut bağlayıcı implementasyonu için zorunlu kılıyor (`callTool`/`readResource` sonuçları çağıran koda ulaşmadan önce zod-doğrulanmış olmalı); bu görevde gerçek bir dış bağlayıcı KURULMADIĞI için (kapsam dışı, F2-T10) somut zod şeması bu görevde yazılmadı — F2-T10'un her yeni bağlayıcısı bu zorunluluğu miras alır.
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: kimlik bilgilerinin loglanmadığı, şifreleme doğru kullanıldığı) — PR1 ve PR2 ayrı ayrı denetlendi, ikisinde de bloklayıcı bulgu yok.
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile bir ADR taslağına dökülür (numaralandırma yazım sırasında teyit edilir); ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T9 tamamlandı, F2-E3 epiğinin ilk görevi kapandı. Sırada `docs/PLAN.md`'nin F2-E3 listesindeki F2-T10 var: "İlk 6 bağlayıcı: Google Drive, Gmail, Slack, GitHub, Notion, Takvimler." Bu, bu görevin kurduğu `McpConnector`/`McpConnectorRegistry`/`ConnectorCredentialsService`/`ConnectorRateLimitService`/`ConnectorHealthService` çatısını gerçek bağlayıcılarla tüketecek ilk görev. Kopyala-yapıştır komutu:
+
+```
+docs/specs/F2-E3/F2-T10-ilk-6-baglayici.md spec dosyasını yaz, sonra Plan Mode ile F2-T10'u planla.
+```
