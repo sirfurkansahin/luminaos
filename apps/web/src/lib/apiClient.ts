@@ -4,6 +4,7 @@ import type {
   RecurrenceRule,
   SavedView,
 } from '@luminaos/core-objects';
+import type { MemoryRecord } from '@luminaos/memory';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
@@ -404,6 +405,59 @@ export function deleteSavedView(workspaceId: string, savedViewId: string): Promi
   // `T` is inferred as `void` from this function's own declared return type.
   return request(
     `/workspaces/${encodeURIComponent(workspaceId)}/views/${encodeURIComponent(savedViewId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+// F2-T6 — Memory Passport CRUD client (apps/server's F2-T5
+// memory.controller.ts). Mirrors the getSavedViews/createSavedView/
+// updateSavedView/deleteSavedView precedent above, including the
+// 204-no-content handling for delete.
+export interface MemoryRecordCreateInput {
+  content: string;
+}
+
+export type MemoryRecordUpdateInput = MemoryRecordCreateInput;
+
+export function getMemoryRecords(workspaceId: string): Promise<{ records: MemoryRecord[] }> {
+  return request<{ records: MemoryRecord[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/memory`,
+    { method: 'GET' },
+  );
+}
+
+export function createMemoryRecord(
+  workspaceId: string,
+  input: MemoryRecordCreateInput,
+): Promise<{ record: MemoryRecord }> {
+  return request<{ record: MemoryRecord }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/memory`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateMemoryRecord(
+  workspaceId: string,
+  recordId: string,
+  input: MemoryRecordUpdateInput,
+): Promise<{ record: MemoryRecord }> {
+  return request<{ record: MemoryRecord }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/memory/${encodeURIComponent(recordId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteMemoryRecord(workspaceId: string, recordId: string): Promise<void> {
+  // No explicit `<void>` type argument, matching deleteSavedView's rationale
+  // above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/memory/${encodeURIComponent(recordId)}`,
     { method: 'DELETE' },
   );
 }

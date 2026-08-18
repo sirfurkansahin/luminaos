@@ -16,6 +16,7 @@
     "@blocknote/react": "^0.52.1",
     "@dnd-kit/core": "^6.3.1",
     "@luminaos/core-objects": "workspace:*",
+    "@luminaos/memory": "workspace:*",
     "@luminaos/shared": "workspace:*",
     "@luminaos/ui": "workspace:*",
     "@tanstack/react-query": "^5.90.5",

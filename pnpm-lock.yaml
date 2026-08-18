@@ -274,6 +274,9 @@ importers:
       '@luminaos/core-objects':
         specifier: workspace:*
         version: link:../../packages/core-objects
+      '@luminaos/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       '@luminaos/shared':
         specifier: workspace:*
         version: link:../../packages/shared
