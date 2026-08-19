@@ -1,14 +1,24 @@
 import { Module } from '@nestjs/common';
 
-import { McpConnectorRegistry, NotionMcpConnector } from '@luminaos/integrations';
+import {
+  GithubMcpConnector,
+  GmailMcpConnector,
+  GoogleDriveMcpConnector,
+  McpConnectorRegistry,
+  NotionMcpConnector,
+  SlackMcpConnector,
+} from '@luminaos/integrations';
 import type { McpConnector } from '@luminaos/integrations';
 import { InvalidObjectStateError } from '@luminaos/shared';
 
 import { env } from '../config/env.js';
 
-
 export const MCP_CONNECTOR_REGISTRY = 'MCP_CONNECTOR_REGISTRY';
 export const NOTION_MCP_CONNECTOR = 'NOTION_MCP_CONNECTOR';
+export const GOOGLE_DRIVE_MCP_CONNECTOR = 'GOOGLE_DRIVE_MCP_CONNECTOR';
+export const GMAIL_MCP_CONNECTOR = 'GMAIL_MCP_CONNECTOR';
+export const SLACK_MCP_CONNECTOR = 'SLACK_MCP_CONNECTOR';
+export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
 /**
  * F2-T10 PR1 (ADR-0026 §m): the env-gated DI-factory pattern registering
@@ -56,7 +66,102 @@ export const NOTION_MCP_CONNECTOR = 'NOTION_MCP_CONNECTOR';
         return connector;
       },
     },
+    {
+      provide: GOOGLE_DRIVE_MCP_CONNECTOR,
+      inject: [MCP_CONNECTOR_REGISTRY],
+      useFactory: (registry: McpConnectorRegistry): McpConnector | undefined => {
+        if (!env.googleDriveOAuth) {
+          return undefined;
+        }
+
+        const connector = new GoogleDriveMcpConnector({
+          connectorType: 'google-drive',
+          serverUrl: 'https://drivemcp.googleapis.com/mcp/v1',
+          getAccessToken: () => {
+            throw new InvalidObjectStateError(
+              'The shared "google-drive" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
+            );
+          },
+        });
+
+        registry.register(connector);
+        return connector;
+      },
+    },
+    {
+      provide: GMAIL_MCP_CONNECTOR,
+      inject: [MCP_CONNECTOR_REGISTRY],
+      useFactory: (registry: McpConnectorRegistry): McpConnector | undefined => {
+        if (!env.gmailOAuth) {
+          return undefined;
+        }
+
+        const connector = new GmailMcpConnector({
+          connectorType: 'gmail',
+          serverUrl: 'https://gmailmcp.googleapis.com/mcp/v1',
+          getAccessToken: () => {
+            throw new InvalidObjectStateError(
+              'The shared "gmail" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
+            );
+          },
+        });
+
+        registry.register(connector);
+        return connector;
+      },
+    },
+    {
+      provide: SLACK_MCP_CONNECTOR,
+      inject: [MCP_CONNECTOR_REGISTRY],
+      useFactory: (registry: McpConnectorRegistry): McpConnector | undefined => {
+        if (!env.slackOAuth) {
+          return undefined;
+        }
+
+        const connector = new SlackMcpConnector({
+          connectorType: 'slack',
+          serverUrl: 'https://mcp.slack.com/mcp',
+          getAccessToken: () => {
+            throw new InvalidObjectStateError(
+              'The shared "slack" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
+            );
+          },
+        });
+
+        registry.register(connector);
+        return connector;
+      },
+    },
+    {
+      provide: GITHUB_MCP_CONNECTOR,
+      inject: [MCP_CONNECTOR_REGISTRY],
+      useFactory: (registry: McpConnectorRegistry): McpConnector | undefined => {
+        if (!env.githubOAuth) {
+          return undefined;
+        }
+
+        const connector = new GithubMcpConnector({
+          connectorType: 'github',
+          serverUrl: 'https://api.githubcopilot.com/mcp/',
+          getAccessToken: () => {
+            throw new InvalidObjectStateError(
+              'The shared "github" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
+            );
+          },
+        });
+
+        registry.register(connector);
+        return connector;
+      },
+    },
   ],
-  exports: [MCP_CONNECTOR_REGISTRY, NOTION_MCP_CONNECTOR],
+  exports: [
+    MCP_CONNECTOR_REGISTRY,
+    NOTION_MCP_CONNECTOR,
+    GOOGLE_DRIVE_MCP_CONNECTOR,
+    GMAIL_MCP_CONNECTOR,
+    SLACK_MCP_CONNECTOR,
+    GITHUB_MCP_CONNECTOR,
+  ],
 })
 export class McpConnectorsModule {}

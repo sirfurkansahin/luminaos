@@ -5,3 +5,7 @@ export * from './mcp/rate-limit-math.js';
 export * from './mcp/mock-mcp-connector.js';
 export * from './mcp/streamable-http-mcp-connector.js';
 export * from './mcp/connectors/notion-mcp-connector.js';
+export * from './mcp/connectors/google-drive-mcp-connector.js';
+export * from './mcp/connectors/gmail-mcp-connector.js';
+export * from './mcp/connectors/slack-mcp-connector.js';
+export * from './mcp/connectors/github-mcp-connector.js';
