@@ -1,6 +1,6 @@
 # F2-T10 — İlk Gerçek MCP Bağlayıcıları: Google Drive, Gmail, Slack, GitHub, Notion
 
-**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Tamamlandı. ADR: `docs/adr/ADR-0026-gercek-mcp-baglayicilari.md`. PR'lar: #149 (docs: spec+ADR), #150 (PR1: paylaşılan altyapı + Notion referans bağlayıcı), #151 (PR2: kalan 4 bağlayıcı — Drive, Gmail, Slack, GitHub).
 **Bağımlılık:** F2-T9 (MCP İstemci Çatısı, Tamamlandı) — `McpConnector`/`McpConnectorRegistry`/`MockMcpConnector` (`packages/integrations/src/mcp/`), `ConnectorCredentialsService`/`ConnectorRateLimitService`/`ConnectorHealthService`/`IntegrationsModule` (`apps/server/src/integrations/`, henüz `app.module.ts`'e bağlı değil), `connector_credentials`/`connector_rate_limit_buckets` tabloları (ADR-0025). Ayrıca `apps/server/src/calendar/` (ADR-0012 — OAuth token şifreleme/DI-fabrikası emsali, `CalendarConnector` bu görevde DOKUNULMAZ), `packages/shared/src/secrets/token-encryption.ts`.
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin HER İKİ fıkrasına giriyor. (a) Bu görev LuminaOS'e İLK KEZ gerçek, canlı dış OAuth kimlik bilgisi (6 farklı sağlayıcı için CLIENT_ID/SECRET) ve gerçek ağ üzerinden dış MCP sunucusu bağlantısı getiriyor — "Mimari Değişmezler"in "hassas veri sınıfları buluta ham gönderilmez" ve "her dış girdi (MCP dahil) zod ile doğrulanır" maddeleriyle doğrudan kesişiyor, ADR-0012'nin OAuth/şifreleme emsalinin ilk gerçek-dünya sınaması. (b) Bu görevin kuracağı "bağlayıcı-başına OAuth akışı + gerçek transport" sözleşmesi F2-T11'in (Connected Search) doğrudan tükettiği bir temel. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -57,18 +57,22 @@ F2-T9'un kurduğu çatıyı (bağlayıcı yaşam döngüsü, şifreli kimlik-bil
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] Google Drive, Gmail, Slack, GitHub, Notion için `McpConnector`-uyumlu, gerçek `StreamableHTTPClientTransport` kullanan implementasyonlar var; `McpConnectorRegistry`'ye kayıtlı.
-- [ ] Her bağlayıcı için OAuth2 authorization-code akışı (authorize + callback uç noktaları) çalışıyor, elde edilen token'lar `ConnectorCredentialsService` ile şifreli saklanıyor.
-- [ ] CLIENT_ID/SECRET yapılandırılmamış bir bağlayıcı için sistem güvenle Mock'a düşüyor (fail-closed değil, fail-to-mock — kullanıcıya "bağlı değil" olarak görünür, sistem çökmez).
-- [ ] `callTool`/`readResource` sonuçları çağıran koda ulaşmadan önce zod ile doğrulanıyor (Mimari Değişmez, ADR-0025'in zaten sabitlediği sözleşim).
-- [ ] `IntegrationsModule` `app.module.ts`'e bağlı; oran sınırı ve sağlık kontrolü her yeni bağlayıcı için otomatik devrede.
-- [ ] Minimal "Entegrasyonlar" ekranı: bağlı/bağlı-değil durumu görünüyor, bağlan/bağlantı-kes çalışıyor.
-- [ ] Testler Mock/sahte-HTTP-sunucusuna karşı yeşil (gerçek canlı hesap gerektirmiyor); OAuth token değişimi, hata/timeout senaryoları, cross-workspace izolasyon dahil.
-- [ ] GitHub bağlayıcısının Copilot-lisansı + sınırlı-rollout kısıtı VE Gmail/Drive'ın Developer Preview (GA değil, Google Workspace MCP Developer Preview Programı kaydı gerektiren) statüsü ADR'de bilinen-sınırlama olarak kayıtlı (kod tamamlanır, ama insanın canlı duman testi yapabilmesi kendi Copilot/Preview-Program durumuna bağlıdır — Slack/Notion için geçerli DEĞİL, ikisi de GA ve self-serve).
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: OAuth state/CSRF koruması, token'ların loglanmadığı, redirect_uri doğrulaması, cross-workspace/cross-user izolasyon).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR'de (ADR-0026) kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] Google Drive, Gmail, Slack, GitHub, Notion için `McpConnector`-uyumlu, gerçek `StreamableHTTPClientTransport` kullanan implementasyonlar var; `McpConnectorRegistry`'ye kayıtlı (PR1: Notion referans; PR2: kalan 4).
+- [x] Her bağlayıcı için OAuth2 authorization-code akışı (authorize + callback uç noktaları) çalışıyor, elde edilen token'lar `ConnectorCredentialsService` ile şifreli saklanıyor (PR1, 10/10 entegrasyon testi — callback'in state-satırı `connectorType`'ını URL-yolu ile çapraz doğrulaması dahil, security-reviewer bulgusu üzerine eklendi).
+- [x] CLIENT_ID/SECRET yapılandırılmamış bir bağlayıcı için sistem güvenle Mock'a düşüyor (env-gated DI-fabrikası, `mcp-connectors.module.ts`, 15/15 test — 5 bağlayıcı × 3 senaryo).
+- [x] `callTool`/`readResource` sonuçları çağıran koda ulaşmadan önce zod ile doğrulanıyor (`StreamableHttpMcpConnector.parseOrThrow`, her 5 bağlayıcı için doğrulandı, security-reviewer tarafından teyit edildi).
+- [x] `IntegrationsModule` `app.module.ts`'e bağlı; oran sınırı ve sağlık kontrolü her yeni bağlayıcı için otomatik devrede.
+- [x] Minimal "Entegrasyonlar" ekranı: bağlı/bağlı-değil durumu görünüyor, bağlan/bağlantı-kes çalışıyor (`IntegrationsPanel.tsx`).
+- [x] Testler Mock/sahte-HTTP-sunucusuna karşı yeşil (gerçek canlı hesap gerektirmiyor); OAuth token değişimi, hata/timeout senaryoları, cross-workspace izolasyon dahil — `packages/integrations` 108/108, `apps/server` 358/358 (sıfır regresyon).
+- [x] GitHub bağlayıcısının Copilot-lisansı + sınırlı-rollout kısıtı VE Gmail/Drive'ın Developer Preview (GA değil, Google Workspace MCP Developer Preview Programı kaydı gerektiren) statüsü ADR-0026 §e'de bilinen-sınırlama olarak kayıtlı.
+- [x] `security-reviewer` denetiminde bulgu yok — PR1'de bir Medium bulgu (callback'in URL-yolu `connectorType`'ini state satırının kendi `connectorType`'ına karşı doğrulamaması) tespit edildi, düzeltildi ve regresyon testiyle sabitlendi, ikinci geçişte onaylandı; PR2'de bulgu yok.
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil (her PR'da doğrudan `pnpm --filter` ile ve CI'da turbo ile doğrulandı).
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile bir ADR taslağına dökülür; ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir (görevin boyutu nedeniyle muhtemelen çok-PR'lı: paylaşılan altyapı + referans bağlayıcı, sonra kalan bağlayıcılar).
+**Sıradaki adım:** F2-T10 tamamlandı, F2-E3'ün 2. görevi kapandı. Sırada `docs/PLAN.md`'nin F2-E3 listesindeki F2-T11 var: "Connected Search: tek arama çubuğunda iç + dış kaynak birleşik sonuç." Bu görev, F2-T10'un ADR-0026 §m'de bilinçli olarak ERTELEDİĞİ boşluğu kapatmak zorunda: `McpConnectorRegistry`'deki paylaşılan bağlayıcı örnekleri hiçbir gerçek kullanıcı oturumuna bağlı değil (`getAccessToken` çağrılırsa `InvalidObjectStateError` fırlatır) — F2-T11'in kendi ADR'si, `ConnectorCredentialsService.retrieve(workspaceId, userId, connectorType)`'den okunan gerçek token'la per-çağrı, per-kullanıcı taze bağlayıcı örneği inşa eden bir mekanizma tasarlamalı (registry'yi bypass ederek). Kopyala-yapıştır komutu:
+
+```
+docs/specs/F2-E3/F2-T11-connected-search.md spec dosyasını yaz, sonra Plan Mode ile F2-T11'i planla.
+```
