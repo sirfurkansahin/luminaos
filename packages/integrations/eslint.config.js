@@ -37,6 +37,10 @@ export default [
       'src/mcp/streamable-http-mcp-connector.ts',
       'src/mcp/streamable-http-mcp-connector.test.ts',
       'src/mcp/connectors/notion-mcp-connector.test.ts',
+      'src/mcp/connectors/google-drive-mcp-connector.test.ts',
+      'src/mcp/connectors/gmail-mcp-connector.test.ts',
+      'src/mcp/connectors/slack-mcp-connector.test.ts',
+      'src/mcp/connectors/github-mcp-connector.test.ts',
     ],
     rules: {
       'import-x/no-unresolved': 'off',
@@ -61,6 +65,10 @@ export default [
     files: [
       'src/mcp/streamable-http-mcp-connector.test.ts',
       'src/mcp/connectors/notion-mcp-connector.test.ts',
+      'src/mcp/connectors/google-drive-mcp-connector.test.ts',
+      'src/mcp/connectors/gmail-mcp-connector.test.ts',
+      'src/mcp/connectors/slack-mcp-connector.test.ts',
+      'src/mcp/connectors/github-mcp-connector.test.ts',
     ],
     rules: {
       '@typescript-eslint/no-deprecated': 'off',

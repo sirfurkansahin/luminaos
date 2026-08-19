@@ -48,6 +48,10 @@ import type { McpConnector, McpConnectorRegistry } from '@luminaos/integrations'
 interface McpConnectorsModuleExports {
   McpConnectorsModule: new () => object;
   NOTION_MCP_CONNECTOR: string;
+  GOOGLE_DRIVE_MCP_CONNECTOR: string;
+  GMAIL_MCP_CONNECTOR: string;
+  SLACK_MCP_CONNECTOR: string;
+  GITHUB_MCP_CONNECTOR: string;
   MCP_CONNECTOR_REGISTRY: string;
 }
 
@@ -151,5 +155,242 @@ describe('McpConnectorsModule — NOTION_MCP_CONNECTOR DI factory (ADR-0026 §m)
     const notionConnector = moduleRef.get<McpConnector>(NOTION_MCP_CONNECTOR);
 
     await expect(notionConnector.connect()).rejects.toBeInstanceOf(InvalidObjectStateError);
+  });
+});
+
+/**
+ * F2-T10 PR2 (RED step), ADR-0026 §d/§m — mechanical repeat of the
+ * `NOTION_MCP_CONNECTOR` DI-factory pattern above for the 4 remaining
+ * connector types (`GOOGLE_DRIVE_MCP_CONNECTOR`/`GMAIL_MCP_CONNECTOR`/
+ * `SLACK_MCP_CONNECTOR`/`GITHUB_MCP_CONNECTOR`), none of which
+ * `./mcp-connectors.module.ts` exports yet — same "Cannot find module"-style
+ * RED (the dynamic `import('./mcp-connectors.module.js')` itself still
+ * resolves once `implementer` adds Notion's PR1 factory, but destructuring a
+ * token this file references that the module doesn't export yields
+ * `undefined`, so `Test.createTestingModule` fails to resolve/inject it --
+ * an equally legitimate "implementation incomplete" red as PR1's literal
+ * module-not-found error, not a test-logic bug).
+ */
+describe('McpConnectorsModule — GOOGLE_DRIVE_MCP_CONNECTOR DI factory (ADR-0026 §d/§m)', () => {
+  it('1. when GOOGLE_DRIVE_CLIENT_ID/GOOGLE_DRIVE_CLIENT_SECRET are BOTH unset, GOOGLE_DRIVE_MCP_CONNECTOR resolves to undefined, and nothing is registered in McpConnectorRegistry under "google-drive"', async () => {
+    delete process.env.GOOGLE_DRIVE_CLIENT_ID;
+    delete process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+
+    const { McpConnectorsModule, GOOGLE_DRIVE_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const googleDriveConnector = moduleRef.get<McpConnector | undefined>(
+      GOOGLE_DRIVE_MCP_CONNECTOR,
+    );
+    expect(googleDriveConnector).toBeUndefined();
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('google-drive')).toBeUndefined();
+  });
+
+  it('2. when GOOGLE_DRIVE_CLIENT_ID/GOOGLE_DRIVE_CLIENT_SECRET are BOTH set, GOOGLE_DRIVE_MCP_CONNECTOR resolves to a real connector registered under "google-drive" in McpConnectorRegistry', async () => {
+    process.env.GOOGLE_DRIVE_CLIENT_ID = 'fixture-google-drive-client-id';
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET = 'fixture-google-drive-client-secret';
+
+    const { McpConnectorsModule, GOOGLE_DRIVE_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const googleDriveConnector = moduleRef.get<McpConnector | undefined>(
+      GOOGLE_DRIVE_MCP_CONNECTOR,
+    );
+    expect(googleDriveConnector).toBeDefined();
+    expect(googleDriveConnector?.connectorType).toBe('google-drive');
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('google-drive')).toBe(googleDriveConnector);
+  });
+
+  it("3. the registered instance's connect() throws InvalidObjectStateError -- registry membership is NOT a live, per-user session (ADR-0026 §m's defensive landmine is actually enforced, not just described in a comment)", async () => {
+    process.env.GOOGLE_DRIVE_CLIENT_ID = 'fixture-google-drive-client-id';
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET = 'fixture-google-drive-client-secret';
+
+    const { McpConnectorsModule, GOOGLE_DRIVE_MCP_CONNECTOR } = await importMcpConnectorsModule();
+    const InvalidObjectStateError = await importInvalidObjectStateError();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const googleDriveConnector = moduleRef.get<McpConnector>(GOOGLE_DRIVE_MCP_CONNECTOR);
+
+    await expect(googleDriveConnector.connect()).rejects.toBeInstanceOf(InvalidObjectStateError);
+  });
+});
+
+describe('McpConnectorsModule — GMAIL_MCP_CONNECTOR DI factory (ADR-0026 §d/§m)', () => {
+  it('1. when GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET are BOTH unset, GMAIL_MCP_CONNECTOR resolves to undefined, and nothing is registered in McpConnectorRegistry under "gmail"', async () => {
+    delete process.env.GMAIL_CLIENT_ID;
+    delete process.env.GMAIL_CLIENT_SECRET;
+
+    const { McpConnectorsModule, GMAIL_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const gmailConnector = moduleRef.get<McpConnector | undefined>(GMAIL_MCP_CONNECTOR);
+    expect(gmailConnector).toBeUndefined();
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('gmail')).toBeUndefined();
+  });
+
+  it('2. when GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET are BOTH set, GMAIL_MCP_CONNECTOR resolves to a real connector registered under "gmail" in McpConnectorRegistry', async () => {
+    process.env.GMAIL_CLIENT_ID = 'fixture-gmail-client-id';
+    process.env.GMAIL_CLIENT_SECRET = 'fixture-gmail-client-secret';
+
+    const { McpConnectorsModule, GMAIL_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const gmailConnector = moduleRef.get<McpConnector | undefined>(GMAIL_MCP_CONNECTOR);
+    expect(gmailConnector).toBeDefined();
+    expect(gmailConnector?.connectorType).toBe('gmail');
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('gmail')).toBe(gmailConnector);
+  });
+
+  it("3. the registered instance's connect() throws InvalidObjectStateError -- registry membership is NOT a live, per-user session (ADR-0026 §m's defensive landmine is actually enforced, not just described in a comment)", async () => {
+    process.env.GMAIL_CLIENT_ID = 'fixture-gmail-client-id';
+    process.env.GMAIL_CLIENT_SECRET = 'fixture-gmail-client-secret';
+
+    const { McpConnectorsModule, GMAIL_MCP_CONNECTOR } = await importMcpConnectorsModule();
+    const InvalidObjectStateError = await importInvalidObjectStateError();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const gmailConnector = moduleRef.get<McpConnector>(GMAIL_MCP_CONNECTOR);
+
+    await expect(gmailConnector.connect()).rejects.toBeInstanceOf(InvalidObjectStateError);
+  });
+});
+
+describe('McpConnectorsModule — SLACK_MCP_CONNECTOR DI factory (ADR-0026 §d/§m)', () => {
+  it('1. when SLACK_CLIENT_ID/SLACK_CLIENT_SECRET are BOTH unset, SLACK_MCP_CONNECTOR resolves to undefined, and nothing is registered in McpConnectorRegistry under "slack"', async () => {
+    delete process.env.SLACK_CLIENT_ID;
+    delete process.env.SLACK_CLIENT_SECRET;
+
+    const { McpConnectorsModule, SLACK_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const slackConnector = moduleRef.get<McpConnector | undefined>(SLACK_MCP_CONNECTOR);
+    expect(slackConnector).toBeUndefined();
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('slack')).toBeUndefined();
+  });
+
+  it('2. when SLACK_CLIENT_ID/SLACK_CLIENT_SECRET are BOTH set, SLACK_MCP_CONNECTOR resolves to a real connector registered under "slack" in McpConnectorRegistry', async () => {
+    process.env.SLACK_CLIENT_ID = 'fixture-slack-client-id';
+    process.env.SLACK_CLIENT_SECRET = 'fixture-slack-client-secret';
+
+    const { McpConnectorsModule, SLACK_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const slackConnector = moduleRef.get<McpConnector | undefined>(SLACK_MCP_CONNECTOR);
+    expect(slackConnector).toBeDefined();
+    expect(slackConnector?.connectorType).toBe('slack');
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('slack')).toBe(slackConnector);
+  });
+
+  it("3. the registered instance's connect() throws InvalidObjectStateError -- registry membership is NOT a live, per-user session (ADR-0026 §m's defensive landmine is actually enforced, not just described in a comment)", async () => {
+    process.env.SLACK_CLIENT_ID = 'fixture-slack-client-id';
+    process.env.SLACK_CLIENT_SECRET = 'fixture-slack-client-secret';
+
+    const { McpConnectorsModule, SLACK_MCP_CONNECTOR } = await importMcpConnectorsModule();
+    const InvalidObjectStateError = await importInvalidObjectStateError();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const slackConnector = moduleRef.get<McpConnector>(SLACK_MCP_CONNECTOR);
+
+    await expect(slackConnector.connect()).rejects.toBeInstanceOf(InvalidObjectStateError);
+  });
+});
+
+describe('McpConnectorsModule — GITHUB_MCP_CONNECTOR DI factory (ADR-0026 §d/§m)', () => {
+  it('1. when GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET are BOTH unset, GITHUB_MCP_CONNECTOR resolves to undefined, and nothing is registered in McpConnectorRegistry under "github"', async () => {
+    delete process.env.GITHUB_CLIENT_ID;
+    delete process.env.GITHUB_CLIENT_SECRET;
+
+    const { McpConnectorsModule, GITHUB_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const githubConnector = moduleRef.get<McpConnector | undefined>(GITHUB_MCP_CONNECTOR);
+    expect(githubConnector).toBeUndefined();
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('github')).toBeUndefined();
+  });
+
+  it('2. when GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET are BOTH set, GITHUB_MCP_CONNECTOR resolves to a real connector registered under "github" in McpConnectorRegistry', async () => {
+    process.env.GITHUB_CLIENT_ID = 'fixture-github-client-id';
+    process.env.GITHUB_CLIENT_SECRET = 'fixture-github-client-secret';
+
+    const { McpConnectorsModule, GITHUB_MCP_CONNECTOR, MCP_CONNECTOR_REGISTRY } =
+      await importMcpConnectorsModule();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const githubConnector = moduleRef.get<McpConnector | undefined>(GITHUB_MCP_CONNECTOR);
+    expect(githubConnector).toBeDefined();
+    expect(githubConnector?.connectorType).toBe('github');
+
+    const registry = moduleRef.get<McpConnectorRegistry>(MCP_CONNECTOR_REGISTRY);
+    expect(registry.get('github')).toBe(githubConnector);
+  });
+
+  it("3. the registered instance's connect() throws InvalidObjectStateError -- registry membership is NOT a live, per-user session (ADR-0026 §m's defensive landmine is actually enforced, not just described in a comment)", async () => {
+    process.env.GITHUB_CLIENT_ID = 'fixture-github-client-id';
+    process.env.GITHUB_CLIENT_SECRET = 'fixture-github-client-secret';
+
+    const { McpConnectorsModule, GITHUB_MCP_CONNECTOR } = await importMcpConnectorsModule();
+    const InvalidObjectStateError = await importInvalidObjectStateError();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpConnectorsModule],
+    }).compile();
+
+    const githubConnector = moduleRef.get<McpConnector>(GITHUB_MCP_CONNECTOR);
+
+    await expect(githubConnector.connect()).rejects.toBeInstanceOf(InvalidObjectStateError);
   });
 });
