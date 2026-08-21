@@ -1,6 +1,6 @@
 # F2-T12 — LuminaOS MCP Sunucusu v0: Dışarıya Güvenli Bağlam Sunumu
 
-**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Tamamlandı — [PR #154](https://github.com/sirfurkansahin/luminaos/pull/154) (backend, ADR-0028) + [PR #155](https://github.com/sirfurkansahin/luminaos/pull/155) (frontend, McpAccessPanel).
 **Bağımlılık:** F2-T2 (Bağlam API'si, Tamamlandı — `apps/server/src/context/`), F2-T9/F2-T10/F2-T11 (MCP istemci tarafı, Tamamlandı), F1-T18/ADR-0016 (dışa aktarım, Tamamlandı), ADR-0023 (JSON-LD bellek şeması), ADR-0024 (bellek erişim manifestoları, emsal).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin HEM (a) HEM (b) fıkrasına giriyor:
@@ -60,18 +60,22 @@ LuminaOS'in kendi bağlamını (nesneler, ilişkiler, bellek pasaportu) bir MCP 
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-7'nin insan kararları ADR-0028'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] Kullanıcı panelden bir MCP erişim token'ı oluşturabilir (yalnızca oluşturma anında düz metin gösterilir, sonrasında yalnızca hash saklanır) ve iptal edebilir.
-- [ ] `POST /mcp` (workspace-bağımsız URL) yalnızca geçerli, iptal edilmemiş bir Bearer token ile çalışır; token workspace+kullanıcıyı KENDİSİ taşır (URL'den değil).
-- [ ] Bir MCP istemcisi `get_context` tool'unu çağırdığında, tam olarak o token'ın sahibi kullanıcının GÖREBİLDİĞİ alan-bazlı izin süzgecinden geçmiş sonuç döner — hiçbir gizli alan sızmaz.
-- [ ] İptal edilmiş bir token ile yapılan çağrı reddedilir (401), hiçbir bağlam verisi sızdırmaz.
-- [ ] Süresi geçmiş (`expiresAt <= now`) bir token ile yapılan çağrı reddedilir (401), hiçbir bağlam verisi sızdırmaz.
-- [ ] Inbound oran sınırı aşıldığında istek reddedilir (bypass edilemez).
-- [ ] v0 salt-okunur — hiçbir mutasyon tool'u/resource'u sunulmaz.
-- [ ] Testler: token oluşturma/iptal, cross-user/cross-workspace izolasyon (bir kullanıcının token'ıyla başka bir workspace'e erişilemediği), izin-süzgeçli alan filtrelemesinin MCP yanıtında da korunduğu, oran sınırı, iptal-sonrası-red senaryoları.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: token hash'leme, cross-user/cross-workspace izolasyon, alan-bazlı izin sızıntısı, oran sınırı bypass).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-7'nin insan kararları ADR-0028'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] Kullanıcı panelden bir MCP erişim token'ı oluşturabilir (yalnızca oluşturma anında düz metin gösterilir, sonrasında yalnızca hash saklanır) ve iptal edebilir.
+- [x] `POST /mcp` (workspace-bağımsız URL) yalnızca geçerli, iptal edilmemiş bir Bearer token ile çalışır; token workspace+kullanıcıyı KENDİSİ taşır (URL'den değil).
+- [x] Bir MCP istemcisi `get_context` tool'unu çağırdığında, tam olarak o token'ın sahibi kullanıcının GÖREBİLDİĞİ alan-bazlı izin süzgecinden geçmiş sonuç döner — hiçbir gizli alan sızmaz.
+- [x] İptal edilmiş bir token ile yapılan çağrı reddedilir (401), hiçbir bağlam verisi sızdırmaz.
+- [x] Süresi geçmiş (`expiresAt <= now`) bir token ile yapılan çağrı reddedilir (401), hiçbir bağlam verisi sızdırmaz.
+- [x] Inbound oran sınırı aşıldığında istek reddedilir (bypass edilemez).
+- [x] v0 salt-okunur — hiçbir mutasyon tool'u/resource'u sunulmaz.
+- [x] Testler: token oluşturma/iptal, cross-user/cross-workspace izolasyon (bir kullanıcının token'ıyla başka bir workspace'e erişilemediği), izin-süzgeçli alan filtrelemesinin MCP yanıtında da korunduğu, oran sınırı, iptal-sonrası-red senaryoları.
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: token hash'leme, cross-user/cross-workspace izolasyon, alan-bazlı izin sızıntısı, oran sınırı bypass).
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip Açık Sorular 1-7'nin insan kararları `architect` subagent'ı ile ADR-0028 taslağına dökülür; ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir. Görevin büyüklüğü nedeniyle PR bölünmesi muhtemel (ör. PR1: auth+grant modeli+rate-limit servisi+minimal MCP wiring; PR2: token yönetimi UI'ı).
+**Sıradaki adım:** F2-E3 (MCP-native Entegrasyon) epiği tamamlandı (F2-T9 → F2-T12). Sıradaki epik: **F2-E4 (Toplantı Zekâsı, Kapsam H)** — F2-T13, Notetaker botu (Meet/Zoom/Teams; ad hoc link yapıştırma dahil). Görev spec dosyası henüz yazılmadı; sıradaki oturumda şu komutla başlanabilir:
+
+```
+docs/specs/F2-E4/F2-T13-notetaker-botu.md spec dosyasını yaz, sonra Plan Mode ile F2-T13'ü planla.
+```
