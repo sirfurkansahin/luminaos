@@ -1,6 +1,6 @@
 # F2-T11 — Connected Search: Tek Arama Çubuğunda İç + Dış Kaynak Birleşik Sonuç
 
-**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E3 (MCP-native Entegrasyon, Kapsam G) · **Durum:** Tamamlandı — [PR #153](https://github.com/sirfurkansahin/luminaos/pull/153) (ADR-0027).
 **Bağımlılık:** F2-T10 (Tamamlandı) — 5 gerçek `McpConnector` (`packages/integrations/src/mcp/connectors/`), `ConnectorCredentialsService`/`ConnectorRateLimitService`/`ConnectorHealthService` (`apps/server/src/integrations/`), `McpConnectorRegistry` (F2-T9). Ayrıca `apps/server/src/search/` (ADR-0013 — mevcut iç hibrit arama), `apps/web/src/views/shared/CommandPalette.tsx` (mevcut tek arama çubuğu UI'ı), `apps/server/src/calendar/calendar-token-refresh.service.ts` (ADR-0012 — token yenileme emsali).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV: CLAUDE.md'nin ADR kriterinin (b) fıkrasına giriyor — bu görevin kuracağı "per-çağrı, per-kullanıcı bağlayıcı inşası" mekanizması, ADR-0026 §m'nin AÇIKÇA F2-T11'e bıraktığı, henüz kurulmamış bir sözleşim: _"F2-T11'in gerçek per-kullanıcı `callTool` akışı için registry'yi KULLANMAMASI, bunun yerine `ConnectorCredentialsService.retrieve(...)`'den okunan token'la HER ÇAĞRIDA TAZE bir somut bağlayıcı örneği inşa etmesi GEREKİR."_ Bu mekanizma, bu görevden sonra gelecek her "gerçek kullanıcı verisiyle MCP çağrısı yapan" özelliğin (F2-T12'nin sunucu tarafı hariç — o ayrı bir yön) temel alacağı bir örüntü olacağı için tek bir görevin içinde kalan bir detay değil. `architect` taslağı + insan onayı koddan önce zorunlu.
@@ -51,16 +51,20 @@
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları ADR'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] `McpConnectorRegistry`'yi bypass eden, gerçek kullanıcı token'ıyla per-çağrı taze bağlayıcı örneği inşa eden bir mekanizma var (ADR-0026 §m'nin bıraktığı boşluk kapatıldı).
-- [ ] Kullanıcının bağlı OLMADIĞI bir connectorType için hiçbir çağrı yapılmaz (sessizce atlanır, hata fırlatmaz).
-- [ ] Bir dış bağlayıcının başarısızlığı/zaman aşımı, ne diğer dış bağlayıcıları ne de iç arama sonuçlarını engeller (`Promise.allSettled` desenli, doğrulanmış).
-- [ ] Her dış çağrıdan önce `ConnectorRateLimitService.assertNotRateLimited` çağrılır; aşım durumunda o kaynak sessizce atlanır.
-- [ ] Dış sonuçlar `CommandPalette`'te iç sonuçlardan görsel olarak ayırt edilebilir şekilde gösterilir.
-- [ ] Testler sahte/mock MCP sunucusuna karşı yeşil (gerçek canlı hesap gerektirmiyor); cross-workspace/cross-user izolasyon dahil (bir kullanıcının arama sonucunda başka bir kullanıcının kimlik bilgisiyle yapılmış çağrı ASLA yer almaz).
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: token'ların loglanmadığı, cross-user/cross-workspace izolasyon, oran-sınırı bypass edilemediği).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları ADR'de kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
+- [x] `McpConnectorRegistry`'yi bypass eden, gerçek kullanıcı token'ıyla per-çağrı taze bağlayıcı örneği inşa eden bir mekanizma var (ADR-0026 §m'nin bıraktığı boşluk kapatıldı).
+- [x] Kullanıcının bağlı OLMADIĞI bir connectorType için hiçbir çağrı yapılmaz (sessizce atlanır, hata fırlatmaz).
+- [x] Bir dış bağlayıcının başarısızlığı/zaman aşımı, ne diğer dış bağlayıcıları ne de iç arama sonuçlarını engeller (`Promise.allSettled` desenli, doğrulanmış).
+- [x] Her dış çağrıdan önce `ConnectorRateLimitService.assertNotRateLimited` çağrılır; aşım durumunda o kaynak sessizce atlanır.
+- [x] Dış sonuçlar `CommandPalette`'te iç sonuçlardan görsel olarak ayırt edilebilir şekilde gösterilir.
+- [x] Testler sahte/mock MCP sunucusuna karşı yeşil (gerçek canlı hesap gerektirmiyor); cross-workspace/cross-user izolasyon dahil (bir kullanıcının arama sonucunda başka bir kullanıcının kimlik bilgisiyle yapılmış çağrı ASLA yer almaz).
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: token'ların loglanmadığı, cross-user/cross-workspace izolasyon, oran-sınırı bypass edilemediği).
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip keşif `explorer` subagent'ına devredilir, ardından Açık Sorular 1-5'in insan kararları `architect` subagent'ı ile bir ADR taslağına dökülür; ADR onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T12 — LuminaOS'in kendi MCP **sunucusu** v0 (dışarıya güvenli bağlam sunumu). Görev spec dosyası henüz yazılmadı; sıradaki oturumda şu komutla başlanabilir:
+
+```
+docs/specs/F2-E3/F2-T12-mcp-sunucusu-v0.md spec dosyasını yaz, sonra Plan Mode ile F2-T12'yi planla.
+```
