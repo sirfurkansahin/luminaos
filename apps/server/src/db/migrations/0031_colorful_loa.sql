@@ -1,0 +1,1 @@
+ALTER TABLE "calendar_events_cache" ADD COLUMN "meeting_url" text;

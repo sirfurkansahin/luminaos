@@ -33,6 +33,7 @@ export const calendarEventsCache = pgTable(
     title: text('title').notNull(),
     eventStart: timestamp('event_start', { withTimezone: true }).notNull(),
     eventEnd: timestamp('event_end', { withTimezone: true }).notNull(),
+    meetingUrl: text('meeting_url'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

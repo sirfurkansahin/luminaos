@@ -123,6 +123,7 @@ interface CalendarEventBody {
   title: string;
   start: string;
   end: string;
+  meetingUrl?: string;
 }
 
 interface CalendarEventsEnvelope {
@@ -296,11 +297,12 @@ describe('F1-T12 PR5c (RED step): GET .../calendar/events -- reading the read-on
     title: string;
     eventStart: string;
     eventEnd: string;
+    meetingUrl?: string | null;
   }): Promise<void> {
     await rawDb.$client.query(
       `insert into calendar_events_cache
-         (calendar_account_id, workspace_id, external_id, title, event_start, event_end)
-       values ($1, $2, $3, $4, $5, $6)`,
+         (calendar_account_id, workspace_id, external_id, title, event_start, event_end, meeting_url)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
       [
         params.calendarAccountId,
         params.workspaceId,
@@ -308,6 +310,7 @@ describe('F1-T12 PR5c (RED step): GET .../calendar/events -- reading the read-on
         params.title,
         params.eventStart,
         params.eventEnd,
+        params.meetingUrl ?? null,
       ],
     );
   }
@@ -437,5 +440,83 @@ describe('F1-T12 PR5c (RED step): GET .../calendar/events -- reading the read-on
       .get(eventsUrl(workspaceId, queryStart, queryEnd))
       .set('Cookie', outsider.cookie);
     expect(nonMemberResponse.status).toBe(403);
+  });
+
+  /**
+   * F2-T13 PR2 (RED step) additions -- `CachedCalendarEvent.meetingUrl`
+   * (optional): `listCachedEvents()` must select the new nullable
+   * `meeting_url` column and include it (mapped null -> undefined) in the
+   * returned/response shape. See the sibling `calendar-connector.test.ts`
+   * and `calendar-sync-poller.integration.test.ts` for the rest of this
+   * PR's pinned contract.
+   *
+   * EXPECTED RED STATE (today): `ExternalCalendarEvent` has no `meetingUrl`
+   * field, so test 6's object literal (`{ ..., meetingUrl: '...' }`) fails
+   * to typecheck; `calendar_events_cache` has no `meeting_url` column, so
+   * test 7's `insertRawCachedEvent` call (already extended above to insert
+   * `meeting_url`) rejects with a real Postgres error (`column
+   * "meeting_url" of relation "calendar_events_cache" does not exist`).
+   */
+  it('6. GET .../calendar/events includes meetingUrl for a poll-cached event that has one', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    await connectAccount(cookie, workspaceId);
+
+    const eventStart = new Date(Date.now() + 3_600_000).toISOString();
+    const eventEnd = new Date(Date.now() + 7_200_000).toISOString();
+    connector.events = [
+      {
+        externalId: 'ext-with-meeting-url',
+        title: 'Design review',
+        start: eventStart,
+        end: eventEnd,
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      },
+    ];
+
+    const poller = app.get(CalendarSyncPollerService);
+    await poller.pollOnce();
+
+    const queryStart = new Date(Date.now()).toISOString();
+    const queryEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const response = await request(server)
+      .get(eventsUrl(workspaceId, queryStart, queryEnd))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const { events } = response.body as CalendarEventsEnvelope;
+    const match = events.find((event) => event.externalId === 'ext-with-meeting-url');
+    expect(match).toBeDefined();
+    expect(match?.meetingUrl).toBe('https://meet.google.com/abc-defg-hij');
+  });
+
+  it('7. GET .../calendar/events omits meetingUrl (undefined) for a cached event whose meeting_url column is null', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const account = await connectAccount(cookie, workspaceId);
+
+    const eventStart = new Date(Date.now() + 3_600_000).toISOString();
+    const eventEnd = new Date(Date.now() + 7_200_000).toISOString();
+
+    await insertRawCachedEvent({
+      calendarAccountId: account.id,
+      workspaceId,
+      externalId: 'ext-without-meeting-url',
+      title: 'A meeting with no video-call link',
+      eventStart,
+      eventEnd,
+    });
+
+    const queryStart = new Date(Date.now()).toISOString();
+    const queryEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const response = await request(server)
+      .get(eventsUrl(workspaceId, queryStart, queryEnd))
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const { events } = response.body as CalendarEventsEnvelope;
+    const match = events.find((event) => event.externalId === 'ext-without-meeting-url');
+    expect(match).toBeDefined();
+    expect(match?.meetingUrl).toBeUndefined();
   });
 });

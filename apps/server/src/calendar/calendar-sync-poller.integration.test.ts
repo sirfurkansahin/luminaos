@@ -155,6 +155,7 @@ interface RawCachedEventRow {
   event_start: Date;
   event_end: Date;
   updated_at: Date;
+  meeting_url: string | null;
 }
 
 function toCookieHeader(setCookie: string[] | undefined): string {
@@ -338,7 +339,7 @@ describe('F1-T12 PR5c (RED step): CalendarSyncPollerService -- periodic external
 
   async function rawCachedEventsForAccount(accountId: string): Promise<RawCachedEventRow[]> {
     const result = await rawDb.$client.query<RawCachedEventRow>(
-      'select id, calendar_account_id, workspace_id, external_id, title, event_start, event_end, updated_at from calendar_events_cache where calendar_account_id = $1 order by external_id',
+      'select id, calendar_account_id, workspace_id, external_id, title, event_start, event_end, updated_at, meeting_url from calendar_events_cache where calendar_account_id = $1 order by external_id',
       [accountId],
     );
     return result.rows;
@@ -461,4 +462,102 @@ describe('F1-T12 PR5c (RED step): CalendarSyncPollerService -- periodic external
       clearIntervalSpy.mockRestore();
     }
   }, 30_000);
+
+  /**
+   * F2-T13 PR2 (RED step) additions -- `ExternalCalendarEvent.meetingUrl`
+   * (optional) must flow through `pollOnce()`'s insert/`onConflictDoUpdate`
+   * into `calendar_events_cache.meeting_url` (nullable text column, new
+   * migration after 0030). See the sibling `calendar-connector.test.ts` and
+   * `calendar-events.integration.test.ts` for the rest of this PR's pinned
+   * contract.
+   *
+   * EXPECTED RED STATE (today): `ExternalCalendarEvent` has no `meetingUrl`
+   * field, so the object literals below (`{ ..., meetingUrl: '...' }`) fail
+   * to typecheck (excess property on a non-existent field) -- once that
+   * lands, `calendar_events_cache` has no `meeting_url` column, so
+   * `rawCachedEventsForAccount`'s query (already extended above to select
+   * `meeting_url`) rejects with a real Postgres error (`column
+   * "meeting_url" does not exist`).
+   */
+  it('6. an event with a meetingUrl results in that meetingUrl being persisted into calendar_events_cache.meeting_url', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const account = await connectAccount(cookie, workspaceId);
+
+    const eventStart = new Date(Date.now() + 3_600_000).toISOString();
+    const eventEnd = new Date(Date.now() + 7_200_000).toISOString();
+    connector.events = [
+      {
+        externalId: 'ext-with-meeting-url',
+        title: 'Sprint planning',
+        start: eventStart,
+        end: eventEnd,
+        meetingUrl: 'https://meet.google.com/xyz-abcd-efg',
+      },
+    ];
+
+    const poller = app.get(CalendarSyncPollerService);
+    await poller.pollOnce();
+
+    const rows = await rawCachedEventsForAccount(account.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.meeting_url).toBe('https://meet.google.com/xyz-abcd-efg');
+  });
+
+  it('7. an event WITHOUT a meetingUrl results in a null meeting_url column (not an error, not a missing row)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const account = await connectAccount(cookie, workspaceId);
+
+    const eventStart = new Date(Date.now() + 3_600_000).toISOString();
+    const eventEnd = new Date(Date.now() + 7_200_000).toISOString();
+    connector.events = [
+      {
+        externalId: 'ext-without-meeting-url',
+        title: 'A meeting with no video-call link',
+        start: eventStart,
+        end: eventEnd,
+      },
+    ];
+
+    const poller = app.get(CalendarSyncPollerService);
+    await poller.pollOnce();
+
+    const rows = await rawCachedEventsForAccount(account.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.meeting_url).toBeNull();
+  });
+
+  it('8. re-polling the same externalId with an updated meetingUrl updates it via onConflictDoUpdate (not a stale/duplicate row)', async () => {
+    const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+    const account = await connectAccount(cookie, workspaceId);
+
+    const eventStart = new Date(Date.now() + 3_600_000).toISOString();
+    const eventEnd = new Date(Date.now() + 7_200_000).toISOString();
+    connector.events = [
+      {
+        externalId: 'ext-meeting-url-update',
+        title: 'Rescheduled meeting',
+        start: eventStart,
+        end: eventEnd,
+        meetingUrl: 'https://zoom.us/j/111111111',
+      },
+    ];
+
+    const poller = app.get(CalendarSyncPollerService);
+    await poller.pollOnce();
+
+    connector.events = [
+      {
+        externalId: 'ext-meeting-url-update',
+        title: 'Rescheduled meeting',
+        start: eventStart,
+        end: eventEnd,
+        meetingUrl: 'https://zoom.us/j/222222222',
+      },
+    ];
+    await poller.pollOnce();
+
+    const rows = await rawCachedEventsForAccount(account.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.meeting_url).toBe('https://zoom.us/j/222222222');
+  });
 });
