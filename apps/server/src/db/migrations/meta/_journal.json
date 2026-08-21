@@ -197,6 +197,13 @@
       "when": 1787076104747,
       "tag": "0028_oauth_state_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1787294823176,
+      "tag": "0029_mcp_client_grants_and_rate_limit",
+      "breakpoints": true
     }
   ]
 }
