@@ -534,4 +534,108 @@ describe('F1-T13 PR5 (RED step): POST /workspaces/:workspaceId/search (real Post
       expect(match?.snippet).toBe('');
     });
   });
+
+  /**
+   * F2-T11 (RED step), ADR-0027 §c — new `POST
+   * /workspaces/:workspaceId/search/external` route on the SAME
+   * `SearchController`, same guard stack (`SessionAuthGuard`,
+   * `WorkspaceMembershipGuard`) as the existing internal `/search` route
+   * above. Backed by the not-yet-existing `ConnectedSearchService`
+   * (`./connected-search.service.ts`, see `./connected-search.service.test.ts`
+   * for its own unit-level RED-step coverage) — this file only proves the
+   * HTTP-layer contract (auth/membership/validation/isolation), mirroring
+   * AC3/AC8's exact patterns above for the new route.
+   *
+   * None of these tests seed any `connector_credentials` row, so every
+   * connectorType is "never connected" for every fixture user — per
+   * ADR-0027 §e point 1 this means `{results: [], degraded: []}` for the
+   * success-path test (never-connected != degraded), which conveniently lets
+   * this file avoid depending on the (also not-yet-existing-in-this-task)
+   * connector-credentials seeding path entirely.
+   *
+   * EXPECTED RED STATE (today): the route does not exist — every request
+   * below 404s (or, once the route/guard stack exists but
+   * `ConnectedSearchService`/its schema file don't, 500s) instead of
+   * returning the status codes asserted here. Either way this is the
+   * expected "implementation incomplete" red, not a test-logic bug.
+   */
+  describe('F2-T11 (ADR-0027 §c): POST /workspaces/:workspaceId/search/external', () => {
+    async function searchExternal(
+      cookie: string,
+      workspaceId: string,
+      body: Record<string, unknown>,
+    ): Promise<request.Response> {
+      return request(server)
+        .post(`/workspaces/${workspaceId}/search/external`)
+        .set('Cookie', cookie)
+        .send(body);
+    }
+
+    it('AC1: an authenticated member with a valid { query } body gets 200 with the {results, degraded} shape', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+
+      const response = await searchExternal(cookie, workspaceId, { query: 'roadmap' });
+
+      expect(response.status).toBe(200);
+      const body = response.body as { results: unknown[]; degraded: unknown[] };
+      expect(Array.isArray(body.results)).toBe(true);
+      expect(Array.isArray(body.degraded)).toBe(true);
+      // No connector_credentials row was ever seeded for this fresh user —
+      // "never connected" must not appear in degraded (ADR-0027 §e point 1).
+      expect(body.degraded).toEqual([]);
+    });
+
+    it("AC2: an unauthenticated request is rejected with 401, mirroring the existing internal /search route's auth behavior", async () => {
+      const { workspaceId } = await registerUserWithWorkspace();
+
+      const response = await request(server)
+        .post(`/workspaces/${workspaceId}/search/external`)
+        .send({ query: 'roadmap' });
+
+      expect(response.status).toBe(401);
+    });
+
+    it('AC3: an authenticated user who is NOT a member of the target workspace is rejected with 403 before any external search runs', async () => {
+      const { workspaceId } = await registerUserWithWorkspace();
+      const { cookie: outsiderCookie } = await registerUser();
+
+      const response = await searchExternal(outsiderCookie, workspaceId, { query: 'roadmap' });
+
+      expect(response.status).toBe(403);
+      const bodyText = JSON.stringify(response.body);
+      expect(bodyText).not.toContain('results');
+      expect(bodyText).not.toContain('degraded');
+    });
+
+    it('AC4 (zod validation): a missing `query` field is rejected with 400', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+
+      const response = await searchExternal(cookie, workspaceId, {});
+
+      expect(response.status).toBe(400);
+    });
+
+    it('AC4 (zod validation): an empty-string `query` is rejected with 400', async () => {
+      const { cookie, workspaceId } = await registerUserWithWorkspace();
+
+      const response = await searchExternal(cookie, workspaceId, { query: '' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it("AC5 (cross-workspace isolation, security-critical): a user who is a member of workspace A gets 403 hitting workspace B's external-search route, and the response never leaks any hint of B's connector state", async () => {
+      const { cookie: cookieA } = await registerUserWithWorkspace();
+      const { workspaceId: workspaceB } = await registerUserWithWorkspace();
+
+      const response = await searchExternal(cookieA, workspaceB, { query: 'anything' });
+
+      expect(response.status).toBe(403);
+      const bodyText = JSON.stringify(response.body);
+      expect(bodyText).not.toContain('results');
+      expect(bodyText).not.toContain('degraded');
+      expect(bodyText).not.toContain('accessToken');
+      expect(bodyText).not.toContain('notion');
+      expect(bodyText).not.toContain('slack');
+    });
+  });
 });

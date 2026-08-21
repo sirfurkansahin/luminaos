@@ -87,6 +87,47 @@ vi.mock('../../hooks/useObjectIdParam.js', () => ({
   useObjectIdParam: vi.fn(),
 }));
 
+/**
+ * `../../hooks/useExternalSearchQuery.ts` (ADR-0027 §f) does not exist yet.
+ * Rather than a top-level `import { useExternalSearchQuery } from
+ * '../../hooks/useExternalSearchQuery.js'` (which — unlike the already-real
+ * `useObjectIdParam` mocked the same way above — has no real file for Vite to
+ * resolve a binding against, even once `vi.mock` intercepts its CONTENT for
+ * other importers such as the not-yet-updated `CommandPalette.tsx`), the
+ * mock function is created via `vi.hoisted` and referenced ONLY by closure
+ * inside the `vi.mock` factory below — this file never imports the hook
+ * module itself, so there is nothing for our own bindings to fail to resolve.
+ * `ExternalSearchResult`/the hook's return shape are declared locally
+ * (ADR-0027 §a/§f's exact pinned shape) since they can't be type-imported
+ * from the not-yet-existing module either.
+ */
+interface ExternalSearchResult {
+  connectorType: string;
+  title: string;
+  snippet: string;
+}
+
+interface ExternalSearchQueryResult {
+  data: { results: ExternalSearchResult[]; degraded: string[] } | undefined;
+}
+
+const { mockedUseExternalSearchQuery } = vi.hoisted(() => {
+  return {
+    mockedUseExternalSearchQuery:
+      vi.fn<(workspaceId: string, query: string) => ExternalSearchQueryResult>(),
+  };
+});
+
+// F2-T11 (RED step), ADR-0027 §f — mocked wholesale, the same way
+// `useObjectIdParam` is mocked directly above (rather than mocking the
+// underlying `searchExternalWorkspace` apiClient call, the way the existing
+// internal-search tests mock `searchWorkspace`) — this gives each test full,
+// synchronous control over the external-results payload without also having
+// to drive the 250ms debounce window a second time for an orthogonal query.
+vi.mock('../../hooks/useExternalSearchQuery.js', () => ({
+  useExternalSearchQuery: mockedUseExternalSearchQuery,
+}));
+
 const mockedSearchWorkspace = vi.mocked(searchWorkspace);
 const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 
@@ -136,9 +177,22 @@ async function openViaMeta(user: ReturnType<typeof userEvent.setup>): Promise<vo
   await user.keyboard('{Meta>}k{/Meta}');
 }
 
+function makeExternalResult(overrides: Partial<ExternalSearchResult> = {}): ExternalSearchResult {
+  return {
+    connectorType: 'notion',
+    title: 'External Roadmap Page',
+    snippet: 'External roadmap snippet text',
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   mockOpenObject();
   mockedSearchWorkspace.mockResolvedValue({ results: [] });
+  // Default: no external results, mirroring a workspace with nothing
+  // connected -- individual tests override this via
+  // `mockedUseExternalSearchQuery.mockReturnValue(...)`.
+  mockedUseExternalSearchQuery.mockReturnValue({ data: { results: [], degraded: [] } });
 });
 
 afterEach(() => {
@@ -353,5 +407,139 @@ describe('CommandPalette', () => {
     await openViaMeta(user);
 
     expect(screen.getByTestId<HTMLInputElement>('command-palette-input').value).toBe('');
+  });
+
+  /**
+   * F2-T11 (RED step), ADR-0027 §f — the new "Dış Kaynaklar" (External
+   * Sources) block, fed by `useExternalSearchQuery(workspaceId,
+   * debouncedQuery)`. Rendered BELOW the existing internal `GROUP_ORDER`
+   * groups, using `data-testid="external-search-result-chip"` per ADR-0027
+   * §f, and — per the same ADR section's rejected-alternatives discussion —
+   * deliberately NEVER wired into `flatResults`/arrow-key navigation/
+   * `selectResult`, since "what happens on select" is undefined scope for
+   * external results (mirrors `ExternalEventChip`'s read-only precedent).
+   */
+  describe('external results ("Dış Kaynaklar" block, ADR-0027 §f)', () => {
+    it('renders a "Dış Kaynaklar" block with one chip per external result when useExternalSearchQuery returns results', async () => {
+      mockedUseExternalSearchQuery.mockReturnValue({
+        data: {
+          results: [
+            makeExternalResult({ connectorType: 'notion', title: 'Notion Roadmap Page' }),
+            makeExternalResult({ connectorType: 'slack', title: 'Slack Roadmap Thread' }),
+          ],
+          degraded: [],
+        },
+      });
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'roadmap');
+
+      await waitFor(() => {
+        expect(screen.getByText('Dış Kaynaklar')).toBeInTheDocument();
+      });
+      const chips = screen.getAllByTestId('external-search-result-chip');
+      expect(chips).toHaveLength(2);
+      expect(screen.getByText('Notion Roadmap Page')).toBeInTheDocument();
+      expect(screen.getByText('Slack Roadmap Thread')).toBeInTheDocument();
+    });
+
+    it('renders NO "Dış Kaynaklar" heading/block at all when useExternalSearchQuery returns an empty results array', async () => {
+      mockedUseExternalSearchQuery.mockReturnValue({ data: { results: [], degraded: [] } });
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'roadmap');
+
+      await waitFor(() => {
+        expect(mockedSearchWorkspace).toHaveBeenCalled();
+      });
+      expect(screen.queryByText('Dış Kaynaklar')).not.toBeInTheDocument();
+      expect(screen.queryAllByTestId('external-search-result-chip')).toHaveLength(0);
+    });
+
+    it('external result chips are NEVER part of the arrow-key navigation — ArrowDown only ever cycles through internal command-palette-result rows', async () => {
+      mockedSearchWorkspace.mockResolvedValue({
+        results: [
+          makeResult({ objectId: 't-1', title: 'Internal Task One', type: 'task' }),
+          makeResult({ objectId: 't-2', title: 'Internal Task Two', type: 'task' }),
+        ],
+      });
+      mockedUseExternalSearchQuery.mockReturnValue({
+        data: {
+          results: [
+            makeExternalResult({ connectorType: 'notion', title: 'External Notion Result' }),
+            makeExternalResult({ connectorType: 'github', title: 'External Github Result' }),
+          ],
+          degraded: [],
+        },
+      });
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'task');
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('command-palette-result')).toHaveLength(2);
+      });
+      // External chips are present alongside the internal rows...
+      expect(screen.getAllByTestId('external-search-result-chip')).toHaveLength(2);
+
+      const activeIndex = (): number =>
+        screen
+          .getAllByTestId('command-palette-result')
+          .findIndex((row) => row.getAttribute('aria-selected') === 'true');
+
+      expect(activeIndex()).toBe(0);
+      await user.keyboard('{ArrowDown}');
+      expect(activeIndex()).toBe(1);
+      // Clamps at the LAST INTERNAL row (2 internal results) -- if external
+      // chips were wrongly folded into flatResults this would still be able
+      // to advance further.
+      await user.keyboard('{ArrowDown}');
+      expect(activeIndex()).toBe(1);
+      // Still exactly 2 internal rows are considered "results" -- the count
+      // never grew to include the external chips.
+      expect(screen.getAllByTestId('command-palette-result')).toHaveLength(2);
+
+      // External chips never carry the option/aria-selected wiring the
+      // internal rows use for navigation.
+      for (const chip of screen.getAllByTestId('external-search-result-chip')) {
+        expect(chip).not.toHaveAttribute('role', 'option');
+        expect(chip).not.toHaveAttribute('aria-selected');
+      }
+    });
+
+    it('clicking an external result chip does nothing — no openObject call, palette stays open, no navigation', async () => {
+      const openObject = mockOpenObject();
+      mockedUseExternalSearchQuery.mockReturnValue({
+        data: {
+          results: [
+            makeExternalResult({ connectorType: 'notion', title: 'Clickable-looking Chip' }),
+          ],
+          degraded: [],
+        },
+      });
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'roadmap');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('external-search-result-chip')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Clickable-looking Chip'));
+
+      expect(openObject).not.toHaveBeenCalled();
+      // The palette must still be open -- a real click-to-select would have
+      // closed it (mirrors the existing internal "clicking a result row"
+      // test's closed-afterward assertion, inverted).
+      expect(screen.getByTestId('command-palette-input')).toBeInTheDocument();
+    });
   });
 });

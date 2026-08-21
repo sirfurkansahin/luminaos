@@ -4,6 +4,7 @@ import {
   GithubMcpConnector,
   GmailMcpConnector,
   GoogleDriveMcpConnector,
+  MCP_CONNECTOR_SERVER_URLS,
   McpConnectorRegistry,
   NotionMcpConnector,
   SlackMcpConnector,
@@ -54,7 +55,7 @@ export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
         const connector = new NotionMcpConnector({
           connectorType: 'notion',
-          serverUrl: 'https://mcp.notion.com',
+          serverUrl: MCP_CONNECTOR_SERVER_URLS.notion,
           getAccessToken: () => {
             throw new InvalidObjectStateError(
               'The shared "notion" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
@@ -76,7 +77,7 @@ export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
         const connector = new GoogleDriveMcpConnector({
           connectorType: 'google-drive',
-          serverUrl: 'https://drivemcp.googleapis.com/mcp/v1',
+          serverUrl: MCP_CONNECTOR_SERVER_URLS['google-drive'],
           getAccessToken: () => {
             throw new InvalidObjectStateError(
               'The shared "google-drive" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
@@ -98,7 +99,7 @@ export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
         const connector = new GmailMcpConnector({
           connectorType: 'gmail',
-          serverUrl: 'https://gmailmcp.googleapis.com/mcp/v1',
+          serverUrl: MCP_CONNECTOR_SERVER_URLS.gmail,
           getAccessToken: () => {
             throw new InvalidObjectStateError(
               'The shared "gmail" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
@@ -120,7 +121,7 @@ export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
         const connector = new SlackMcpConnector({
           connectorType: 'slack',
-          serverUrl: 'https://mcp.slack.com/mcp',
+          serverUrl: MCP_CONNECTOR_SERVER_URLS.slack,
           getAccessToken: () => {
             throw new InvalidObjectStateError(
               'The shared "slack" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
@@ -142,7 +143,7 @@ export const GITHUB_MCP_CONNECTOR = 'GITHUB_MCP_CONNECTOR';
 
         const connector = new GithubMcpConnector({
           connectorType: 'github',
-          serverUrl: 'https://api.githubcopilot.com/mcp/',
+          serverUrl: MCP_CONNECTOR_SERVER_URLS.github,
           getAccessToken: () => {
             throw new InvalidObjectStateError(
               'The shared "github" registry connector does not support establishing a per-user session (F2-T11 scope) -- callers must build a fresh, per-call connector instance from a real user token instead.',
