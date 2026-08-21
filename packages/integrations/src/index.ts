@@ -1,4 +1,5 @@
 export * from './calendar-connector.js';
+export * from './meeting-bot-client.js';
 export * from './mcp/mcp-connector.js';
 export * from './mcp/mcp-connector-registry.js';
 export * from './mcp/mcp-connector-server-urls.js';
