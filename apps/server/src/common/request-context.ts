@@ -21,6 +21,12 @@ declare module 'express-serve-static-core' {
       workspaceId: string;
       role: string;
     };
+    /** Populated only by `McpTokenAuthGuard` (`mcp-server/mcp-token-auth.guard.ts`,
+     * ADR-0028 §m) -- never set on the `SessionAuthGuard` path. Carries the
+     * resolved PAT grant's own id, used as the rate-limit key (ADR-0028 §h). */
+    mcpGrant?: {
+      id: string;
+    };
   }
 }
 

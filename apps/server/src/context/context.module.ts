@@ -27,5 +27,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
+  exports: [ContextService],
 })
 export class ContextModule {}
