@@ -204,6 +204,13 @@
       "when": 1787294823176,
       "tag": "0029_mcp_client_grants_and_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787323544792,
+      "tag": "0030_lean_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

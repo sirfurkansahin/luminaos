@@ -3,7 +3,7 @@
  * API/URL/projections); the event-stream identity (`streamId`, a UUID) lives
  * in the `objects_view` projection mapping, not on this type.
  */
-export type ObjectType = 'task' | 'doc' | 'note' | 'timeblock';
+export type ObjectType = 'task' | 'doc' | 'note' | 'timeblock' | 'meeting';
 
 export type Lifecycle = 'active' | 'archived' | 'deleted';
 

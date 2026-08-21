@@ -28,3 +28,4 @@ export * from './connector-rate-limit-buckets.js';
 export * from './oauth-state-tokens.js';
 export * from './mcp-client-grants.js';
 export * from './mcp-rate-limit-buckets.js';
+export * from './meeting-details.js';

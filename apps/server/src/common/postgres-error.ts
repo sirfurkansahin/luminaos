@@ -1,11 +1,23 @@
 /**
+ * drizzle-orm wraps every driver-level query failure in its own
+ * `DrizzleQueryError`, moving the real `pg` error (the one carrying
+ * `code`/`constraint`) onto `.cause` instead of spreading it onto itself.
+ * Unwraps one level so callers can check the underlying `pg` error whether
+ * it arrived bare (e.g. from a raw `pg.Pool` client) or drizzle-wrapped.
+ */
+function unwrapCause(error: unknown): unknown {
+  return typeof error === 'object' && error !== null && 'cause' in error ? error.cause : error;
+}
+
+/**
  * Narrow, structural check for the shape `pg`/`node-postgres` errors have
  * (a `code` string property) without importing `pg`'s error class directly
  * or resorting to `any`. Extracted from the identical helper previously
  * duplicated in `auth/auth.service.ts` and `workspaces/workspaces.service.ts`.
  */
 export function hasPostgresErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+  const inner = unwrapCause(error);
+  return typeof inner === 'object' && inner !== null && 'code' in inner && inner.code === code;
 }
 
 /**
@@ -17,12 +29,13 @@ export function hasPostgresErrorCode(error: unknown, code: string): boolean {
  * unrelated `23505`.
  */
 export function hasPostgresConstraintViolation(error: unknown, constraint: string): boolean {
+  const inner = unwrapCause(error);
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === '23505' &&
-    'constraint' in error &&
-    error.constraint === constraint
+    typeof inner === 'object' &&
+    inner !== null &&
+    'code' in inner &&
+    inner.code === '23505' &&
+    'constraint' in inner &&
+    inner.constraint === constraint
   );
 }
