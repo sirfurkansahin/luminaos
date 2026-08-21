@@ -74,6 +74,7 @@ export class CalendarSyncPollerService implements OnModuleInit, OnModuleDestroy 
               title: event.title,
               eventStart: new Date(event.start),
               eventEnd: new Date(event.end),
+              meetingUrl: event.meetingUrl ?? null,
             })
             .onConflictDoUpdate({
               target: [calendarEventsCache.calendarAccountId, calendarEventsCache.externalId],
@@ -81,6 +82,7 @@ export class CalendarSyncPollerService implements OnModuleInit, OnModuleDestroy 
                 title: event.title,
                 eventStart: new Date(event.start),
                 eventEnd: new Date(event.end),
+                meetingUrl: event.meetingUrl ?? null,
                 updatedAt: new Date(),
               },
             });

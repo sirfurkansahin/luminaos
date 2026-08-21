@@ -11,6 +11,7 @@ export interface CachedCalendarEvent {
   title: string;
   start: string;
   end: string;
+  meetingUrl?: string;
 }
 
 /**
@@ -33,6 +34,7 @@ export class CalendarEventsService {
         title: calendarEventsCache.title,
         eventStart: calendarEventsCache.eventStart,
         eventEnd: calendarEventsCache.eventEnd,
+        meetingUrl: calendarEventsCache.meetingUrl,
       })
       .from(calendarEventsCache)
       .where(
@@ -48,6 +50,7 @@ export class CalendarEventsService {
       title: row.title,
       start: row.eventStart.toISOString(),
       end: row.eventEnd.toISOString(),
+      ...(row.meetingUrl !== null ? { meetingUrl: row.meetingUrl } : {}),
     }));
   }
 }

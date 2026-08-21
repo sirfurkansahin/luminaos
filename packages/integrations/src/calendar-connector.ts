@@ -10,6 +10,7 @@ export interface ExternalCalendarEvent {
   title: string;
   start: string; // ISO-8601 datetime
   end: string; // ISO-8601 datetime
+  meetingUrl?: string; // optional — a calendar event may have no video-call link
 }
 
 export interface TimeBlockDraft {

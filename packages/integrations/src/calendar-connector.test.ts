@@ -321,6 +321,53 @@ describe('MockCalendarConnector — refreshToken with a configured refreshTokenR
   });
 });
 
+describe('MockCalendarConnector — meetingUrl passthrough (F2-T13 PR2, RED step)', () => {
+  /**
+   * Designed contract addition (PR2, must be matched exactly by implementer):
+   *
+   *   export interface ExternalCalendarEvent {
+   *     externalId: string;
+   *     title: string;
+   *     start: string;
+   *     end: string;
+   *     meetingUrl?: string; // NEW — optional, a calendar event may have no video-call link
+   *   }
+   *
+   * `MockCalendarConnector` needs no code change of its own — it has no
+   * per-field mapping logic, so `meetingUrl` flows through `listEvents()`
+   * automatically once the interface carries it. These tests exist to pin
+   * that passthrough, not to test any new mock logic.
+   */
+  it('returns meetingUrl unchanged from listEvents() when the seeded event includes one', async () => {
+    const event = buildEvent({
+      externalId: 'with-meeting-url',
+      meetingUrl: 'https://meet.google.com/abc-defg-hij',
+    });
+    const connector = MockCalendarConnector.fixed([event]);
+
+    const result = await connector.listEvents({
+      start: '2026-08-10T09:00:00.000Z',
+      end: '2026-08-10T12:00:00.000Z',
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.meetingUrl).toBe('https://meet.google.com/abc-defg-hij');
+  });
+
+  it('returns meetingUrl as undefined (not corrupted/coerced to null or empty string) when the seeded event omits it', async () => {
+    const event = buildEvent({ externalId: 'without-meeting-url' });
+    const connector = MockCalendarConnector.fixed([event]);
+
+    const result = await connector.listEvents({
+      start: '2026-08-10T09:00:00.000Z',
+      end: '2026-08-10T12:00:00.000Z',
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.meetingUrl).toBeUndefined();
+  });
+});
+
 describe('MockCalendarConnector.fixed — convenience constructor', () => {
   it('is equivalent to new MockCalendarConnector({ events })', async () => {
     const events = [
