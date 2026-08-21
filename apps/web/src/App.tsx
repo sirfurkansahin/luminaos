@@ -15,6 +15,7 @@ import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
+import { McpAccessPanel } from './views/shared/McpAccessPanel';
 import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
@@ -105,6 +106,7 @@ export function App() {
       <CommandPalette workspaceId={DEV_WORKSPACE_ID} />
       <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
       <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
+      <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})

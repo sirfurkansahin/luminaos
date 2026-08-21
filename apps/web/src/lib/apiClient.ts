@@ -536,3 +536,55 @@ export function disconnectIntegration(workspaceId: string, connectorType: string
     { method: 'DELETE' },
   );
 }
+
+/**
+ * F2-T12 PR2 (ADR-0028 §k/§l) -- MCP client access-token grants. Only the
+ * user-facing fields are surfaced here (`id`/`name`/`tokenPrefix`/
+ * `createdAt`/`expiresAt`/`revokedAt`) -- `tokenHash`/`workspaceId`/`userId`
+ * are deliberately omitted from this type even though the raw server
+ * response includes them, so nothing in the frontend can accidentally render
+ * them.
+ */
+export interface McpClientGrant {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface CreateMcpClientGrantResult {
+  grant: McpClientGrant;
+  rawToken: string;
+}
+
+export function listMcpGrants(workspaceId: string): Promise<{ grants: McpClientGrant[] }> {
+  return request<{ grants: McpClientGrant[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/mcp/grants`,
+    { method: 'GET' },
+  );
+}
+
+export function createMcpGrant(
+  workspaceId: string,
+  name: string,
+  expiresAtDays: 30 | 90 | 365,
+): Promise<CreateMcpClientGrantResult> {
+  return request<CreateMcpClientGrantResult>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/mcp/grants`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ name, expiresAtDays }),
+    },
+  );
+}
+
+export function revokeMcpGrant(workspaceId: string, grantId: string): Promise<void> {
+  // No explicit `<void>` type argument, matching disconnectIntegration's/
+  // deleteMemoryRecord's rationale above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/mcp/grants/${encodeURIComponent(grantId)}`,
+    { method: 'DELETE' },
+  );
+}
