@@ -11,6 +11,7 @@ const objectTypeRegistry: Record<ObjectType, { titleRequired: boolean }> = {
   doc: { titleRequired: false },
   note: { titleRequired: false },
   timeblock: { titleRequired: false },
+  meeting: { titleRequired: true },
 };
 
 /**
