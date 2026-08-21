@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { ObjectType } from '@luminaos/core-objects';
 import { DialogContent, DialogRoot, DialogTitle, Input } from '@luminaos/ui';
 
+import { ExternalSearchResultChip } from './ExternalSearchResultChip.js';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.js';
+import { useExternalSearchQuery } from '../../hooks/useExternalSearchQuery.js';
 import { useObjectIdParam } from '../../hooks/useObjectIdParam.js';
 import { useSearchQuery } from '../../hooks/useSearchQuery.js';
 
@@ -28,6 +30,7 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
 
   const debouncedQuery = useDebouncedValue(rawQuery, DEBOUNCE_MS);
   const { data } = useSearchQuery(workspaceId, debouncedQuery);
+  const { data: externalData } = useExternalSearchQuery(workspaceId, debouncedQuery);
 
   // Whenever a fresh result set arrives, the previously-active index may no
   // longer make sense (fewer/reordered rows) — the pinned contract requires
@@ -69,6 +72,7 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
     items: results.filter((result) => result.type === group.type),
   })).filter((group) => group.items.length > 0);
   const flatResults = groups.flatMap((group) => group.items);
+  const externalResults = externalData?.results ?? [];
 
   function reset(): void {
     setRawQuery('');
@@ -154,6 +158,19 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
             </ul>
           </div>
         ))}
+        {externalResults.length > 0 && (
+          <div>
+            <span>Dış Kaynaklar</span>
+            {externalResults.map((result, index) => (
+              // External results have no stable id in the pinned ADR-0027 §f
+              // shape (connectorType/title/snippet); mirrors
+              // ExternalEventChip's read-only, non-interactive precedent
+              // which has the same gap.
+
+              <ExternalSearchResultChip key={index} result={result} />
+            ))}
+          </div>
+        )}
       </DialogContent>
     </DialogRoot>
   );

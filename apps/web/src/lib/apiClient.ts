@@ -399,6 +399,34 @@ export function searchWorkspace(
   );
 }
 
+// F2-T11 (ADR-0027 §f) — connected search: a "Dış Kaynaklar" (external
+// sources) block in the command palette, fed from the workspace's connected
+// integrations. `degraded` lists connectorTypes that failed/timed out and
+// were excluded from `results` rather than failing the whole request.
+export interface ExternalSearchResult {
+  connectorType: string;
+  title: string;
+  snippet: string;
+}
+
+export interface ConnectedSearchResponse {
+  results: ExternalSearchResult[];
+  degraded: string[];
+}
+
+export function searchExternalWorkspace(
+  workspaceId: string,
+  query: string,
+): Promise<ConnectedSearchResponse> {
+  return request<ConnectedSearchResponse>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/search/external`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    },
+  );
+}
+
 export function deleteSavedView(workspaceId: string, savedViewId: string): Promise<void> {
   // No explicit `<void>` type argument (would trip
   // `@typescript-eslint/no-invalid-void-type` on the call-site generic) —
