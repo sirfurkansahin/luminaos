@@ -5,6 +5,9 @@ import type { MeetingBotClient } from '@luminaos/integrations';
 
 import { MEETING_BOT_CLIENT } from './meeting-bot-client.token.js';
 import { MeetingInviteController } from './meeting-invite.controller.js';
+import { MeetingRetentionPreferenceController } from './meeting-retention-preference.controller.js';
+import { MeetingRetentionPreferenceService } from './meeting-retention-preference.service.js';
+import { MeetingRetentionSweeperService } from './meeting-retention-sweeper.service.js';
 import { MeetingsService } from './meetings.service.js';
 import { NotetakerWebhookAuthGuard } from './notetaker-webhook-auth.guard.js';
 import { NotetakerWebhookController } from './notetaker-webhook.controller.js';
@@ -23,12 +26,18 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  */
 @Module({
   imports: [DbModule, AuthModule, ObjectsModule],
-  controllers: [MeetingInviteController, NotetakerWebhookController],
+  controllers: [
+    MeetingInviteController,
+    NotetakerWebhookController,
+    MeetingRetentionPreferenceController,
+  ],
   providers: [
     MeetingsService,
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
     NotetakerWebhookAuthGuard,
+    MeetingRetentionPreferenceService,
+    MeetingRetentionSweeperService,
     {
       provide: MEETING_BOT_CLIENT,
       useFactory: (): MeetingBotClient => new MockMeetingBotClient(),
