@@ -406,6 +406,18 @@ export class CommandsService {
         );
       case 'assignPeople':
         return this.executeAssignPeople(workspaceId, action, approverActor, callerRole);
+      case 'createTaskFromMeeting':
+        // Placeholder so `DecidableAction`'s switch stays exhaustive after
+        // F2-T14 PR3 widened `ProposedAction.type` (ADR-0031 §e) -- the real
+        // executor (`executeCreateTaskFromMeeting`, ADR-0031 §h) lands in
+        // PR4, which replaces this case entirely. `proposeFromMeeting`
+        // (also PR4) is the only thing that can ever PRODUCE this type, so
+        // this branch is unreachable in production until PR4 ships.
+        return {
+          actionId: action.actionId,
+          status: 'failed',
+          error: 'This action is not yet supported.',
+        };
     }
   }
 
