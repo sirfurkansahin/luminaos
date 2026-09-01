@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,10 +128,152 @@ vi.mock('../../hooks/useExternalSearchQuery.js', () => ({
   useExternalSearchQuery: mockedUseExternalSearchQuery,
 }));
 
+/**
+ * F2-T13 PR5 (ADR-0029 §d, ADR-0030 §i/§j) — TDD red step for the new
+ * "Toplantıya bot davet et" command-palette quick action. Contract under
+ * test (none of this exists yet — `implementer` must build it next):
+ *
+ *   apps/web/src/hooks/useInviteMeetingBotMutation.ts (new file):
+ *     export function useInviteMeetingBotMutation(workspaceId: string):
+ *       UseMutationResult<InviteMeetingBotResult, Error, string>
+ *     — mirrors useMcpGrantsQuery.ts's mutation shape exactly (mutationFn
+ *     wraps apiClient's inviteMeetingBot(workspaceId, meetingUrl), no
+ *     automatic invalidation).
+ *
+ *   apps/web/src/views/shared/CommandPalette.tsx (modified, not yet built):
+ *     - a new row ABOVE the search-result groups,
+ *       data-testid="command-palette-invite-bot-action", labeled "Toplantıya
+ *       bot davet et", visible when the raw (non-debounced) query is empty OR
+ *       case-insensitively matches its label or one of the keywords
+ *       ['bot', 'toplantı', 'meet', 'kayıt'].
+ *     - clicking it checks
+ *       window.localStorage.getItem('luminaos:notetaker-consent:' + workspaceId):
+ *       if not exactly 'true', opens a consent dialog
+ *       (data-testid="notetaker-consent-dialog") with an acknowledge button
+ *       (data-testid="notetaker-consent-acknowledge", "Anladım, devam et")
+ *       that sets the flag AND immediately opens the invite dialog (no
+ *       second click needed); if already 'true', skips straight to the
+ *       invite dialog.
+ *     - invite dialog (data-testid="notetaker-invite-dialog"): a URL input
+ *       (data-testid="notetaker-meeting-url-input") and a submit button
+ *       (data-testid="notetaker-invite-submit", "Botu Davet Et") disabled
+ *       while the input is empty OR the mutation isPending. Submitting calls
+ *       useInviteMeetingBotMutation(workspaceId)'s mutate with the typed
+ *       meetingUrl (mirrors McpAccessPanel.test.tsx's `mutate(vars, {
+ *       onSuccess, onError })` inline-callback pattern — this file manually
+ *       invokes the captured onSuccess/onError inside `act(...)`, the same
+ *       technique).
+ *     - on success: invite dialog closes (input resets), and a success toast
+ *       fires with the PINNED copy `{ title: 'Bot toplantıya davet edildi.',
+ *       variant: 'success' }` (ADR-0030 §PR5's UI requirement).
+ *     - on error: the invite dialog stays open and shows SOME non-empty
+ *       inline error text (data-testid="notetaker-invite-error" — this
+ *       exact testid is a test-writer judgment call, not pinned by any ADR;
+ *       implementer may ALSO fire a danger toast in addition, this suite
+ *       only asserts the inline message is observable).
+ *     - closing the invite dialog (Escape, matching CommandPalette's own
+ *       Radix-Dialog-Escape precedent above) resets its own local state
+ *       (stale input) without closing the outer command palette itself —
+ *       relies on Radix's nested-Dialog behavior of Escape closing only the
+ *       topmost open Dialog.
+ *
+ * `useInviteMeetingBotMutation` doesn't exist yet, so — mirroring this same
+ * file's handling of the (at the time) not-yet-existing `useExternalSearchQuery`
+ * a few lines above, and `McpAccessPanel.test.tsx`'s identical technique for
+ * its own not-yet-existing hooks module — the mock is created via `vi.hoisted`
+ * and referenced only by closure inside the `vi.mock` factory below.
+ *
+ * `@luminaos/ui`'s `toast` is intercepted via a PARTIAL mock (`importOriginal`
+ * + spread), keeping DialogRoot/DialogContent/DialogTitle/Input/Button real
+ * (this file, like the rest of this suite, does not mock `@luminaos/ui`
+ * wholesale) — only the `toast` export is replaced so this suite can assert
+ * on it without a real ToastProvider mounted.
+ */
+interface InviteMeetingBotResult {
+  object: { id: string; objectType: string; title: string };
+  meetingDetails: {
+    id: string;
+    objectId: string;
+    meetingUrl: string;
+    provider: string;
+    status: string;
+    providerMeetingRef: string;
+    providerRecordingUrl: string | null;
+    transcriptText?: string | null;
+    createdAt: string;
+  };
+}
+
+const { mockedUseInviteMeetingBotMutation, mockedToast } = vi.hoisted(() => {
+  return {
+    mockedUseInviteMeetingBotMutation: vi.fn(),
+    mockedToast: vi.fn(),
+  };
+});
+
+vi.mock('../../hooks/useInviteMeetingBotMutation.js', () => ({
+  useInviteMeetingBotMutation: mockedUseInviteMeetingBotMutation,
+}));
+
+vi.mock('@luminaos/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@luminaos/ui')>();
+  return { ...actual, toast: mockedToast };
+});
+
 const mockedSearchWorkspace = vi.mocked(searchWorkspace);
 const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 
 const WORKSPACE_ID = 'ws-1';
+const NOTETAKER_CONSENT_KEY = `luminaos:notetaker-consent:${WORKSPACE_ID}`;
+
+function makeMutationResultBase(mutate: (...args: never[]) => void): Record<string, unknown> {
+  return {
+    mutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    error: null,
+    data: undefined,
+    reset: vi.fn(),
+    status: 'idle',
+  };
+}
+
+function mockInviteMutation(overrides: Record<string, unknown> = {}): {
+  mutate: ReturnType<typeof vi.fn>;
+} {
+  const mutate = vi.fn();
+  mockedUseInviteMeetingBotMutation.mockReturnValue({
+    ...makeMutationResultBase(mutate),
+    ...overrides,
+  });
+  return { mutate };
+}
+
+function makeInviteResultFixture(
+  overrides: Partial<InviteMeetingBotResult> = {},
+): InviteMeetingBotResult {
+  return {
+    object: {
+      id: 'obj-meeting-1',
+      objectType: 'meeting',
+      title: 'https://meet.google.com/abc-defg-hij',
+    },
+    meetingDetails: {
+      id: 'md-1',
+      objectId: 'obj-meeting-1',
+      meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      provider: 'google-meet',
+      status: 'sunuldu',
+      providerMeetingRef: 'mock-bot-1',
+      providerRecordingUrl: null,
+      transcriptText: null,
+      createdAt: '2026-08-21T00:00:00.000Z',
+    },
+    ...overrides,
+  };
+}
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -540,6 +682,238 @@ describe('CommandPalette', () => {
       // closed it (mirrors the existing internal "clicking a result row"
       // test's closed-afterward assertion, inverted).
       expect(screen.getByTestId('command-palette-input')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * F2-T13 PR5 (ADR-0029 §d, ADR-0030 §i/§j) — see the file-level comment
+   * above the `InviteMeetingBotResult` interface for the full contract.
+   */
+  describe('"Toplantıya bot davet et" quick action (F2-T13 PR5)', () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+      mockInviteMutation();
+    });
+
+    async function openPaletteAndClickInviteBot(
+      user: ReturnType<typeof userEvent.setup>,
+    ): Promise<void> {
+      await openViaMeta(user);
+      await user.click(screen.getByTestId('command-palette-invite-bot-action'));
+    }
+
+    const MEETING_URL = 'https://meet.google.com/abc-defg-hij';
+
+    it('renders the quick action, visible by default when the search query is empty', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+
+      expect(screen.getByTestId('command-palette-invite-bot-action')).toBeInTheDocument();
+    });
+
+    it('hides the quick action when the typed query matches neither its label nor a keyword', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'randomtext');
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('command-palette-invite-bot-action')).not.toBeInTheDocument();
+      });
+    });
+
+    it('shows the quick action again for a case-insensitive keyword match (e.g. "BOT")', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'BOT');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('command-palette-invite-bot-action')).toBeInTheDocument();
+      });
+    });
+
+    it('clicking the quick action with no consent flag set opens the consent dialog, not the invite dialog', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+
+      expect(screen.getByTestId('notetaker-consent-dialog')).toBeInTheDocument();
+      expect(screen.queryByTestId('notetaker-invite-dialog')).not.toBeInTheDocument();
+    });
+
+    it('acknowledging consent sets the workspace-scoped localStorage flag and opens the invite dialog directly, without a second click', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.click(screen.getByTestId('notetaker-consent-acknowledge'));
+
+      expect(window.localStorage.getItem(NOTETAKER_CONSENT_KEY)).toBe('true');
+      expect(screen.queryByTestId('notetaker-consent-dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('notetaker-invite-dialog')).toBeInTheDocument();
+    });
+
+    it("skips the consent dialog entirely and opens the invite dialog directly when the consent flag is already 'true'", async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+
+      expect(screen.queryByTestId('notetaker-consent-dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('notetaker-invite-dialog')).toBeInTheDocument();
+    });
+
+    it('disables the submit button while the meeting URL input is empty, and enables it once text is typed', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+
+      expect(screen.getByTestId('notetaker-invite-submit')).toBeDisabled();
+
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+
+      expect(screen.getByTestId('notetaker-invite-submit')).toBeEnabled();
+    });
+
+    it('disables the submit button while the mutation isPending, even with a non-empty input', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      mockInviteMutation({ isPending: true });
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+
+      expect(screen.getByTestId('notetaker-invite-submit')).toBeDisabled();
+    });
+
+    it('submitting a valid URL calls the invite mutation, hooked for this workspace, with the typed meeting URL', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const { mutate } = mockInviteMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+      await user.click(screen.getByTestId('notetaker-invite-submit'));
+
+      expect(mockedUseInviteMeetingBotMutation).toHaveBeenCalledWith(WORKSPACE_ID);
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const [calledMeetingUrl] = mutate.mock.calls[0] as [string, ...unknown[]];
+      expect(calledMeetingUrl).toBe(MEETING_URL);
+    });
+
+    it('on mutation success, closes the invite dialog, resets its input, and shows the pinned success toast', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const { mutate } = mockInviteMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+      await user.click(screen.getByTestId('notetaker-invite-submit'));
+
+      const [, options] = mutate.mock.calls[0] as [
+        string,
+        { onSuccess?: (result: InviteMeetingBotResult) => void } | undefined,
+      ];
+      act(() => {
+        options?.onSuccess?.(makeInviteResultFixture());
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('notetaker-invite-dialog')).not.toBeInTheDocument();
+      });
+      expect(mockedToast).toHaveBeenCalledWith({
+        title: 'Bot toplantıya davet edildi.',
+        variant: 'success',
+      });
+    });
+
+    it('re-opening the invite dialog after a successful submit starts with an empty input (no stale meeting URL)', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const { mutate } = mockInviteMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+      await user.click(screen.getByTestId('notetaker-invite-submit'));
+
+      const [, options] = mutate.mock.calls[0] as [
+        string,
+        { onSuccess?: (result: InviteMeetingBotResult) => void } | undefined,
+      ];
+      act(() => {
+        options?.onSuccess?.(makeInviteResultFixture());
+      });
+      await waitFor(() => {
+        expect(screen.queryByTestId('notetaker-invite-dialog')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId('command-palette-invite-bot-action'));
+
+      expect(screen.getByTestId<HTMLInputElement>('notetaker-meeting-url-input').value).toBe('');
+    });
+
+    it('on mutation error, keeps the invite dialog open and shows a non-empty inline error message', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const { mutate } = mockInviteMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(screen.getByTestId('notetaker-meeting-url-input'), MEETING_URL);
+      await user.click(screen.getByTestId('notetaker-invite-submit'));
+
+      const [, options] = mutate.mock.calls[0] as [
+        string,
+        { onError?: (error: Error) => void } | undefined,
+      ];
+      act(() => {
+        options?.onError?.(new Error('boom'));
+      });
+
+      expect(screen.getByTestId('notetaker-invite-dialog')).toBeInTheDocument();
+      const errorMessage = screen.getByTestId('notetaker-invite-error');
+      expect(errorMessage).toBeInTheDocument();
+      expect(errorMessage.textContent).not.toBe('');
+    });
+
+    it('closing the invite dialog (Escape) resets its stale input without closing the outer command palette, and re-opening shows an empty input', async () => {
+      window.localStorage.setItem(NOTETAKER_CONSENT_KEY, 'true');
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openPaletteAndClickInviteBot(user);
+      await user.type(
+        screen.getByTestId('notetaker-meeting-url-input'),
+        'https://meet.google.com/stale-text',
+      );
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('notetaker-invite-dialog')).not.toBeInTheDocument();
+      });
+      // Only the nested invite dialog should have closed -- the outer command
+      // palette (a separate DialogRoot) must still be open, relying on
+      // Radix's nested-Dialog behavior of Escape closing only the topmost
+      // open Dialog.
+      expect(screen.getByTestId('command-palette-input')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('command-palette-invite-bot-action'));
+
+      expect(screen.getByTestId<HTMLInputElement>('notetaker-meeting-url-input').value).toBe('');
     });
   });
 });

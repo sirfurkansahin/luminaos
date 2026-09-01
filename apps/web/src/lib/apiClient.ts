@@ -588,3 +588,37 @@ export function revokeMcpGrant(workspaceId: string, grantId: string): Promise<vo
     { method: 'DELETE' },
   );
 }
+
+/**
+ * F2-T13 PR5 (ADR-0030 §e/§h/§i) -- ad hoc "invite a notetaker bot" flow.
+ * Mirrors `apps/server`'s `MeetingInviteController.invite` response shape
+ * exactly (`meetingUrl` is the ONLY input -- the provider is auto-detected
+ * server-side from the URL, Karar i -- the client never declares one).
+ */
+export interface InviteMeetingBotResult {
+  object: { id: string; objectType: string; title: string };
+  meetingDetails: {
+    id: string;
+    objectId: string;
+    meetingUrl: string;
+    provider: string;
+    status: string;
+    providerMeetingRef: string;
+    providerRecordingUrl: string | null;
+    transcriptText?: string | null;
+    createdAt: string;
+  };
+}
+
+export function inviteMeetingBot(
+  workspaceId: string,
+  meetingUrl: string,
+): Promise<InviteMeetingBotResult> {
+  return request<InviteMeetingBotResult>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/meetings`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ meetingUrl }),
+    },
+  );
+}
