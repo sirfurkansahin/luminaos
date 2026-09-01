@@ -218,6 +218,13 @@
       "when": 1787329757374,
       "tag": "0031_colorful_loa",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788289429035,
+      "tag": "0032_redundant_baron_strucker",
+      "breakpoints": true
     }
   ]
 }

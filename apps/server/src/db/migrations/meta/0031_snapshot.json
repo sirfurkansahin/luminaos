@@ -1,6 +1,6 @@
 {
-  "id": "85bc3f04-a209-4fb5-a424-9f1254799b67",
-  "prevId": "fa34594e-1ea4-4802-8c21-d4719d366938",
+  "id": "d02173e7-d44e-4320-8966-7aae69627454",
+  "prevId": "85bc3f04-a209-4fb5-a424-9f1254799b67",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2944,6 +2944,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "meeting_url": {
           "name": "meeting_url",
           "type": "text",
@@ -3023,7 +3029,83 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "meeting_details_workspace_id_workspaces_id_fk": {
+          "name": "meeting_details_workspace_id_workspaces_id_fk",
+          "tableFrom": "meeting_details",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.meeting_retention_preferences": {
+      "name": "meeting_retention_preferences",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mode": {
+          "name": "mode",
+          "type": "meeting_retention_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "meeting_retention_preferences_workspace_id_idx": {
+          "name": "meeting_retention_preferences_workspace_id_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "meeting_retention_preferences_workspace_id_workspaces_id_fk": {
+          "name": "meeting_retention_preferences_workspace_id_workspaces_id_fk",
+          "tableFrom": "meeting_retention_preferences",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3046,6 +3128,11 @@
       "name": "meeting_status",
       "schema": "public",
       "values": ["sunuldu", "beklemede", "kaydedildi", "basarisiz"]
+    },
+    "public.meeting_retention_mode": {
+      "name": "meeting_retention_mode",
+      "schema": "public",
+      "values": ["recording-reference", "transcript-only", "summary-only"]
     }
   },
   "schemas": {},
