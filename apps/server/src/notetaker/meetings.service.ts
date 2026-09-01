@@ -135,4 +135,56 @@ export class MeetingsService {
       },
     };
   }
+
+  /**
+   * `POST /webhooks/notetaker`'s own persistence step (ADR-0030 §f/§g),
+   * invoked ONLY after `NotetakerWebhookAuthGuard` has already verified the
+   * HMAC signature. Looks up the `meeting_details` row by `providerMeetingRef`
+   * (the unique index, §d) -- a nonexistent ref throws a GENERIC `NotFoundError`
+   * that does NOT echo `providerMeetingRef` back in its message (§g: whether a
+   * given ref exists/doesn't must never be leaked to whoever is calling this
+   * unauthenticated-by-identity endpoint).
+   *
+   * `status` is always updated; `transcriptText`/`providerRecordingUrl` are
+   * updated ONLY when the corresponding key is PRESENT as an own property on
+   * `update` (`in`, not `!== undefined` -- a webhook payload that omits a key
+   * entirely must leave the existing DB value untouched, distinct from a
+   * payload that explicitly sends `null` for it).
+   */
+  async applyWebhookUpdate(
+    providerMeetingRef: string,
+    update: {
+      status: MeetingDetailsRow['status'];
+      transcriptText?: string | null;
+      providerRecordingUrl?: string | null;
+    },
+  ): Promise<void> {
+    const [row] = await this.db
+      .select()
+      .from(meetingDetails)
+      .where(eq(meetingDetails.providerMeetingRef, providerMeetingRef))
+      .limit(1);
+
+    if (!row) {
+      // Kasıtlı olarak jenerik -- providerMeetingRef'in var/yok olduğu
+      // saldırgana sızdırılmaz (ADR-0030 §g).
+      throw new NotFoundError('Meeting not found for the given webhook reference');
+    }
+
+    const values: {
+      status: MeetingDetailsRow['status'];
+      transcriptText?: string | null;
+      providerRecordingUrl?: string | null;
+    } = { status: update.status };
+
+    if ('transcriptText' in update) {
+      values.transcriptText = update.transcriptText;
+    }
+
+    if ('providerRecordingUrl' in update) {
+      values.providerRecordingUrl = update.providerRecordingUrl;
+    }
+
+    await this.db.update(meetingDetails).set(values).where(eq(meetingDetails.id, row.id));
+  }
 }

@@ -9,7 +9,7 @@ async function bootstrap(): Promise<void> {
   // `app.useLogger()` is called below, so they go through the real
   // structured/redacted pino pipeline too instead of Nest's default console
   // logger.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
 
   // Ensure `OnModuleDestroy` hooks fire on SIGTERM/SIGINT so the doc-collab
