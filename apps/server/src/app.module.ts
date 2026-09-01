@@ -21,6 +21,7 @@ import { IntegrationsModule } from './integrations/integrations.module.js';
 import { McpConnectorsModule } from './integrations/mcp-connectors.module.js';
 import { McpServerModule } from './mcp-server/mcp-server.module.js';
 import { MemoryModule } from './memory/memory.module.js';
+import { NotetakerModule } from './notetaker/notetaker.module.js';
 import { ObjectsModule } from './objects/objects.module.js';
 import { HttpTracingInterceptor } from './observability/http-tracing.interceptor.js';
 import { LoggingModule } from './observability/logging.module.js';
@@ -60,6 +61,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     DesktopSignalsModule,
     DocsModule,
     MemoryModule,
+    NotetakerModule,
     ExportModule,
     FieldsModule,
     RelationsModule,
