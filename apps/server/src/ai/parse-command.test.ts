@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MockProvider } from '@luminaos/ai-gateway';
 import type { AICompletionRequest, AICompletionResult, AITokenUsage } from '@luminaos/ai-gateway';
 
-import { parseCommand } from './parse-command.js';
+import { parseCommand, proposedActionSchema } from './parse-command.js';
 
 import type { ParseCommandResult, ProposedAction } from './parse-command.js';
 
@@ -289,6 +289,20 @@ describe('parseCommand — closed action-type union is enforced by zod, not just
     expect(callCount).toBe(2);
     expect(result.actions).toEqual([]);
     expect(result.parseError).toBe(true);
+  });
+});
+
+describe('proposedActionSchema — closed union widened for F2-T14 PR3 (ADR-0031 §e)', () => {
+  it('ACCEPTS a `createTaskFromMeeting`-typed action object — the mirror image of the `deleteEverything`-is-REJECTED test above: the union now has a 4th member, added so the new sibling `extractMeetingActions` (./extract-meeting-actions.ts) can produce actions this same schema validates. `renderCommandPrompt`/`parseCommand` itself never asks the model for this type (unchanged, ADR-0031 §e) — this test only proves the SCHEMA accepts it structurally, not that parseCommand would ever request or produce it.', () => {
+    const result = proposedActionSchema.safeParse([
+      validActionJson({ type: 'createTaskFromMeeting' }),
+    ]);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]?.type).toBe('createTaskFromMeeting');
+    }
   });
 });
 

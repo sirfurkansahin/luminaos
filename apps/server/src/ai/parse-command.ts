@@ -25,7 +25,7 @@ import type { AIProvider, AITokenUsage } from '@luminaos/ai-gateway';
  */
 export interface ProposedAction {
   actionId: string;
-  type: 'createTask' | 'generateSubtasks' | 'assignPeople';
+  type: 'createTask' | 'generateSubtasks' | 'assignPeople' | 'createTaskFromMeeting';
   intent: string;
   rationale: string;
   resources: string[];
@@ -52,7 +52,7 @@ const PARSE_EXHAUSTED_MESSAGE =
 
 export const proposedActionSchema = z
   .object({
-    type: z.enum(['createTask', 'generateSubtasks', 'assignPeople']),
+    type: z.enum(['createTask', 'generateSubtasks', 'assignPeople', 'createTaskFromMeeting']),
     intent: z.string().min(1),
     rationale: z.string().min(1),
     resources: z.array(z.string()),
