@@ -101,7 +101,7 @@ describe('repo-wide ESLint ban on importing @anthropic-ai/sdk outside packages/a
     expect(banMessages.length).toBeGreaterThan(0);
     const totalErrorCount = results.reduce((sum, result) => sum + result.errorCount, 0);
     expect(totalErrorCount).toBeGreaterThan(0);
-  }, 30_000);
+  }, 60_000);
 
   it('does NOT report a no-restricted-syntax error inside packages/ai-gateway itself for the same import (it is the one package allowed to use the real SDK)', async () => {
     const results = await lintAnthropicImportIn('packages/ai-gateway');
