@@ -49,6 +49,8 @@ export interface Env {
   githubOAuth?: OAuthAppCredentials;
   /** `NOTION_CLIENT_ID`/`NOTION_CLIENT_SECRET` (F2-T10 PR1, ADR-0026 §k) -- the reference connector; PR1 actually WIRES this one into `McpConnectorsModule`'s DI factory (ADR-0026 §m). */
   notionOAuth?: OAuthAppCredentials;
+  /** `NOTETAKER_WEBHOOK_SECRET` (F2-T13 PR4, ADR-0030 §f) -- HMAC-SHA256 shared secret `NotetakerWebhookAuthGuard` uses to verify `POST /webhooks/notetaker` requests. Absent/blank -> `undefined` (never fatal at boot — the DI-layer signal the guard uses to FAIL-CLOSED, rejecting every webhook request with 401, rather than crash boot). Any non-blank value is accepted as-is, verbatim, mirroring `readAnthropicApiKey` exactly. */
+  notetakerWebhookSecret?: string;
 }
 
 /**
@@ -99,6 +101,7 @@ function readEnv(): Env {
   const slackOAuth = readOAuthAppCredentials('SLACK');
   const githubOAuth = readOAuthAppCredentials('GITHUB');
   const notionOAuth = readOAuthAppCredentials('NOTION');
+  const notetakerWebhookSecret = readNotetakerWebhookSecret();
 
   return {
     databaseUrl,
@@ -112,6 +115,7 @@ function readEnv(): Env {
     ...(slackOAuth !== undefined ? { slackOAuth } : {}),
     ...(githubOAuth !== undefined ? { githubOAuth } : {}),
     ...(notionOAuth !== undefined ? { notionOAuth } : {}),
+    ...(notetakerWebhookSecret !== undefined ? { notetakerWebhookSecret } : {}),
     aiTokenQuotaPerWorkspace: readPositiveIntegerEnv(
       'AI_TOKEN_QUOTA_PER_WORKSPACE',
       DEFAULT_AI_TOKEN_QUOTA_PER_WORKSPACE,
@@ -243,6 +247,22 @@ function readAnthropicApiKey(): string | undefined {
   }
 
   return rawApiKey;
+}
+
+/**
+ * `NOTETAKER_WEBHOOK_SECRET` (F2-T13 PR4, ADR-0030 §f): absent/blank ->
+ * `undefined` (never fatal — `NotetakerWebhookAuthGuard` fails closed, 401,
+ * rather than crash boot). Any non-blank value is accepted as-is, verbatim,
+ * with no shape validation — mirrors `readAnthropicApiKey` bit for bit.
+ */
+function readNotetakerWebhookSecret(): string | undefined {
+  const rawSecret = process.env['NOTETAKER_WEBHOOK_SECRET'];
+
+  if (rawSecret === undefined || rawSecret.trim() === '') {
+    return undefined;
+  }
+
+  return rawSecret;
 }
 
 /**
