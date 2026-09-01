@@ -1,7 +1,16 @@
 # F2-T13 — Notetaker Botu: Meet/Zoom/Teams Toplantı Kaydı + Transkript
 
-**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** Taslak — insan onayına sunuluyor.
-**Bağımlılık:** F1-T12/ADR-0012 (takvim entegrasyonu, Tamamlandı — `apps/server/src/calendar/`), F2-T9/F2-T10 (dış bağlayıcı/kimlik bilgisi deseni, emsal), F2-T12/ADR-0028 (ilk inbound güven sınırı, emsal — ama BU görev İKİNCİ, FARKLI türden bir inbound güven sınırı kuruyor: kullanıcı-token yerine sağlayıcı-imza doğrulamalı webhook).
+**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** ✅ Tamamlandı.
+
+**PR'lar:**
+
+- PR0 (ADR-0029/0030 taslağı): #157
+- PR1 (`meeting` nesne tipi + `meeting_details` şeması): #158
+- PR2 (takvim `meetingUrl` genişletmesi): #159
+- PR3 (`MeetingBotClient` + davet uç noktası): #160
+- PR4 (webhook alıcısı + HMAC imza doğrulama): #162
+- PR5 (ad hoc link UI akışı): #163
+  **Bağımlılık:** F1-T12/ADR-0012 (takvim entegrasyonu, Tamamlandı — `apps/server/src/calendar/`), F2-T9/F2-T10 (dış bağlayıcı/kimlik bilgisi deseni, emsal), F2-T12/ADR-0028 (ilk inbound güven sınırı, emsal — ama BU görev İKİNCİ, FARKLI türden bir inbound güven sınırı kuruyor: kullanıcı-token yerine sağlayıcı-imza doğrulamalı webhook).
 
 > ⚠️ MİMARİ-KRİTİK GÖREV — CLAUDE.md'nin ADR kriterinin HEM (a) HEM (b) fıkrasına giriyor, VE bir mevcut boşluğu kapatıyor:
 >
@@ -61,18 +70,22 @@ Kullanıcının Google Meet/Zoom/Microsoft Teams toplantılarına — takvim etk
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-7'nin insan kararları ADR(lar)'da kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu.
-- [ ] Hibrit-AI/yerel-öncelikli veri sınıflandırma politikası yazılı bir ADR'de var (CLAUDE.md'nin eksik atıfı kapatıldı).
-- [ ] Kullanıcı bir takvim etkinliğine veya ad hoc yapıştırılan bir linke bot davet edebilir; bot yalnızca AÇIKÇA davet edildiğinde katılır (sıkı opt-in, hiçbir otomatik/sessiz katılım yok).
-- [ ] Ham ses/video LuminaOS'in kendi sunucusundan hiçbir zaman geçmez (Açık Soru 2/3'ün kararına göre doğrulanır).
-- [ ] Sağlayıcıdan gelen webhook imza doğrulaması olmadan asla işlenmez; sahte/imzasız bir webhook isteği reddedilir ve hiçbir `meeting` nesnesini güncellemez.
-- [ ] Cross-workspace izolasyon: bir workspace'in bot daveti/webhook'u başka bir workspace'in `meeting` nesnesini asla etkilemez.
-- [ ] **OKUMA yolu RBAC'ı (yalnızca webhook YAZMA yolu değil):** `GET .../meetings/:meetingId` — farklı bir workspace'in üyesi bir toplantının `transcriptText`'ine (hatta varlığına) asla erişemez; aynı workspace'te rol-bazlı kısıtlamanın öngördüğü rol (ör. `guest`) `transcriptText` alanını göremez (mevcut alan-bazlı izin süzgeci deseniyle tutarlı).
-- [ ] `meeting` nesne tipi mevcut nesne-tipi kayıt mekanizmasını (union + registry + şema) izleyerek eklendi.
-- [ ] Testler: bot davet akışı, ad hoc link akışı, webhook imza doğrulama (geçerli/geçersiz/eksik imza), cross-workspace izolasyon (yazma VE okuma yolu), rol-bazlı alan görünürlüğü (okuma yolu), opt-in davranışının gerçekten zorunlu olduğu.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: webhook imza doğrulama gerçekten bypass edilemiyor mu, ham ses sızıntısı yok, cross-workspace izolasyon hem yazma hem OKUMA yolunda, rol-bazlı transkript görünürlüğü).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-7'nin insan kararları ADR(lar)'da kayıt altına alındı ve `architect` tarafından insan onayından önce taslak olarak sunuldu. (ADR-0029, ADR-0030 — PR #157)
+- [x] Hibrit-AI/yerel-öncelikli veri sınıflandırma politikası yazılı bir ADR'de var (CLAUDE.md'nin eksik atıfı kapatıldı). (ADR-0029)
+- [x] Kullanıcı bir takvim etkinliğine veya ad hoc yapıştırılan bir linke bot davet edebilir; bot yalnızca AÇIKÇA davet edildiğinde katılır (sıkı opt-in, hiçbir otomatik/sessiz katılım yok). (PR #160 davet uç noktası, PR #163 ad hoc UI)
+- [x] Ham ses/video LuminaOS'in kendi sunucusundan hiçbir zaman geçmez (Açık Soru 2/3'ün kararına göre doğrulanır). (`meeting_details` yalnızca metin transkript + sağlayıcı referansı taşır, PR #158)
+- [x] Sağlayıcıdan gelen webhook imza doğrulaması olmadan asla işlenmez; sahte/imzasız bir webhook isteği reddedilir ve hiçbir `meeting` nesnesini güncellemez. (`NotetakerWebhookAuthGuard`, PR #162)
+- [x] Cross-workspace izolasyon: bir workspace'in bot daveti/webhook'u başka bir workspace'in `meeting` nesnesini asla etkilemez. (PR #160/#162 entegrasyon testleri)
+- [x] **OKUMA yolu RBAC'ı (yalnızca webhook YAZMA yolu değil):** `GET .../meetings/:meetingId` — farklı bir workspace'in üyesi bir toplantının `transcriptText`'ine (hatta varlığına) asla erişemez; aynı workspace'te rol-bazlı kısıtlamanın öngördüğü rol (ör. `guest`) `transcriptText` alanını göremez (mevcut alan-bazlı izin süzgeci deseniyle tutarlı). (PR #160)
+- [x] `meeting` nesne tipi mevcut nesne-tipi kayıt mekanizmasını (union + registry + şema) izleyerek eklendi. (PR #158)
+- [x] Testler: bot davet akışı, ad hoc link akışı, webhook imza doğrulama (geçerli/geçersiz/eksik imza), cross-workspace izolasyon (yazma VE okuma yolu), rol-bazlı alan görünürlüğü (okuma yolu), opt-in davranışının gerçekten zorunlu olduğu. (Tüm PR'larda test-writer → implementer ritüeliyle)
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: webhook imza doğrulama gerçekten bypass edilemiyor mu, ham ses sızıntısı yok, cross-workspace izolasyon hem yazma hem OKUMA yolunda, rol-bazlı transkript görünürlüğü). (Her PR için ayrı ayrı çalıştırıldı; PR4'te bulunan hex-format bypass bulgusu aynı PR içinde kapatıldı)
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip Açık Sorular 1-7'nin insan kararları `architect` subagent'ı ile (muhtemelen 2 ilişkili) ADR taslağına dökülür; ADR(lar) onaylandıktan sonra `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir. Görevin büyüklüğü nedeniyle PR bölünmesi kesinlikle gerekecek (ör. PR1: hibrit-AI ADR + `meeting` nesne tipi + takvim linki tespiti; PR2: bot davet + üçüncü-parti API istemcisi; PR3: webhook alıcısı + ad hoc link UI'ı).
+**Sıradaki adım:** F2-T14 ("Saklama tercihleri + otomatik aksiyon çıkarımı") henüz bir spec dosyasına sahip değil — `docs/PLAN.md`'nin F2-E4 bölümünde yalnızca tek satırlık bir açıklama var. Bir sonraki oturumda önce bu spec dosyası yazılmalı:
+
+```
+/yeni-ozellik F2-T14 — Saklama tercihleri (kayıt/transkript/yalnız özet) + otomatik aksiyon çıkarımı → onaylı görev üretimi. F2-T13'ün ürettiği `meeting`/`meeting_details` üzerine inşa edilecek.
+```
