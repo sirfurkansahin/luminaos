@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 import { pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
+import { workspaces } from './workspaces.js';
+
 /**
  * Per ADR-0030 §d ("[ARCHITECT KARARI] `meeting_details` tablosunun tam
  * şeması") — copied verbatim, adjusted only for real import paths.
@@ -29,6 +31,15 @@ export const meetingDetails = pgTable(
     // bir tablo değil), timeblock_external_pushes'ın object_id kolonu (ADR-0030 Bağlam
     // madde 2) gibi FK'siz düz bir varchar(26).
     objectId: varchar('object_id', { length: 26 }).notNull(),
+    // ADR-0031 §c: denormalize edilmiş gerçek FK -- `objectId`'nin FK'siz
+    // `objects_view` referansından farklı olarak, `workspaces` fiziksel bir
+    // tablo olduğundan gerçek bir FK taşıyabilir (calendar_events_cache.workspaceId/
+    // command_proposals.workspaceId ile BİREBİR aynı desen). Bir sweeper'ın
+    // "bu satır hangi workspace'e ait?" sorusunu `objects_view`'a JOIN
+    // yapmadan yanıtlayabilmesi için gerekli.
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     meetingUrl: text('meeting_url').notNull(),
     provider: meetingProviderEnum('provider').notNull(),
     status: meetingStatusEnum('status').notNull().default('sunuldu'),

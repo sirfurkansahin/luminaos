@@ -10,6 +10,7 @@ import {
 import { createDatabaseClient } from '../client.js';
 import { runMigrations } from '../migrate.js';
 import { meetingDetails } from './meeting-details.js';
+import { workspaces } from './workspaces.js';
 
 import type { Database } from '../client.js';
 
@@ -99,6 +100,24 @@ import type { Database } from '../client.js';
  * as `../mcp-server/mcp-client-grants.service.test.ts`'s header comment.
  * These clear on their own once `implementer` adds the real schema file; no
  * further edits to THIS test file are needed for that.
+ *
+ * ============================================================================
+ * F2-T14 PR1 UPDATE (ADR-0031 §c, `docs/adr/ADR-0031-toplanti-saklama-
+ * tercihi-ve-aksiyon-onerisi.md`): `meeting_details` gains a NEW denormalized
+ * `workspaceId` (`workspace_id`) column — uuid NOT NULL, a REAL FK to
+ * `workspaces.id` with `onDelete: 'cascade'` (unlike `objectId`'s FK-less
+ * `objects_view` reference). This file's test 1 (exact column list) and test
+ * 3 (nullability) are updated to include it; every existing valid-insert call
+ * below now ALSO supplies `workspaceId` (a real row seeded once in
+ * `beforeAll` via `db.insert(workspaces)` — no HTTP call, this file never
+ * boots a Nest app), since the column is NOT NULL with a real FK. A NEW test
+ * (10) proves the FK constraint on `meeting_details.workspace_id` itself is
+ * real. The migration's own 3-step backfill logic (add nullable → backfill
+ * from `objects_view` → set NOT NULL) is proven SEPARATELY, in
+ * `./meeting-details-workspace-id-backfill.integration.test.ts` (its own,
+ * dedicated Testcontainer, since that test destructively relaxes/re-tightens
+ * the `NOT NULL` constraint and must not corrupt this file's shared
+ * container/schema state for the tests below).
  * ============================================================================
  */
 
@@ -109,6 +128,7 @@ function freshProviderMeetingRef(label: string): string {
 describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Postgres via Testcontainers, no Nest app)', () => {
   let container: StartedPostgreSqlContainer;
   let db: Database;
+  let workspaceId: string;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
@@ -116,6 +136,19 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     await runMigrations(connectionString);
     db = createDatabaseClient(connectionString);
+
+    const [seededWorkspace] = await db
+      .insert(workspaces)
+      .values({
+        name: 'meeting-details-test-workspace',
+        slug: `meeting-details-test-ws-${Date.now().toString()}-${Math.random().toString(36).slice(2)}`,
+      })
+      .returning();
+
+    if (seededWorkspace === undefined) {
+      throw new Error('Failed to seed a workspace row for the test.');
+    }
+    workspaceId = seededWorkspace.id;
   }, 60_000);
 
   afterAll(async () => {
@@ -142,6 +175,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
         'provider_recording_url',
         'status',
         'transcript_text',
+        'workspace_id',
       ].sort(),
     );
   });
@@ -159,7 +193,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
     expect(byColumn.get('status')).toBe('meeting_status');
   });
 
-  it('3. nullability matches ADR-0030 §d exactly: objectId/meetingUrl/provider/status/providerMeetingRef/createdAt NOT NULL; providerRecordingUrl/transcriptText NULLABLE', async () => {
+  it('3. nullability matches ADR-0030 §d exactly: objectId/meetingUrl/provider/status/providerMeetingRef/createdAt NOT NULL; providerRecordingUrl/transcriptText NULLABLE; workspaceId (ADR-0031 §c) also NOT NULL', async () => {
     const result = await db.$client.query<{ column_name: string; is_nullable: string }>(
       `SELECT column_name, is_nullable FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'meeting_details'`,
@@ -176,6 +210,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
     expect(nullableByColumn.get('created_at')).toBe(false);
     expect(nullableByColumn.get('provider_recording_url')).toBe(true);
     expect(nullableByColumn.get('transcript_text')).toBe(true);
+    expect(nullableByColumn.get('workspace_id')).toBe(false);
   });
 
   it('4. a direct Drizzle insert with a valid provider/status enum value succeeds', async () => {
@@ -186,6 +221,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
       .insert(meetingDetails)
       .values({
         objectId,
+        workspaceId,
         meetingUrl: 'https://zoom.us/j/1234567890',
         provider: 'zoom',
         status: 'beklemede',
@@ -195,6 +231,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     expect(inserted).toBeDefined();
     expect(inserted?.objectId).toBe(objectId);
+    expect(inserted?.workspaceId).toBe(workspaceId);
     expect(inserted?.provider).toBe('zoom');
     expect(inserted?.status).toBe('beklemede');
     expect(inserted?.providerMeetingRef).toBe(providerMeetingRef);
@@ -209,9 +246,15 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     await expect(
       db.$client.query(
-        `INSERT INTO meeting_details (object_id, meeting_url, provider, status, provider_meeting_ref)
-         VALUES ($1, $2, $3, 'sunuldu', $4)`,
-        [objectId, 'https://meet.google.com/abc-defg-hij', 'webex', providerMeetingRef],
+        `INSERT INTO meeting_details (object_id, workspace_id, meeting_url, provider, status, provider_meeting_ref)
+         VALUES ($1, $2, $3, $4, 'sunuldu', $5)`,
+        [
+          objectId,
+          workspaceId,
+          'https://meet.google.com/abc-defg-hij',
+          'webex',
+          providerMeetingRef,
+        ],
       ),
     ).rejects.toSatisfy((error: unknown) => hasPostgresErrorCode(error, '22P02'));
   });
@@ -222,9 +265,9 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     await expect(
       db.$client.query(
-        `INSERT INTO meeting_details (object_id, meeting_url, provider, status, provider_meeting_ref)
-         VALUES ($1, $2, 'zoom', $3, $4)`,
-        [objectId, 'https://zoom.us/j/1234567890', 'iptal-edildi', providerMeetingRef],
+        `INSERT INTO meeting_details (object_id, workspace_id, meeting_url, provider, status, provider_meeting_ref)
+         VALUES ($1, $2, $3, 'zoom', $4, $5)`,
+        [objectId, workspaceId, 'https://zoom.us/j/1234567890', 'iptal-edildi', providerMeetingRef],
       ),
     ).rejects.toSatisfy((error: unknown) => hasPostgresErrorCode(error, '22P02'));
   });
@@ -234,6 +277,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     await db.insert(meetingDetails).values({
       objectId: newObjectId(),
+      workspaceId,
       meetingUrl: 'https://meet.google.com/aaa-bbbb-ccc',
       provider: 'google-meet',
       status: 'sunuldu',
@@ -243,6 +287,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
     await expect(
       db.insert(meetingDetails).values({
         objectId: newObjectId(),
+        workspaceId,
         meetingUrl: 'https://meet.google.com/xxx-yyyy-zzz',
         provider: 'google-meet',
         status: 'sunuldu',
@@ -258,6 +303,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
 
     await db.insert(meetingDetails).values({
       objectId: sharedObjectId,
+      workspaceId,
       meetingUrl: 'https://teams.microsoft.com/l/meetup-join/first',
       provider: 'microsoft-teams',
       status: 'sunuldu',
@@ -267,6 +313,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
     await expect(
       db.insert(meetingDetails).values({
         objectId: sharedObjectId,
+        workspaceId,
         meetingUrl: 'https://teams.microsoft.com/l/meetup-join/second',
         provider: 'microsoft-teams',
         status: 'sunuldu',
@@ -285,6 +332,7 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
       .insert(meetingDetails)
       .values({
         objectId,
+        workspaceId,
         meetingUrl: 'https://zoom.us/j/9999999999',
         provider: 'zoom',
         providerMeetingRef,
@@ -293,5 +341,22 @@ describe('F2-T13 PR1 (RED step): meeting_details table schema/migration (real Po
       .returning();
 
     expect(inserted?.status).toBe('sunuldu');
+  });
+
+  it('10. (ADR-0031 §c) the NEW workspaceId FK constraint is real: inserting with a non-existent workspaceId fails with a foreign-key violation', async () => {
+    const objectId = newObjectId();
+    const providerMeetingRef = freshProviderMeetingRef('nonexistent-workspace');
+    const nonExistentWorkspaceId = '00000000-0000-0000-0000-000000000000';
+
+    await expect(
+      db.insert(meetingDetails).values({
+        objectId,
+        workspaceId: nonExistentWorkspaceId,
+        meetingUrl: 'https://zoom.us/j/1111111111',
+        provider: 'zoom',
+        status: 'sunuldu',
+        providerMeetingRef,
+      }),
+    ).rejects.toSatisfy((error: unknown) => hasPostgresErrorCode(error, '23503'));
   });
 });

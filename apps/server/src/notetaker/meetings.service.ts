@@ -81,6 +81,7 @@ export class MeetingsService {
       .insert(meetingDetails)
       .values({
         objectId: object.id,
+        workspaceId,
         meetingUrl: input.meetingUrl,
         provider,
         providerMeetingRef,
