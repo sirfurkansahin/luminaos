@@ -1,22 +1,31 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AIProvider } from '@luminaos/ai-gateway';
 import { newObjectId } from '@luminaos/core-objects';
 import type { Role } from '@luminaos/core-objects';
-import { AppError, ConflictError, NotFoundError, ValidationError } from '@luminaos/shared';
+import {
+  AppError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ActionProposalProjection } from './action-proposal.projection.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIUsageService } from '../ai/ai-usage.service.js';
+import { extractMeetingActions } from '../ai/extract-meeting-actions.js';
 import { parseCommand, proposedActionSchema } from '../ai/parse-command.js';
 import { selectAIModel } from '../ai/select-ai-model.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { commandProposals } from '../db/schema/command-proposals.js';
+import { memberships } from '../db/schema/memberships.js';
+import { users } from '../db/schema/users.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 import { ObjectsService } from '../objects/objects.service.js';
@@ -106,6 +115,15 @@ const PROPOSAL_STREAM_TYPE = 'action-proposal';
  */
 const COMMAND_PARSER_ACTOR = { type: 'agent', id: 'command-parser' } as const;
 
+/**
+ * The always-and-only actor recorded for a meeting-triggered proposal's own
+ * `ActionsProposed` event (ADR-0031 §h) — deliberately distinct from
+ * `COMMAND_PARSER_ACTOR` so an audit query can tell the two proposal sources
+ * apart purely from `actor.id`, without any calling-user actor involved at
+ * all (there IS no calling user for this automatic, webhook-triggered flow).
+ */
+const MEETING_ACTION_EXTRACTOR_ACTOR = { type: 'agent', id: 'meeting-action-extractor' } as const;
+
 export interface CommandsServiceParseResult {
   proposalId: string;
   actions: ProposedAction[];
@@ -127,6 +145,7 @@ export interface CommandsServiceParseResult {
 export class CommandsService {
   /** Same "single, stable instance" reasoning as `ObjectsService.aiUsageProjection`/`AIUsageService.aiUsageProjection`. */
   private readonly actionProposalProjection = new ActionProposalProjection();
+  private readonly logger = new Logger(CommandsService.name);
 
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
@@ -182,6 +201,84 @@ export class CommandsService {
       },
     );
 
+    return this.recordProposal(
+      workspaceId,
+      COMMAND_PARSER_ACTOR,
+      actions,
+      sourceObjectId,
+      command,
+      parseError,
+      message,
+    );
+  }
+
+  /**
+   * `proposeFromMeeting` (ADR-0031 §h): the meeting-triggered sibling of
+   * `parse()` — sources its proposed actions from `extractMeetingActions`
+   * (`../ai/extract-meeting-actions.ts`) instead of `parseCommand`, and
+   * shares `parse()`'s `recordProposal` event-recording helper below rather
+   * than duplicating it. There is no calling-user actor for this method at
+   * all (it's triggered automatically by a webhook, ADR-0031 §i) — every
+   * resulting `ActionsProposed` event is always authored by the fixed
+   * `MEETING_ACTION_EXTRACTOR_ACTOR`, never `COMMAND_PARSER_ACTOR`.
+   *
+   * The `command` column never stores the raw transcript (ADR-0031 §f) — a
+   * short, synthetic, human-readable string is recorded instead; the real
+   * transcript text is only ever used as the AI call's own prompt input.
+   */
+  async proposeFromMeeting(
+    workspaceId: string,
+    meetingObjectId: string,
+    transcriptText: string,
+  ): Promise<CommandsServiceParseResult> {
+    const { actions, parseError, message } = await this.aiUsageService.withWorkspaceAILock(
+      workspaceId,
+      async () => {
+        await this.aiUsageService.assertAITokenQuotaNotExceeded(workspaceId);
+        await this.aiUsageService.assertAICostBudgetNotExceeded(workspaceId);
+
+        const model = selectAIModel({ outputType: 'command' });
+
+        return extractMeetingActions({
+          provider: this.aiProvider,
+          transcriptText,
+          model,
+          recordUsage: (usage) =>
+            this.aiUsageService.recordAIUsage(workspaceId, undefined, undefined, usage, model),
+        });
+      },
+    );
+
+    return this.recordProposal(
+      workspaceId,
+      MEETING_ACTION_EXTRACTOR_ACTOR,
+      actions,
+      meetingObjectId,
+      `[meeting-action-extraction] meetingObjectId=${meetingObjectId}`,
+      parseError,
+      message,
+    );
+  }
+
+  /**
+   * `recordProposal` (ADR-0031 §h): the shared "durably record an
+   * `ActionsProposed` event + return the standard parse-result shape"
+   * mechanics, extracted out of `parse()` so `proposeFromMeeting` above can
+   * reuse it verbatim without duplicating the event-append logic. `actor`
+   * distinguishes the two callers (`COMMAND_PARSER_ACTOR` vs
+   * `MEETING_ACTION_EXTRACTOR_ACTOR`); `parseError`/`message` come from each
+   * caller's own AI-call result, since this helper has no opinion on how the
+   * actions were produced.
+   */
+  private async recordProposal(
+    workspaceId: string,
+    actor: Actor,
+    actions: ProposedAction[],
+    sourceObjectId: string | undefined,
+    command: string,
+    parseError: boolean,
+    message?: string,
+  ): Promise<CommandsServiceParseResult> {
     const proposalId = newObjectId();
     const streamId = randomUUID();
 
@@ -197,7 +294,7 @@ export class CommandsService {
         command,
         actions,
       },
-      actor: COMMAND_PARSER_ACTOR,
+      actor,
       occurredAt: new Date(),
     };
 
@@ -407,17 +504,13 @@ export class CommandsService {
       case 'assignPeople':
         return this.executeAssignPeople(workspaceId, action, approverActor, callerRole);
       case 'createTaskFromMeeting':
-        // Placeholder so `DecidableAction`'s switch stays exhaustive after
-        // F2-T14 PR3 widened `ProposedAction.type` (ADR-0031 §e) -- the real
-        // executor (`executeCreateTaskFromMeeting`, ADR-0031 §h) lands in
-        // PR4, which replaces this case entirely. `proposeFromMeeting`
-        // (also PR4) is the only thing that can ever PRODUCE this type, so
-        // this branch is unreachable in production until PR4 ships.
-        return {
-          actionId: action.actionId,
-          status: 'failed',
-          error: 'This action is not yet supported.',
-        };
+        return this.executeCreateTaskFromMeeting(
+          workspaceId,
+          action,
+          approverActor,
+          callerRole,
+          causationEventId,
+        );
     }
   }
 
@@ -512,6 +605,159 @@ export class CommandsService {
       failedAtStep: failure.step,
       error: failure.error,
     };
+  }
+
+  /**
+   * `executeCreateTaskFromMeeting` (ADR-0031 §h): creates the task exactly
+   * like `executeCreateTask`, then BEST-EFFORT applies `assigneeHint`/
+   * `dueDateHint` (if present) — hint resolution failures (no matching
+   * member, no active field definition, unparseable date) must NEVER cause
+   * the overall result to be `'failed'` once the task itself was created,
+   * so each hint's application is wrapped in its own silently-swallowing
+   * try/catch (`applyAssigneeHint`/`applyDueDateHint` below).
+   */
+  private async executeCreateTaskFromMeeting(
+    workspaceId: string,
+    action: DecidableAction,
+    approverActor: Actor,
+    callerRole: Role,
+    causationEventId: string,
+  ): Promise<DecideActionResult> {
+    const { actionId } = action;
+
+    try {
+      const title = requireStringParam(action.params, 'title');
+      const created = await this.objectsService.create(
+        workspaceId,
+        approverActor,
+        { objectType: 'task', title, causationEventId },
+        callerRole,
+      );
+
+      await this.applyAssigneeHint(
+        workspaceId,
+        created.id,
+        action.params,
+        approverActor,
+        callerRole,
+      );
+      await this.applyDueDateHint(
+        workspaceId,
+        created.id,
+        action.params,
+        approverActor,
+        callerRole,
+      );
+
+      return { actionId, status: 'executed' };
+    } catch (error) {
+      return { actionId, status: 'failed', error: toErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Best-effort `assigneeHint` resolution (ADR-0031's human-approved "Açık
+   * Soru 1"): EXACT-MATCH-ONLY, case-insensitive, against a workspace
+   * member's `users.email` — no fuzzy/partial matching. Any failure (no
+   * matching member, no active `assignee` field definition for `task` in
+   * this workspace, etc.) is silently swallowed; the task itself was already
+   * created and must not be affected.
+   */
+  private async applyAssigneeHint(
+    workspaceId: string,
+    taskId: string,
+    params: Record<string, unknown>,
+    approverActor: Actor,
+    callerRole: Role,
+  ): Promise<void> {
+    const assigneeHint = params.assigneeHint;
+    if (typeof assigneeHint !== 'string') {
+      return;
+    }
+
+    try {
+      const [foundMember] = await this.db
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(
+          and(
+            eq(memberships.workspaceId, workspaceId),
+            sql`lower(${users.email}) = lower(${assigneeHint})`,
+          ),
+        )
+        .limit(1);
+
+      if (!foundMember) {
+        return;
+      }
+
+      await this.objectsService.setFieldValues(workspaceId, taskId, approverActor, callerRole, [
+        { fieldKey: 'assignee', value: [foundMember.userId] },
+      ]);
+    } catch (error) {
+      // Best-effort: any failure (missing field definition, etc.) is
+      // silently swallowed -- the task was already created successfully, and
+      // this must never flip the reported status to 'failed'. A
+      // ForbiddenError specifically (the approver's role lacks edit
+      // permission on this field) is a genuine authorization-configuration
+      // signal worth surfacing, unlike "field not defined" -- logged (no
+      // hint/email content, only opaque ids) so it isn't invisible
+      // (security-reviewer finding, PR4).
+      if (error instanceof ForbiddenError) {
+        this.logger.warn(
+          `assigneeHint could not be applied to task ${taskId}: approver lacks edit permission on the "assignee" field.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Best-effort `dueDateHint` resolution (ADR-0031's human-approved "Açık
+   * Soru 1"): only `Date.parse`-parseable strings are accepted -- relative
+   * expressions ("next week") are deliberately rejected, not fuzzily
+   * interpreted. Any failure applying the value (no active `dueDate` field
+   * definition, etc.) is silently swallowed.
+   */
+  private async applyDueDateHint(
+    workspaceId: string,
+    taskId: string,
+    params: Record<string, unknown>,
+    approverActor: Actor,
+    callerRole: Role,
+  ): Promise<void> {
+    const dueDateHint = params.dueDateHint;
+    if (typeof dueDateHint !== 'string') {
+      return;
+    }
+
+    const parsedMs = Date.parse(dueDateHint);
+    if (Number.isNaN(parsedMs)) {
+      return;
+    }
+
+    // `dueDate` fields use the `date` field type (`z.iso.date()`, plain
+    // `YYYY-MM-DD` — no time component), NOT `datetime` — a full
+    // `.toISOString()` timestamp fails that schema (rejected as invalid,
+    // silently swallowed below), so the value is truncated to its date
+    // portion, which round-trips to the same instant for a pure-date hint.
+    const dueDateValue = new Date(parsedMs).toISOString().slice(0, 10);
+
+    try {
+      await this.objectsService.setFieldValues(workspaceId, taskId, approverActor, callerRole, [
+        { fieldKey: 'dueDate', value: dueDateValue },
+      ]);
+    } catch (error) {
+      // Same discipline as `applyAssigneeHint`'s catch (security-reviewer
+      // finding, PR4): never let this flip the reported status away from
+      // 'executed', but a ForbiddenError is worth a log signal, unlike a
+      // merely-undefined field.
+      if (error instanceof ForbiddenError) {
+        this.logger.warn(
+          `dueDateHint could not be applied to task ${taskId}: approver lacks edit permission on the "dueDate" field.`,
+        );
+      }
+    }
   }
 
   private async executeAssignPeople(

@@ -33,5 +33,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   ],
   controllers: [CommandsController],
   providers: [CommandsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  exports: [CommandsService],
 })
 export class CommandsModule {}
