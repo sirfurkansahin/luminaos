@@ -12,6 +12,7 @@ import { MeetingsService } from './meetings.service.js';
 import { NotetakerWebhookAuthGuard } from './notetaker-webhook-auth.guard.js';
 import { NotetakerWebhookController } from './notetaker-webhook.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { CommandsModule } from '../commands/commands.module.js';
 import { DbModule } from '../db/db.module.js';
 import { ObjectsModule } from '../objects/objects.module.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
@@ -25,7 +26,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * lands as a later, isolated change to this factory only.
  */
 @Module({
-  imports: [DbModule, AuthModule, ObjectsModule],
+  imports: [DbModule, AuthModule, ObjectsModule, CommandsModule],
   controllers: [
     MeetingInviteController,
     NotetakerWebhookController,
