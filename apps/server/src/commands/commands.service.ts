@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AIProvider } from '@luminaos/ai-gateway';
@@ -31,10 +31,12 @@ import { ProjectionRunner } from '../event-store/projections/projection-runner.s
 import { ObjectsService } from '../objects/objects.service.js';
 import { RelationsService } from '../relations/relations.service.js';
 import { WebhookDeliveryEnqueueProjection } from '../webhooks/webhook-delivery-enqueue.projection.js';
+import { hasAtLeastRole } from '../workspaces/membership.util.js';
 import { WorkspaceMembershipService } from '../workspaces/workspace-membership.service.js';
 
 import type { ProposedAction } from '../ai/parse-command.js';
 import type { Database } from '../db/client.js';
+import type { MembershipRole } from '../workspaces/membership.util.js';
 
 /**
  * Defensive READ-time re-validation of a single stored `command_proposals`
@@ -54,6 +56,37 @@ const decidableActionSchema = proposedActionSchema.element.extend({
 
 /** Hard cap on how many decisions a single `decide()` call may carry — defense-in-depth against an adversarial/malfunctioning AI response producing an unbounded `subtaskTitles`/`userIds`-style array upstream in `parseCommand`'s output (security review, F1-T16 PR5). Exported so `../commands/dto/decide-actions.schema.ts` (F1-T16 PR6) can reuse the exact same cap instead of hardcoding a second, driftable `50`. */
 export const MAX_DECISIONS_PER_CALL = 50;
+
+/** Default page size for `listProposals` when `filter?.limit` is omitted (F2-T16 PR3, ADR-0033 §b/§g). */
+export const DEFAULT_LIST_PROPOSALS_LIMIT = 50;
+
+/**
+ * Hard cap on `listProposals`'s page size regardless of what `filter?.limit`
+ * requests — security-review finding (F2-T16 PR3), mirroring
+ * `MAX_DECISIONS_PER_CALL`'s exact rationale: an uncapped caller-supplied
+ * `limit` (the controller only rejects non-positive-integers, not large
+ * ones) could otherwise fetch a workspace's entire `command_proposals` table
+ * — including its unbounded `actions`/`decisions` jsonb blobs — in one
+ * response. Enforced HERE (not just at the controller) so any future
+ * internal caller of `listProposals` that bypasses HTTP is protected too.
+ */
+export const MAX_LIST_PROPOSALS_LIMIT = 200;
+
+/**
+ * A single row of `command_proposals`, as returned by `listProposals`
+ * (F2-T16 PR3, ADR-0033 §b/§g) — a direct field-for-field copy of the
+ * Drizzle row shape, no transformation needed.
+ */
+export interface CommandProposalSummary {
+  id: string;
+  workspaceId: string;
+  command: string;
+  sourceObjectId: string | null;
+  actions: unknown;
+  decisions: unknown;
+  createdAt: Date;
+  decidedAt: Date | null;
+}
 
 type DecidableAction = z.infer<typeof decidableActionSchema>;
 
@@ -878,6 +911,64 @@ export class CommandsService {
         );
       }
     }
+  }
+
+  /**
+   * `listProposals` (F2-T16 PR3, ADR-0033 §b/§g): the FIRST general "list
+   * proposals" read endpoint on top of ADR-0015's öner→onayla (propose→decide)
+   * flow. `member`+ required — DELIBERATELY DIFFERENT from
+   * `WebhookSubscriptionsService.list`'s `admin`+-both-ways rule (PR1): a
+   * proposal's automation history is "not more sensitive than seeing a
+   * trigger DEFINITION" (ADR-0033 §g), so this mirrors
+   * `AutomationTriggersService.list`'s member-read precedent instead.
+   *
+   * Always scoped by `workspaceId` — never cross-workspace, even for an
+   * admin/owner of a DIFFERENT workspace. Ordered newest-first by `id`
+   * (ULID, lexicographically sortable by creation time in production).
+   *
+   * Pagination: fetches `limit + 1` rows to detect whether a next page
+   * exists without a separate `count(*)` query — if `limit + 1` rows come
+   * back, the page is sliced to `limit` and `nextCursor` is set to the last
+   * (oldest) row of that page; otherwise every fetched row is returned and
+   * `nextCursor` is omitted. `cursor` continues strictly before
+   * (`id < cursor`) the given row — no overlap, no gaps across pages.
+   */
+  async listProposals(
+    workspaceId: string,
+    callerRole: MembershipRole,
+    filter?: { pendingOnly?: boolean; limit?: number; cursor?: string },
+  ): Promise<{ proposals: CommandProposalSummary[]; nextCursor?: string }> {
+    if (!hasAtLeastRole(callerRole, 'member')) {
+      throw new ForbiddenError();
+    }
+
+    const limit = Math.min(filter?.limit ?? DEFAULT_LIST_PROPOSALS_LIMIT, MAX_LIST_PROPOSALS_LIMIT);
+
+    const conditions = [eq(commandProposals.workspaceId, workspaceId)];
+
+    if (filter?.pendingOnly === true) {
+      conditions.push(isNull(commandProposals.decidedAt));
+    }
+
+    if (filter?.cursor !== undefined) {
+      conditions.push(lt(commandProposals.id, filter.cursor));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(commandProposals)
+      .where(and(...conditions))
+      .orderBy(desc(commandProposals.id))
+      .limit(limit + 1);
+
+    const hasNextPage = rows.length > limit;
+    const page = hasNextPage ? rows.slice(0, limit) : rows;
+    const lastRow = page[page.length - 1];
+
+    return {
+      proposals: page,
+      ...(hasNextPage && lastRow ? { nextCursor: lastRow.id } : {}),
+    };
   }
 
   private async executeAssignPeople(
