@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AutomationTriggersController } from './automation-triggers.controller.js';
 import { AutomationTriggersService } from './automation-triggers.service.js';
+import { TriggerConditionEvaluatorService } from './trigger-condition-evaluator.service.js';
 import { TriggerSchedulerService } from './trigger-scheduler.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { CommandsModule } from '../commands/commands.module.js';
@@ -16,6 +17,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   providers: [
     AutomationTriggersService,
     TriggerSchedulerService,
+    TriggerConditionEvaluatorService,
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
