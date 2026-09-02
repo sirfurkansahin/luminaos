@@ -287,11 +287,17 @@ export class CommandsService {
    * trigger's own id (mirrors `proposeFromMeeting`'s "never store the raw
    * transcript" discipline) — a short, synthetic, human-readable string is
    * recorded instead.
+   *
+   * `sourceObjectId` (F2-T15 PR4 widening) is `string | undefined`: a
+   * SCHEDULED trigger's fire has no matched source object at all, unlike a
+   * condition-trigger match — `recordProposal` below already accepts
+   * `string | undefined` and conditionally spreads it, so this is a pure
+   * type-level widening, no behavior change.
    */
   async proposeFromTrigger(
     workspaceId: string,
     triggerId: string,
-    sourceObjectId: string,
+    sourceObjectId: string | undefined,
     actions: ProposedAction[],
   ): Promise<CommandsServiceParseResult> {
     return this.recordProposal(
