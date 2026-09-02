@@ -30,6 +30,7 @@ import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 import { ObjectsService } from '../objects/objects.service.js';
 import { RelationsService } from '../relations/relations.service.js';
+import { WebhookDeliveryEnqueueProjection } from '../webhooks/webhook-delivery-enqueue.projection.js';
 import { WorkspaceMembershipService } from '../workspaces/workspace-membership.service.js';
 
 import type { ProposedAction } from '../ai/parse-command.js';
@@ -156,6 +157,8 @@ export interface CommandsServiceParseResult {
 export class CommandsService {
   /** Same "single, stable instance" reasoning as `ObjectsService.aiUsageProjection`/`AIUsageService.aiUsageProjection`. */
   private readonly actionProposalProjection = new ActionProposalProjection();
+  /** F2-T16 PR2 (ADR-0033 §d/§e): enqueues `webhook_deliveries` rows for `ActionsProposed`/`ActionsDecided`, caught up in the same transaction as `actionProposalProjection`. */
+  private readonly webhookDeliveryEnqueueProjection = new WebhookDeliveryEnqueueProjection();
   private readonly logger = new Logger(CommandsService.name);
 
   constructor(
@@ -320,6 +323,31 @@ export class CommandsService {
    * caller's own AI-call result, since this helper has no opinion on how the
    * actions were produced.
    */
+  /**
+   * F2-T16 PR2 security review finding: `webhookDeliveryEnqueueProjection`'s
+   * `catchUp()` runs in its OWN separate transaction from the
+   * `ActionsProposed`/`ActionsDecided` append + `actionProposalProjection`
+   * catch-up that precedes it. If it threw uncaught, `recordProposal()`/
+   * `decide()` would reject AFTER the event (and, for `decide()`,
+   * `command_proposals.decided_at`) was already durably committed --
+   * permanently stranding the proposal, since `decide()` rejects any retry
+   * of an already-decided proposal with `ConflictError` before ever reaching
+   * the execution loop again. A webhook-enqueue failure must never be able
+   * to do that: it is caught and logged here, exactly like
+   * `WebhookDeliveryWorker.runOnce()`'s own "one row's failure never aborts
+   * the rest" discipline, never rethrown.
+   */
+  private async catchUpWebhookDeliveryEnqueue(): Promise<void> {
+    try {
+      await this.projectionRunner.catchUp(this.webhookDeliveryEnqueueProjection);
+    } catch (error) {
+      this.logger.error(
+        'Webhook delivery enqueue projection catch-up failed; the proposal/decision itself was already committed.',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
   private async recordProposal(
     workspaceId: string,
     actor: Actor,
@@ -350,6 +378,7 @@ export class CommandsService {
 
     await this.eventStore.append(streamId, 0, [event]);
     await this.projectionRunner.catchUp(this.actionProposalProjection);
+    await this.catchUpWebhookDeliveryEnqueue();
 
     return {
       proposalId,
@@ -452,6 +481,7 @@ export class CommandsService {
 
     await this.eventStore.append(row.streamId, 1, [decidedEvent]);
     await this.projectionRunner.catchUp(this.actionProposalProjection);
+    await this.catchUpWebhookDeliveryEnqueue();
 
     const resultsByActionId = new Map<string, DecideActionResult>();
 
