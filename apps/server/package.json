@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@luminaos/ai-gateway": "workspace:*",
+    "@luminaos/automation": "workspace:*",
     "@luminaos/core-objects": "workspace:*",
     "@luminaos/integrations": "workspace:*",
     "@luminaos/memory": "workspace:*",
