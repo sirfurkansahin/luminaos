@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 
 import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AutomationModule } from './automation/automation.module.js';
 import { AvailabilityModule } from './availability/availability.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
 import { CommandsModule } from './commands/commands.module.js';
@@ -72,6 +73,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     IntegrationsModule,
     McpConnectorsModule,
     McpServerModule,
+    AutomationModule,
   ],
   controllers: [AppController],
   providers: [

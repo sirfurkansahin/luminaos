@@ -1,6 +1,6 @@
 {
-  "id": "20ec843f-6bdd-47da-8aff-31b61defd372",
-  "prevId": "d02173e7-d44e-4320-8966-7aae69627454",
+  "id": "ed6272f6-2bac-4e4f-8317-16becf6f6ff3",
+  "prevId": "20ec843f-6bdd-47da-8aff-31b61defd372",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3131,6 +3131,12 @@
         "workspace_id": {
           "name": "workspace_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
           "primaryKey": false,
           "notNull": true
         },

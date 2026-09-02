@@ -1,0 +1,1 @@
+ALTER TABLE "automation_triggers" ADD COLUMN "name" varchar(200) NOT NULL;
