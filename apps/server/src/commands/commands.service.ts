@@ -124,6 +124,17 @@ const COMMAND_PARSER_ACTOR = { type: 'agent', id: 'command-parser' } as const;
  */
 const MEETING_ACTION_EXTRACTOR_ACTOR = { type: 'agent', id: 'meeting-action-extractor' } as const;
 
+/**
+ * The always-and-only actor recorded for a trigger-produced proposal's own
+ * `ActionsProposed` event (ADR-0032 Karar (f)) — deliberately distinct from
+ * BOTH `COMMAND_PARSER_ACTOR` and `MEETING_ACTION_EXTRACTOR_ACTOR`, so an
+ * audit query can tell all three proposal sources apart purely from
+ * `actor.id`. There is no calling-user actor for this flow either (a
+ * trigger-engine match, not a human command or a webhook-triggered meeting
+ * transcript).
+ */
+const TRIGGER_ENGINE_ACTOR = { type: 'agent', id: 'trigger-engine' } as const;
+
 export interface CommandsServiceParseResult {
   proposalId: string;
   actions: ProposedAction[];
@@ -257,6 +268,39 @@ export class CommandsService {
       `[meeting-action-extraction] meetingObjectId=${meetingObjectId}`,
       parseError,
       message,
+    );
+  }
+
+  /**
+   * `proposeFromTrigger` (ADR-0032 Karar (f)): the THIRD fixed-actor caller
+   * of `recordProposal` below, sitting alongside `parse()`
+   * (`COMMAND_PARSER_ACTOR`) and `proposeFromMeeting()`
+   * (`MEETING_ACTION_EXTRACTOR_ACTOR`). Deliberately simpler than both: the
+   * caller (a future trigger-engine, PR5) hands in already-fully-formed
+   * `actions` sourced from a trigger's own stored `actionTemplate` — there is
+   * no AI call at all, so this method never touches
+   * `AIUsageService.withWorkspaceAILock`/quota/budget checks, and
+   * `parseError` is always `false` since there is no parse step that can
+   * fail.
+   *
+   * The `command` column never stores raw trigger internals beyond the
+   * trigger's own id (mirrors `proposeFromMeeting`'s "never store the raw
+   * transcript" discipline) — a short, synthetic, human-readable string is
+   * recorded instead.
+   */
+  async proposeFromTrigger(
+    workspaceId: string,
+    triggerId: string,
+    sourceObjectId: string,
+    actions: ProposedAction[],
+  ): Promise<CommandsServiceParseResult> {
+    return this.recordProposal(
+      workspaceId,
+      TRIGGER_ENGINE_ACTOR,
+      actions,
+      sourceObjectId,
+      `[trigger] triggerId=${triggerId}`,
+      false,
     );
   }
 
@@ -511,10 +555,50 @@ export class CommandsService {
           callerRole,
           causationEventId,
         );
+      case 'createTaskFromTrigger':
+        return this.executeCreateTaskFromTrigger(
+          workspaceId,
+          action,
+          approverActor,
+          callerRole,
+          causationEventId,
+        );
     }
   }
 
   private async executeCreateTask(
+    workspaceId: string,
+    action: DecidableAction,
+    approverActor: Actor,
+    callerRole: Role,
+    causationEventId: string,
+  ): Promise<DecideActionResult> {
+    const { actionId } = action;
+
+    try {
+      const title = requireStringParam(action.params, 'title');
+      await this.objectsService.create(
+        workspaceId,
+        approverActor,
+        { objectType: 'task', title, causationEventId },
+        callerRole,
+      );
+      return { actionId, status: 'executed' };
+    } catch (error) {
+      return { actionId, status: 'failed', error: toErrorMessage(error) };
+    }
+  }
+
+  /**
+   * `executeCreateTaskFromTrigger` (ADR-0032 Karar (f)): creates the task
+   * exactly like `executeCreateTask` — reads `params.title`, creates a
+   * `task` object attributed to the REAL approving user (`approverActor`),
+   * never `TRIGGER_ENGINE_ACTOR`. Deliberately NO hint resolution of any
+   * kind (unlike `executeCreateTaskFromMeeting`'s `assigneeHint`/
+   * `dueDateHint`): ADR-0032 has no templating/hints in v0, `params` only
+   * ever carries `title`.
+   */
+  private async executeCreateTaskFromTrigger(
     workspaceId: string,
     action: DecidableAction,
     approverActor: Actor,

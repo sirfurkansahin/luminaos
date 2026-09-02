@@ -306,6 +306,20 @@ describe('proposedActionSchema — closed union widened for F2-T14 PR3 (ADR-0031
   });
 });
 
+describe('proposedActionSchema — closed union widened again for F2-T15 PR3 (ADR-0032 Karar (f))', () => {
+  it('ACCEPTS a `createTaskFromTrigger`-typed action object — the union now has a 5th member, added so a future (PR5) trigger-engine caller can hand `CommandsService.proposeFromTrigger` fully-formed actions of this type. Same reasoning as the `createTaskFromMeeting` widening test above: this only proves the SCHEMA accepts the type structurally, not that `parseCommand`/`renderCommandPrompt` itself ever asks the model for it — `parseCommand` never produces this type, ADR-0032 Karar (f).', () => {
+    const result = proposedActionSchema.safeParse([
+      validActionJson({ type: 'createTaskFromTrigger' }),
+    ]);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]?.type).toBe('createTaskFromTrigger');
+    }
+  });
+});
+
 describe('parseCommand — actionId generation', () => {
   it("assigns a fresh, non-empty, UUID-shaped actionId to every successfully-validated action, even when the model's JSON included no actionId field at all", async () => {
     const provider = MockProvider.fixed({
