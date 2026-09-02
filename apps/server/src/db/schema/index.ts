@@ -32,3 +32,5 @@ export * from './meeting-details.js';
 export * from './meeting-retention-preferences.js';
 export * from './automation-triggers.js';
 export * from './automation-trigger-matches.js';
+export * from './webhook-subscriptions.js';
+export * from './webhook-deliveries.js';
