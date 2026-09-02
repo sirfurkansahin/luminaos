@@ -1,0 +1,34 @@
+{
+  "name": "@luminaos/automation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
+    "fast-check": "^4.9.0",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@luminaos/shared": "workspace:*",
+    "ulid": "^3.0.2",
+    "zod": "^4.4.3"
+  }
+}
