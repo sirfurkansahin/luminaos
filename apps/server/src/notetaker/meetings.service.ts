@@ -1,5 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Role } from '@luminaos/core-objects';
 import type { MeetingBotClient } from '@luminaos/integrations';
@@ -8,7 +8,9 @@ import type { Actor } from '@luminaos/shared';
 
 import { detectMeetingProvider } from './detect-meeting-provider.js';
 import { MEETING_BOT_CLIENT } from './meeting-bot-client.token.js';
+import { CommandsService } from '../commands/commands.service.js';
 import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { commandProposals } from '../db/schema/command-proposals.js';
 import { meetingDetails } from '../db/schema/meeting-details.js';
 import { ObjectsService } from '../objects/objects.service.js';
 import { hasAtLeastRole } from '../workspaces/membership.util.js';
@@ -26,6 +28,19 @@ export interface MeetingMetadata {
   status: MeetingDetailsRow['status'];
   createdAt: string;
   transcriptText?: string | null;
+  pendingProposal?: { proposalId: string; actions: unknown[] };
+}
+
+function hasNewlyPopulatedTranscript(
+  update: { transcriptText?: string | null },
+  previousTranscriptText: string | null,
+): update is { transcriptText: string } {
+  return (
+    'transcriptText' in update &&
+    typeof update.transcriptText === 'string' &&
+    update.transcriptText.length > 0 &&
+    (previousTranscriptText === null || previousTranscriptText.length === 0)
+  );
 }
 
 /**
@@ -38,10 +53,13 @@ export interface MeetingMetadata {
  */
 @Injectable()
 export class MeetingsService {
+  private readonly logger = new Logger(MeetingsService.name);
+
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
     private readonly objectsService: ObjectsService,
     @Inject(MEETING_BOT_CLIENT) private readonly meetingBotClient: MeetingBotClient,
+    private readonly commandsService: CommandsService,
   ) {}
 
   /**
@@ -124,6 +142,24 @@ export class MeetingsService {
 
     const canViewTranscript = hasAtLeastRole(callerRole, 'member');
 
+    let pendingProposal: { proposalId: string; actions: unknown[] } | undefined;
+    if (canViewTranscript) {
+      const [proposalRow] = await this.db
+        .select()
+        .from(commandProposals)
+        .where(
+          and(eq(commandProposals.sourceObjectId, meetingId), isNull(commandProposals.decidedAt)),
+        )
+        .limit(1);
+
+      if (proposalRow) {
+        pendingProposal = {
+          proposalId: proposalRow.id,
+          actions: Array.isArray(proposalRow.actions) ? proposalRow.actions : [],
+        };
+      }
+    }
+
     return {
       meeting: {
         id: object.id,
@@ -133,6 +169,7 @@ export class MeetingsService {
         status: row.status,
         createdAt: row.createdAt.toISOString(),
         ...(canViewTranscript ? { transcriptText: row.transcriptText } : {}),
+        ...(pendingProposal ? { pendingProposal } : {}),
       },
     };
   }
@@ -151,6 +188,12 @@ export class MeetingsService {
    * `update` (`in`, not `!== undefined` -- a webhook payload that omits a key
    * entirely must leave the existing DB value untouched, distinct from a
    * payload that explicitly sends `null` for it).
+   *
+   * ADR-0031 §h/§i: whenever this update NEWLY populates `transcriptText`
+   * (the row's PREVIOUS value, read here before the update is applied, was
+   * null/empty), `CommandsService.proposeFromMeeting` is triggered exactly
+   * once, fire-and-forget -- a failing AI extraction must never fail this
+   * webhook's own persistence step.
    */
   async applyWebhookUpdate(
     providerMeetingRef: string,
@@ -172,6 +215,8 @@ export class MeetingsService {
       throw new NotFoundError('Meeting not found for the given webhook reference');
     }
 
+    const shouldTriggerProposal = hasNewlyPopulatedTranscript(update, row.transcriptText);
+
     const values: {
       status: MeetingDetailsRow['status'];
       transcriptText?: string | null;
@@ -187,5 +232,18 @@ export class MeetingsService {
     }
 
     await this.db.update(meetingDetails).set(values).where(eq(meetingDetails.id, row.id));
+
+    if (shouldTriggerProposal) {
+      // Fire-and-forget (ADR-0031 §i): intentionally not awaited -- the
+      // caught rejection is only ever logged with opaque ids, never
+      // transcript content.
+      this.commandsService
+        .proposeFromMeeting(row.workspaceId, row.objectId, update.transcriptText)
+        .catch((error: unknown) => {
+          this.logger.error(
+            `proposeFromMeeting failed for meetingObjectId ${row.objectId} (meeting_details.id ${row.id}): ${error instanceof Error ? error.message : 'unknown error'}`,
+          );
+        });
+    }
   }
 }
