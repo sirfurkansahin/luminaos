@@ -56,6 +56,20 @@ import type { MockInstance } from 'vitest';
  * `proposeFromTrigger`, since `recordProposal` itself has no id-minting step
  * of its own (verified by reading `recordProposal`'s body: it persists
  * `actions` verbatim).
+ *
+ * AC6 (F2-T15 PR4 addition) — `sourceObjectId: undefined`: a SCHEDULED
+ * trigger (the PR4 `TriggerSchedulerService`'s own subject) has no matched
+ * source object at all, unlike a condition-trigger match or a `parse()`/
+ * `proposeFromMeeting()` call. `recordProposal` (this file's own
+ * `CommandsService.recordProposal`, read directly) ALREADY accepts
+ * `sourceObjectId: string | undefined` and conditionally spreads it onto both
+ * the persisted row and the `ActionsProposed` event payload — only
+ * `proposeFromTrigger`'s OWN parameter type is still (pre-this-PR) narrowed to
+ * a required `string`. This file's local `CommandsServiceContract` below is
+ * updated to the WIDENED shape `implementer` must produce; the real class
+ * still has the narrower (pre-widening) signature until then, so AC6's `it`
+ * below is expected to fail (red) both at compile-time (if `tsc` is run) and
+ * at runtime today, exactly like every other AC in this file.
  */
 
 const COMMAND_PARSER_ACTOR = { type: 'agent', id: 'command-parser' } as const;
@@ -113,12 +127,16 @@ type AIUsageServiceConstructor = new (
 
 /** The public contract `CommandsService` must satisfy once `implementer` adds
  * `proposeFromTrigger` — declared locally (not statically imported), same
- * reasoning as every other file in this directory. */
+ * reasoning as every other file in this directory. `sourceObjectId` is
+ * `string | undefined` (F2-T15 PR4 widening, AC6 below): a SCHEDULED
+ * trigger's fire has no matched source object at all, unlike a
+ * condition-trigger match — the real class's `sourceObjectId` parameter is
+ * still narrowed to a required `string` until `implementer` widens it. */
 interface CommandsServiceContract {
   proposeFromTrigger(
     workspaceId: string,
     triggerId: string,
-    sourceObjectId: string,
+    sourceObjectId: string | undefined,
     actions: ProposedActionContract[],
   ): Promise<CommandsServiceParseResult>;
 }
@@ -391,6 +409,37 @@ describe('CommandsService.proposeFromTrigger() (real Postgres via Testcontainers
 
       expect(await countProposalRows(workspaceA)).toBe(1);
       expect(await countProposalRows(workspaceB)).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // AC6 (F2-T15 PR4) -- sourceObjectId: undefined (scheduled trigger, no
+  // matched source object at all)
+  // ---------------------------------------------------------------------
+
+  describe('AC6: sourceObjectId is optional -- a scheduled trigger has no matched source object', () => {
+    it('accepts sourceObjectId: undefined; the persisted row has a null source_object_id and the ActionsProposed event payload has NO "sourceObjectId" key at all (omitted, never nulled)', async () => {
+      const workspaceId = await createWorkspace('propose-from-trigger-ac6');
+      const triggerId = newObjectId();
+
+      const result = await service.proposeFromTrigger(workspaceId, triggerId, undefined, [
+        createTaskFromTriggerAction(),
+      ]);
+
+      expect(result.parseError).toBe(false);
+
+      const row = await getProposalRow(result.proposalId);
+      expect(row).toBeDefined();
+      expect(row?.source_object_id).toBeNull();
+      expect(row?.command).toBe(`[trigger] triggerId=${triggerId}`);
+
+      const streamEvents = await eventStore.readStream(row?.stream_id ?? '');
+      const proposedEvent = streamEvents.find((event) => event.type === 'ActionsProposed');
+      expect(proposedEvent).toBeDefined();
+      const payload = proposedEvent?.payload;
+      expect(payload).toBeDefined();
+      expect(Object.prototype.hasOwnProperty.call(payload, 'sourceObjectId')).toBe(false);
+      expect('sourceObjectId' in (payload ?? {})).toBe(false);
     });
   });
 });
