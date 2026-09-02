@@ -1,6 +1,6 @@
 # F2-T14 — Saklama Tercihleri + Otomatik Aksiyon Çıkarımı → Onaylı Görev Üretimi
 
-**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** Tamamlandı — PR #165 (spec+ADR-0031), #166 (PR1), #167 (PR2), #168 (PR3), #169 (PR4), #170 (PR5).
 **Bağımlılık:** F2-T13/ADR-0029/ADR-0030 (notetaker botu + hibrit-AI veri sınıflandırması, Tamamlandı — bu görev doğrudan üzerine inşa ediyor), F1-T16/ADR-0015 (konuşma-komutları öner→karar-ver akışı, emsal — BU görev aynı iki-fazlı öneri/onay desenini transkript-kaynaklı aksiyonlara genişletiyor).
 
 > ⚠️ MİMARİ-KARAR GEREKTİREN GÖREV — CLAUDE.md'nin ADR kriterinin (b) fıkrasına giriyor: bu görevin "transkriptten çıkarılan aksiyon → onaylı görev" akışını NASIL modellediği (ADR-0015'in mevcut `command_proposals`/`ActionsProposed` şemasını genişletmek mi, yoksa yeni, ayrı bir öneri akışı açmak mı) F2-T15'in ("Tetikleyici/koşul/aksiyon çekirdeği") ve F2-T16'nın ("otomasyon geçmişi/denetim ekranı") üzerine inşa edeceği bir sözleşim. `architect`'in bu forku netleştiren bir taslak + insan onayı koddan önce gerekli — ancak ADR-0029/0030'un aksine, bu YENİ bir ADR dosyası GEREKTİRMEYEBİLİR (mevcut ADR-0015'in bir "genişletme eki" / "Sonuçlar" bölümü güncellemesi yeterli olabilir); kesin karar `architect`'e bırakılıyor.
@@ -48,15 +48,23 @@ F2-T13'ün ürettiği ham `meeting_details` verisini (transkript metni, kayıt r
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları netleşti (gerekirse `architect` taslağıyla) ve insan onayından önce sunuldu.
-- [ ] Kullanıcı/workspace bir saklama tercihi (kayıt-referansı/transkript/yalnız-özet) seçebilir; tercih uygulanır (varsayılan en kısıtlayıcı).
-- [ ] Transkript metninden aksiyon maddeleri AI ile çıkarılır (mevcut `ai-gateway` + JSON-prompt + zod deseniyle, yeni bir gateway yeteneği eklenmeden).
-- [ ] Çıkarılan hiçbir aksiyon, AÇIKÇA onaylanmadan gerçek bir `task` nesnesine dönüşmez (ADR-0015'in öner→onayla desenine uygun, fail-closed).
-- [ ] Cross-workspace izolasyon: bir workspace'in aksiyon önerisi/saklama tercihi başka bir workspace'i asla etkilemez.
-- [ ] Testler: saklama tercihinin gerçekten uygulandığı (süre dolduğunda transkript temizlenir), aksiyon çıkarımının doğru JSON şeklini ürettiği, onaylanmayan aksiyonun asla `task` oluşturmadığı, cross-workspace izolasyonu.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: onay akışının gerçekten bypass edilemediği, saklama-süresi-dolmuş verinin gerçekten silindiği).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları netleşti (ADR-0031, `architect` taslağı + insan onayı) ve insan onayından önce sunuldu.
+- [x] Kullanıcı/workspace bir saklama tercihi (kayıt-referansı/transkript/yalnız-özet) seçebilir; tercih uygulanır (varsayılan en kısıtlayıcı: `transcript-only`, 30 gün). PR1 (#166, şema) + PR2 (#167, `MeetingRetentionPreferenceService`/`MeetingRetentionSweeperService` + kontrolör).
+- [x] Transkript metninden aksiyon maddeleri AI ile çıkarılır (mevcut `ai-gateway` + JSON-prompt + zod deseniyle, yeni bir gateway yeteneği eklenmeden). PR3 (#168, `extract-meeting-actions.ts` + `createTaskFromMeeting` tipi).
+- [x] Çıkarılan hiçbir aksiyon, AÇIKÇA onaylanmadan gerçek bir `task` nesnesine dönüşmez (ADR-0015'in öner→onayla desenine uygun, fail-closed). PR4 (#169, `CommandsService.proposeFromMeeting` + `executeCreateTaskFromMeeting`).
+- [x] Cross-workspace izolasyon: bir workspace'in aksiyon önerisi/saklama tercihi başka bir workspace'i asla etkilemez. PR1-PR5'in her birinin integration testlerinde ayrı ayrı doğrulandı.
+- [x] Testler: saklama tercihinin gerçekten uygulandığı (süre dolduğunda transkript temizlenir), aksiyon çıkarımının doğru JSON şeklini ürettiği, onaylanmayan aksiyonun asla `task` oluşturmadığı, cross-workspace izolasyonu.
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: onay akışının gerçekten bypass edilemediği, saklama-süresi-dolmuş verinin gerçekten silindiği). PR5'in tek orta-seviye bulgusu (webhook eşzamanlı tekrar-teslimatında teorik çift-tetikleme) kapsam dışı bırakıldı, aşağıda not edildi.
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil (her PR için ayrı ayrı doğrulandı).
+
+## Bilinen Kısıtlar / Gelecek Takip
+
+- **PR5 security-reviewer bulgusu (orta seviye, düzeltilmedi):** `MeetingsService.applyWebhookUpdate` transkript-ilk-kez-doldu kontrolü bir `SELECT` + ayrı bir `UPDATE` olarak çalışıyor, aralarında satır kilidi/transaction yok. Eşzamanlı/çok-hızlı webhook tekrar teslimatı (ör. sağlayıcı-taraflı retry) teorik olarak `CommandsService.proposeFromMeeting`'i aynı toplantı için iki kez tetikleyebilir (yinelenen AI harcaması + yinelenen öneri, veri sızıntısı değil). Düzeltme (`SELECT ... FOR UPDATE` + transaction, veya `command_proposals (source_object_id) WHERE decided_at IS NULL` üzerinde kısmi unique index) ADR-0031'in onaylanmış tasarımının kapsamı dışında bırakıldı; ileride bir görev/ADR'ye taşınabilir.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip Açık Sorular 1-5'in insan kararları (özellikle Açık Soru 2'nin mimari forku) `architect` subagent'ı ile netleştirilir; ardından `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T14 tamamlandı. `docs/PLAN.md`'ye göre sıradaki görev F2-T15 ("Tetikleyici/koşul/aksiyon çekirdeği; zamanlanmış tetikleyiciler; regex koşullar") — henüz bir spec dosyası yok, CLAUDE.md'nin ritüeli gereği önce spec yazılmalı:
+
+```
+/yeni-ozellik F2-T15 — Tetikleyici/koşul/aksiyon çekirdeği: zamanlanmış tetikleyiciler + regex koşullar. F2-T14'ün ürettiği öner→onayla akışının (ADR-0031/ADR-0015) üzerine genel bir tetikleyici/koşul motoru inşa edilecek.
+```
