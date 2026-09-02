@@ -1,6 +1,6 @@
 # F2-T15 — Tetikleyici/Koşul/Aksiyon Çekirdeği (Zamanlanmış Tetikleyiciler + Regex Koşullar)
 
-**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E4 (Toplantı Zekâsı, Kapsam H) · **Durum:** Tamamlandı — ADR-0032 + PR1 (#173), PR2 (#174), PR3 (#175), PR4 (#176), PR5 (#177).
 **Bağımlılık:** F2-T14/ADR-0031 (saklama tercihi + otomatik aksiyon çıkarımı, Tamamlandı — bu görev `CommandsService`'in öner→onayla akışını genel bir tetikleyici motoru için yeniden kullanır), F1-T16/ADR-0015 (konuşma-komutları öner→karar-ver akışı, temel sözleşme), F1-T6 (sorgu DSL'i, `FILTER_OPERATORS` — koşul motoru için olası genişletme noktası).
 
 > ⚠️ MİMARİ-KARAR GEREKTİREN GÖREV — CLAUDE.md'nin ADR kriterinin (a) ve (b) fıkralarına giriyor: (a) reaktivite modeli (`ObjectsService.setFieldValues`'a inline hook mu, yoksa ayrı bir poller mı) event-sourcing mimari değişmeziyle doğrudan etkileşiyor; (b) `matches` (regex) operatörünün paylaşılan F1-T6 `FILTER_OPERATORS` sözleşmesine mi ekleneceği yoksa `packages/automation`'a mı izole edileceği gelecekteki görevlere dayatılan bir sözleşim kararı. `architect`'in bu iki forku netleştiren bir ADR taslağı + insan onayı koddan önce gerekli.
@@ -56,16 +56,26 @@ F2-T14'ün ürettiği "AI çıkarır → insan onaylar → gerçek nesne oluşur
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları netleşti (`architect` taslağı + insan onayı) ve insan onayından önce sunuldu.
-- [ ] Kullanıcı, bir workspace için zamanlanmış (periyodik) bir tetikleyici tanımlayabilir; tetikleyici gerçekten periyodik olarak değerlendirilir.
-- [ ] Kullanıcı, bir nesne tipi + alan + regex üçlüsünden oluşan bir koşul tetikleyicisi tanımlayabilir; koşul gerçekten `objects_view` verisine karşı doğru değerlendirilir.
-- [ ] Bir tetikleyici ateşlendiğinde, `CommandsService.proposeFromTrigger()` üzerinden bir `ActionsProposed` olayı üretilir — hiçbir aksiyon AÇIKÇA onaylanmadan gerçek nesneye dönüşmez (fail-closed).
-- [ ] Cross-workspace izolasyon: bir workspace'in tetikleyicisi başka bir workspace'in verisini asla değerlendirmez/etkilemez.
-- [ ] ReDoS koruması: kötü niyetli/patolojik bir regex, tetikleyici motorunu veya sunucuyu kilitlemez (Açık Soru 3'ün kararına göre test edilir).
-- [ ] Testler: zamanlanmış tetikleyicinin gerçekten periyodik çalıştığı, regex koşulunun doğru eşleştiği/eşleşmediği, onaylanmayan aksiyonun asla nesne oluşturmadığı, cross-workspace izolasyonu, ReDoS koruması.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: rol-bazlı CRUD kontrolü, ReDoS, onay akışının bypass edilemediği).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları netleşti (`architect` taslağı + insan onayı, ADR-0032) ve insan onayından önce sunuldu.
+- [x] Kullanıcı, bir workspace için zamanlanmış (periyodik) bir tetikleyici tanımlayabilir; tetikleyici gerçekten periyodik olarak değerlendirilir. PR2 (#174, CRUD) + PR4 (#176, `TriggerSchedulerService`, 60sn tick).
+- [x] Kullanıcı, bir nesne tipi + alan + regex üçlüsünden oluşan bir koşul tetikleyicisi tanımlayabilir; koşul gerçekten `objects_view` verisine karşı doğru değerlendirilir. PR2 (#174) + PR5 (#177, `TriggerConditionEvaluatorService`, 2dk tick, match/diff dedup).
+- [x] Bir tetikleyici ateşlendiğinde, `CommandsService.proposeFromTrigger()` üzerinden bir `ActionsProposed` olayı üretilir — hiçbir aksiyon AÇIKÇA onaylanmadan gerçek nesneye dönüşmez (fail-closed). PR3 (#175).
+- [x] Cross-workspace izolasyon: bir workspace'in tetikleyicisi başka bir workspace'in verisini asla değerlendirmez/etkilemez. PR2/PR4/PR5'in her birinin integration testlerinde ayrı ayrı doğrulandı.
+- [x] ReDoS koruması: kötü niyetli/patolojik bir regex, tetikleyici motorunu veya sunucuyu kilitlemez. PR1'in 4-katmanlı `assertSafeRegexPattern`'i (#173) — PR1 security-review'ında bulunan `(a|A)+` gibi case-insensitive-alternasyon bypass'ı düzeltildi ve regresyon testiyle kilitlendi.
+- [x] Testler: zamanlanmış tetikleyicinin gerçekten periyodik çalıştığı, regex koşulunun doğru eşleştiği/eşleşmediği, onaylanmayan aksiyonun asla nesne oluşturmadığı, cross-workspace izolasyonu, ReDoS koruması. Her PR kendi entegrasyon testlerini taşıyor (toplam 5 PR).
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: rol-bazlı CRUD kontrolü, ReDoS, onay akışının bypass edilemediği). Her PR ayrı ayrı denetlendi, bulgular ya düzeltildi ya da bilinen kısıt olarak belgelendi (aşağıya bakın).
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil (her PR için ayrı ayrı doğrulandı).
+
+## Bilinen Kısıtlar / Gelecek Takip
+
+- **PR1 security-review düzeltmesi:** `automation_trigger_matches.trigger_id`'nin gerçek bir FK'si yoktu (yalnızca `objectId` FK'siz olmalıydı) — düzeltildi, migration yeniden üretildi.
+- **PR5 security-reviewer bulgusu (bilgilendirici, düzeltilmedi):** Bir koşul-tetikleyicisi İLK değerlendirme döngüsünde zaten 50'den fazla nesneyle eşleşiyorsa (hiçbir `automation_trigger_matches` satırı henüz birikmemişken), anti-runaway tavanı (N=50, insan onaylı) bu tetikleyiciyi teorik olarak süresiz reddedebilir — otomatik-devre-dışı-bırakma bu oturumda kasıtlı olarak v0 kapsamı dışında bırakılmıştı (ADR-0032 Karar (j)). Gelecekte bir görev/ADR'ye taşınabilir (ör. bir "sıkışmış tetikleyici" sinyali workspace admin'ine gösterilebilir).
+- **PR4/PR5 ortak, bilgilendirici not:** `setInterval` tabanlı zamanlayıcılarda art arda çalışma (in-flight overlap) koruması yok — bir tick'in önceki tick bitmeden başlaması teorik olarak yinelenen bir öneriye yol açabilir (veri bozulması değil, `automation_trigger_matches`'in birincil anahtarı ikinci denemeyi zaten engeller). Mevcut `MeetingRetentionSweeperService`/`CalendarSyncPollerService` desenleriyle tutarlı, bu görevde yeni bir risk değil.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip Açık Sorular 1-5'in insan kararları (özellikle Açık Soru 1/2'nin mimari forkları) `architect` subagent'ı ile netleştirilir; ardından `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T15 tamamlandı. `docs/PLAN.md`'ye göre sıradaki görev F2-T16 ("Yeniden kullanılabilir webhook'lar + otomasyon geçmişi/denetim ekranı") — henüz bir spec dosyası yok, CLAUDE.md'nin ritüeli gereği önce spec yazılmalı:
+
+```
+/yeni-ozellik F2-T16 — Yeniden kullanılabilir webhook'lar + otomasyon geçmişi/denetim ekranı. F2-T15'in ürettiği tetikleyici/aksiyon önerisi akışının (ADR-0032) ürettiği ActionsProposed/ActionsDecided olaylarını görünür kılan bir denetim ekranı + genel amaçlı gelen/giden webhook mekanizması inşa edilecek.
+```
