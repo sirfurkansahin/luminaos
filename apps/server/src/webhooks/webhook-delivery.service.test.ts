@@ -81,7 +81,7 @@ type WebhookDeliveryServiceConstructor = new (
 ) => WebhookDeliveryServiceContract;
 
 const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 5);
-const KNOWN_PLAINTEXT_SECRET = 'fixture-signing-secret-0123456789abcdef';
+const KNOWN_PLAINTEXT_SECRET = 'fixture-signing-secret-0123456789abcdef'; // gitleaks:allow -- test fixture, not a real secret
 const KNOWN_ENCRYPTED_SECRET = encryptSecret(KNOWN_PLAINTEXT_SECRET, TEST_ENCRYPTION_KEY);
 const LEAKED_BODY_MARKER = '__leaked-response-body-marker__';
 

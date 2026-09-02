@@ -100,7 +100,7 @@ interface DeliveryRow {
 }
 
 const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 7);
-const KNOWN_PLAINTEXT_SECRET = 'fixture-worker-signing-secret-0123456789';
+const KNOWN_PLAINTEXT_SECRET = 'fixture-worker-signing-secret-0123456789'; // gitleaks:allow -- test fixture, not a real secret
 const LEAKED_BODY_MARKER = '__worker-test-leaked-response-body-marker__';
 
 describe('WebhookDeliveryWorker (real Postgres via Testcontainers)', () => {
