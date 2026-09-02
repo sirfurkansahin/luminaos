@@ -1,0 +1,11 @@
+title = "LuminaOS gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe hardcoded test fixture values -- not real credentials, used only for deterministic unit/integration test assertions (e.g. HMAC signing round-trips)."
+regexes = [
+  '''fixture-signing-secret-0123456789abcdef''',
+  '''fixture-worker-signing-secret-0123456789''',
+]
