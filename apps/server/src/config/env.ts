@@ -51,6 +51,14 @@ export interface Env {
   notionOAuth?: OAuthAppCredentials;
   /** `NOTETAKER_WEBHOOK_SECRET` (F2-T13 PR4, ADR-0030 §f) -- HMAC-SHA256 shared secret `NotetakerWebhookAuthGuard` uses to verify `POST /webhooks/notetaker` requests. Absent/blank -> `undefined` (never fatal at boot — the DI-layer signal the guard uses to FAIL-CLOSED, rejecting every webhook request with 401, rather than crash boot). Any non-blank value is accepted as-is, verbatim, mirroring `readAnthropicApiKey` exactly. */
   notetakerWebhookSecret?: string;
+  /** `runInAgentSandbox`'s (`@luminaos/agent-runtime`) per-action timeout in milliseconds (F3-T1 PR3, ADR-0035 Karar g). Absent/blank -> default; present-but-invalid -> fatal. */
+  agentSandboxTimeoutMs: number;
+  /** `AgentConcurrencyGuard`'s in-memory per-`(workspaceId, agentIdentifier)` concurrency cap (F3-T1 PR3, ADR-0035 Karar g). Absent/blank -> default; present-but-invalid -> fatal. */
+  agentSandboxMaxConcurrentPerAgent: number;
+  /** `AgentResourceLimitsService.assertActionRateNotExceeded`'s per-`(workspaceId, agentIdentifier)` action-count ceiling within the rate-limit window (F3-T1 PR3, ADR-0035 Karar g). Absent/blank -> default; present-but-invalid -> fatal. */
+  agentActionRateLimitPerWindow: number;
+  /** `AgentResourceLimitsService.assertActionRateNotExceeded`'s rate-limit window size in milliseconds (F3-T1 PR3, ADR-0035 Karar g). Absent/blank -> default; present-but-invalid -> fatal. */
+  agentActionRateLimitWindowMs: number;
 }
 
 /**
@@ -146,6 +154,22 @@ function readEnv(): Env {
     searchIndexEmbeddingDebounceMs: readPositiveIntegerEnv(
       'SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS',
       DEFAULT_SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS,
+    ),
+    agentSandboxTimeoutMs: readPositiveIntegerEnv(
+      'AGENT_SANDBOX_TIMEOUT_MS',
+      DEFAULT_AGENT_SANDBOX_TIMEOUT_MS,
+    ),
+    agentSandboxMaxConcurrentPerAgent: readPositiveIntegerEnv(
+      'AGENT_SANDBOX_MAX_CONCURRENT_PER_AGENT',
+      DEFAULT_AGENT_SANDBOX_MAX_CONCURRENT_PER_AGENT,
+    ),
+    agentActionRateLimitPerWindow: readPositiveIntegerEnv(
+      'AGENT_ACTION_RATE_LIMIT_PER_WINDOW',
+      DEFAULT_AGENT_ACTION_RATE_LIMIT_PER_WINDOW,
+    ),
+    agentActionRateLimitWindowMs: readPositiveIntegerEnv(
+      'AGENT_ACTION_RATE_LIMIT_WINDOW_MS',
+      DEFAULT_AGENT_ACTION_RATE_LIMIT_WINDOW_MS,
     ),
   };
 }
@@ -316,6 +340,18 @@ const DEFAULT_DOC_MAX_ROOMS = 1000;
 
 /** `SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS`'s own default (F1-T13 PR4) — matches `SearchIndexEmbeddingScheduler`'s pure default so `new SearchIndexEmbeddingScheduler(env.searchIndexEmbeddingDebounceMs)` and `new SearchIndexEmbeddingScheduler()` behave identically when this env var is unset. */
 const DEFAULT_SEARCH_INDEX_EMBEDDING_DEBOUNCE_MS = 5000;
+
+/** `AGENT_SANDBOX_TIMEOUT_MS`'s own default (F3-T1 PR3, ADR-0035 Karar g) — 30 seconds. */
+const DEFAULT_AGENT_SANDBOX_TIMEOUT_MS = 30_000;
+
+/** `AGENT_SANDBOX_MAX_CONCURRENT_PER_AGENT`'s own default (F3-T1 PR3, ADR-0035 Karar g). */
+const DEFAULT_AGENT_SANDBOX_MAX_CONCURRENT_PER_AGENT = 3;
+
+/** `AGENT_ACTION_RATE_LIMIT_PER_WINDOW`'s own default (F3-T1 PR3, ADR-0035 Karar g). */
+const DEFAULT_AGENT_ACTION_RATE_LIMIT_PER_WINDOW = 100;
+
+/** `AGENT_ACTION_RATE_LIMIT_WINDOW_MS`'s own default (F3-T1 PR3, ADR-0035 Karar g) — 60 seconds. */
+const DEFAULT_AGENT_ACTION_RATE_LIMIT_WINDOW_MS = 60_000;
 
 /**
  * Shared "absent = default, present-but-invalid = fatal" reader for the
