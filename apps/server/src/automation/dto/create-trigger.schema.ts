@@ -25,7 +25,10 @@ const conditionSpecSchema = z
   })
   .strict();
 
-const triggerSpecSchema = z.discriminatedUnion('kind', [scheduleSpecSchema, conditionSpecSchema]);
+export const triggerSpecSchema = z.discriminatedUnion('kind', [
+  scheduleSpecSchema,
+  conditionSpecSchema,
+]);
 
 /**
  * Validates a `POST /workspaces/:workspaceId/triggers` request body.

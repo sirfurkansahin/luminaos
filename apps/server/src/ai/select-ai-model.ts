@@ -19,9 +19,15 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * natural-language command into a set of proposed actions is open-ended
  * reasoning, not a constrained-choice task, so it belongs on the
  * default/stronger model too.
+ *
+ * `'triggerSuggestion'` (F2-T17 PR1, `suggestTriggerTemplates`'s output,
+ * ADR-0034 Karar (e)) routes the same way as `'text'`/`'qa'`/`'command'`:
+ * generating candidate trigger templates from a usage-pattern summary is
+ * open-ended reasoning, not a constrained-choice task, so it belongs on the
+ * default/stronger model too.
  */
 export interface SelectAIModelInput {
-  outputType: 'text' | 'select' | 'qa' | 'command';
+  outputType: 'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {

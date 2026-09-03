@@ -87,4 +87,34 @@ describe('selectAIModel', () => {
 
     expect(model).toBe(CLAUDE_SONNET_5);
   });
+
+  // F2-T17 PR1 (RED step) — widen `SelectAIModelInput['outputType']` to also
+  // accept `'triggerSuggestion'` (the new `suggestTriggerTemplates`
+  // orchestration's output type, ADR-0034 Karar (e)), routed to the SAME
+  // branch as `'text'`/`'qa'`/`'command'`: generating candidate trigger
+  // templates from a usage-pattern summary is open-ended reasoning, not a
+  // constrained-choice task, so it belongs on the default/stronger model
+  // (`CLAUDE_SONNET_5`). This requires ZERO branching-logic change to
+  // `selectAIModel` itself -- `outputType !== 'select'` already falls
+  // through to `CLAUDE_SONNET_5` -- only the type union needs widening to
+  // `'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion'`.
+  it("outputType: 'triggerSuggestion' routes to CLAUDE_SONNET_5 (generating trigger-template suggestions from a usage-pattern summary is open-ended reasoning, like 'text'/'qa'/'command' -- not a constrained-choice task)", () => {
+    // NOTE (intentional RED, not a typo): on `main`,
+    // `SelectAIModelInput['outputType']` is only `'text' | 'select' | 'qa' |
+    // 'command'`, so the object literal below (`{ outputType:
+    // 'triggerSuggestion' }`) is a TypeScript compile error -- "Argument of
+    // type '{ outputType: "triggerSuggestion"; }' is not assignable to
+    // parameter of type 'SelectAIModelInput'" -- until `implementer` widens
+    // the union. As established above, this repo's vitest config
+    // (`apps/server/vitest.config.ts`) transforms tests via `unplugin-swc`,
+    // which strips types WITHOUT type-checking them, so
+    // `pnpm --filter server test` alone will NOT surface this failure --
+    // only `pnpm typecheck` (`tsc`) will. Per CLAUDE.md's Definition of Done,
+    // both `pnpm typecheck` and `pnpm test:changed` must be green before this
+    // task is done, so this compile error is a real, required RED signal,
+    // not a false negative.
+    const model = selectAIModel({ outputType: 'triggerSuggestion' });
+
+    expect(model).toBe(CLAUDE_SONNET_5);
+  });
 });
