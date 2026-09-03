@@ -1,6 +1,6 @@
 # F2-T16 — Yeniden Kullanılabilir Webhook'lar + Otomasyon Geçmişi/Denetim Ekranı
 
-**Epik:** F2-E5 (Otomasyon Motoru, Kapsam I) · **Durum:** Taslak — insan onayına sunuluyor.
+**Epik:** F2-E5 (Otomasyon Motoru, Kapsam I) · **Durum:** Tamamlandı — ADR-0033 + PR1 (#180), PR2 (#181), PR3 (#182), PR4 (#183).
 **Bağımlılık:** F2-T15/ADR-0032 (tetikleyici/koşul/aksiyon çekirdeği, Tamamlandı — bu görev onun ürettiği `ActionsProposed`/`ActionsDecided` olaylarını dışa açar), F1-T16/ADR-0015 (konuşma-komutları öner→onayla akışı, `command_proposals`'ın kaynağı), F2-T13/ADR-0030 (notetaker'ın tek-amaçlı inbound webhook'u — bu görevin "yeniden kullanılabilir" karşıtı örneği), F2-T9/ADR-0025 (`connector_credentials`'ın şifreli-sır-saklama deseni — webhook imzalama sırrı için yeniden kullanılabilir emsal).
 
 > ⚠️ MİMARİ-KARAR GEREKTİREN GÖREV — CLAUDE.md'nin ADR kriterinin (a) ve (b) fıkralarına giriyor: (a) yeni bir outbound-webhook teslim mekanizması (imzalama şeması, yeniden-deneme semantiği, hangi olay tiplerinin tetiklediği) sıfırdan icat ediliyor — bu, gelecekteki her otomasyon-ilişkili görevin (F2-T17 dahil) üzerine inşa edeceği bir sözleşim; (b) `CommandsService`'e ilk kez genel bir "önerileri listele" yeteneği ekleniyor — bu, F1-T16/ADR-0015'in orijinal öner→onayla sözleşmesini genişletiyor. `architect`'in bu iki noktayı netleştiren bir ADR taslağı + insan onayı koddan önce gerekli.
@@ -49,18 +49,52 @@ F2-T15'in ürettiği tetikleyici/aksiyon motorunun (ve F1-T16/F2-T14'ün diğer 
 
 ## Kabul Kriterleri
 
-- [ ] Açık Soru 1-5'in insan kararları netleşti (`architect` taslağı + insan onayı) ve insan onayından önce sunuldu.
-- [ ] Bir workspace admin'i, bir hedef URL + abone olunan olay tip(ler)i ile bir outbound webhook aboneliği oluşturabilir/düzenleyebilir/silebilir.
-- [ ] Bir `ActionsProposed`/`ActionsDecided` olayı gerçekleştiğinde, ilgili abonelikteki her URL'ye imzalı bir payload POST edilir; imza alıcı tarafından doğrulanabilir bir HMAC şeması kullanır.
-- [ ] Teslimat başarısızlığı workspace'in geri kalan işleyişini asla etkilemez (fire-and-forget + sınırlı yeniden deneme + log, crash yok).
-- [ ] `CommandsService`'in yeni liste yeteneği + destekleyici `GET` uç noktası, bir workspace'in bekleyen önerilerini (en azından) doğru şekilde döndürür; cross-workspace izolasyon korunur.
-- [ ] `apps/web`'de yeni bir denetim ekranı: bekleyen önerileri listeler, her biri için onay/red aksiyonu sunar (gerçek `decide()` çağrısı), karar-verilmiş geçmişi gösterir.
-- [ ] İmzalama sırrı hiçbir zaman ham olarak loglanmaz veya (oluşturma-anı dışında) API yanıtında geri döndürülmez.
-- [ ] Cross-workspace izolasyon: bir workspace'in webhook aboneliği/denetim verisi başka bir workspace'e asla sızmaz.
-- [ ] Testler: abonelik CRUD RBAC'ı, teslimat imzalama doğruluğu, teslimat-başarısızlığının sistemi çökertmediği, liste uç noktasının cross-workspace izolasyonu, denetim ekranının onay/red akışının gerçekten `decide()`'ı çağırdığı.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: sır sızıntısı, SSRF riski — kullanıcı-yapıştırdığı bir URL'ye sunucu-taraflı POST atmanın kendine özgü SSRF yüzeyi, RBAC bypass'ı).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] Açık Soru 1-5'in insan kararları netleşti (`architect` taslağı + insan onayı, ADR-0033) ve insan onayından önce sunuldu.
+- [x] Bir workspace admin'i, bir hedef URL + abone olunan olay tip(ler)i ile bir outbound webhook aboneliği oluşturabilir/düzenleyebilir/silebilir. PR1 (#180, `webhook_subscriptions` şeması + `ssrf-guard.ts` + CRUD, admin+ RBAC).
+- [x] Bir `ActionsProposed`/`ActionsDecided` olayı gerçekleştiğinde, ilgili abonelikteki her URL'ye imzalı bir payload POST edilir; imza alıcı tarafından doğrulanabilir bir HMAC şeması kullanır. PR2 (#181, enqueue projeksiyonu + `WebhookDeliveryService` imzalama/SSRF-yeniden-kontrol).
+- [x] Teslimat başarısızlığı workspace'in geri kalan işleyişini asla etkilemez (fire-and-forget + sınırlı yeniden deneme + log, crash yok). PR2 (#181, `WebhookDeliveryWorker` poller + security-review'de düzeltilen izolasyon/lease/lifecycle düzeltmeleri — aşağıya bakın).
+- [x] `CommandsService`'in yeni liste yeteneği + destekleyici `GET` uç noktası, bir workspace'in bekleyen önerilerini (en azından) doğru şekilde döndürür; cross-workspace izolasyon korunur. PR3 (#182, `CommandsService.listProposals` + `GET .../commands/proposals`, member+ RBAC).
+- [x] `apps/web`'de yeni bir denetim ekranı: bekleyen önerileri listeler, her biri için onay/red aksiyonu sunar (gerçek `decide()` çağrısı), karar-verilmiş geçmişi gösterir. PR4 (#183, `AutomationHistoryPanel.tsx` + `WebhookSubscriptionsPanel.tsx`).
+- [x] İmzalama sırrı hiçbir zaman ham olarak loglanmaz veya (oluşturma-anı dışında) API yanıtında geri döndürülmez. PR1/PR2 (#180/#181), security-review'de doğrulandı.
+- [x] Cross-workspace izolasyon: bir workspace'in webhook aboneliği/denetim verisi başka bir workspace'e asla sızmaz. PR1-PR3'ün her birinin integration testlerinde ayrı ayrı doğrulandı.
+- [x] Testler: abonelik CRUD RBAC'ı, teslimat imzalama doğruluğu, teslimat-başarısızlığının sistemi çökertmediği, liste uç noktasının cross-workspace izolasyonu, denetim ekranının onay/red akışının gerçekten `decide()`'ı çağırdığı. Test kanıtı aşağıda.
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: sır sızıntısı, SSRF riski — kullanıcı-yapıştırdığı bir URL'ye sunucu-taraflı POST atmanın kendine özgü SSRF yüzeyi, RBAC bypass'ı). PR2'nin 5, PR3'ün 1 bulgusu düzeltilerek merge edildi (aşağıya bakın); PR4'te engelleyici bulgu yok, tek bilgilendirici öneri bilinçli olarak uygulanmadı (aşağıya bakın).
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil (her PR için ayrı ayrı doğrulandı).
+
+## Done
+
+**PR'lar:**
+
+- PR1 (#180): `webhook_subscriptions` şeması + `ssrf-guard.ts` + CRUD, admin+ RBAC.
+- PR2 (#181): Teslimat mekanizması — enqueue projeksiyonu + `WebhookDeliveryService` (imzalama, SSRF-yeniden-kontrol) + `WebhookDeliveryWorker` poller.
+- PR3 (#182): `CommandsService.listProposals` + `GET .../commands/proposals`, member+ RBAC.
+- PR4 (#183): `AutomationHistoryPanel.tsx` + `WebhookSubscriptionsPanel.tsx` (frontend).
+
+**Test kanıtı:**
+
+- PR1 — 38 birim test (`ssrf-guard`) + 2 entegrasyon test dosyası (Docker-gated, bu oturumun sandbox'ında çalıştırılamadı, gerçek CI yeşil-geçit).
+- PR2 — 6 birim test (`webhook-delivery.service`) + 2 entegrasyon test dosyası (aynı Docker-gated not).
+- PR3 — 2 entegrasyon test dosyası (aynı not).
+- PR4 — 72 yeni birim test (`useWebhookSubscriptionsQuery`/`useProposalsQuery`/`WebhookSubscriptionsPanel`/`AutomationHistoryPanel`), tüm `apps/web` paketi 61 dosya/589 test yeşil — bu oturumda fiilen çalıştırılıp doğrulandı (Docker-gated değil, düz vitest+RTL testleri).
+- `pnpm typecheck && pnpm lint` her PR'da ayrı ayrı doğrulandı (bu oturumun kendi disiplini gereği, her implementer dispatch'inden sonra bağımsız kontrol edildi).
+
+## Bilinen Kısıtlar / Gelecek Takip
+
+- **PR2 security-review'de bulunup düzeltilen 5 sorun (merge öncesi):**
+  1. Webhook-enqueue projeksiyonunun catch-up hatası, zaten karar verilmiş bir öneriyi kalıcı olarak "askıda" bırakabilirdi — düzeltildi (kendi try/catch'ine izole edildi, asla yeniden fırlatılmıyor).
+  2. `ENCRYPTION_KEY` tanımsızsa TÜM sunucu boot anında çökerdi — düzeltildi (yalnızca webhook teslimatı, lazy olarak, başarısız oluyor).
+  3. Çakışan worker tick'leri üçüncü-parti bir uç noktaya çift teslimat yapabilirdi — düzeltildi (atomik bir claim-lease eklendi).
+  4. Worker, yumuşak-silinmiş (soft-deleted) aboneliklere teslimata devam ediyordu — düzeltildi (yaşam-döngüsü filtresi eklendi).
+  5. Yanıt gövdeleri iptal edilmiyordu, açık bağlantı riski taşıyordu — düzeltildi (her zaman iptal ediliyor).
+- **PR3 security-review'de bulunup düzeltilen 1 sorun:** `listProposals`'ta çağıran-tarafından-sağlanan `limit` sınırsızdı — düzeltildi (`MAX_LIST_PROPOSALS_LIMIT = 200` eklendi, serviste kırpılıyor).
+- **PR4 security-review'de engelleyici bulgu yok; bilinçli olarak uygulanmayan bir bilgilendirici öneri:** `WebhookSubscriptionsPanel`'in sil butonunda mutasyonu çağırmadan önce bir onay adımı yok (`McpAccessPanel`'in mevcut onaysız-iptal emsalini yansıtıyor) — bu, bir webhook aboneliğini silmenin, model alındığı MCP-token-iptal durumundan DAHA GENİŞ bir etki alanı (blast radius) taşıması nedeniyle işaretlendi: sessizce üçüncü-parti bir entegrasyonu kırabilir; imzalama sırrı yalnızca-bir-kez-gösterilir ve kurtarılamaz olduğundan, yeniden oluşturmak yeni bir sırrın yeniden dağıtılmasını gerektirir. Gelecekteki bir PR hafif bir onay adımı ekleyebilir.
+- **ADR-0033'ün "Mimari Değişmezlerle İlişki" bölümünden miras (zaten yazılı, burada yeniden türetilmedi):** `AutomationHistoryPanel`/`listProposals` üzerinden dışa açılan `actions[].params` alanları, `command_proposals.command`'ın kendisi ham transkript SAKLAMASA da (ADR-0031 §f), transkript-türevli olabilir — bu CLAUDE.md'nin "veri dışa aktarma hiçbir planda/kodda kısıtlanamaz" değişmeziyle tutarlı, admin-başlatımlı, açık bir veri-görünürlüğü kararı olarak çerçevelendi, bir kusur değil, ve bu görevde daha fazla çözülmedi.
+- **i18n:** Her iki yeni frontend paneli de (`AutomationHistoryPanel`, `WebhookSubscriptionsPanel`) bir i18n kataloğu yerine satır-içi Türkçe metin kullanıyor — bu, `McpAccessPanel.tsx`/`IntegrationsPanel.tsx`'te ZATEN VAR OLAN emsale uyuyor (bu görevin ürettiği yeni bir ihlal değil, tüm bu paneller genelinde önceden var olan teknik borç); gelecekteki özel bir i18n-kataloğu geçişi bunların hepsini birlikte kapsamalı.
 
 ---
 
-**Sıradaki adım:** Bu spec taslağı insan onayına sunulur. Onaylanırsa Plan Mode'a geçilip Açık Sorular 1-5'in insan kararları (özellikle Açık Soru 1/2'nin mimari forkları — olay-tipi kapsamı ve imzalama şeması) `architect` subagent'ı ile netleştirilir; ardından `test-writer` → `implementer` → `security-reviewer` ritüeline geçilir.
+**Sıradaki adım:** F2-T16 tamamlandı. `docs/PLAN.md`'ye göre (satır 269) F2-E5'in son görevi F2-T17 ("AI önerili otomasyon şablonları, kullanım desenlerinden") — henüz bir spec dosyası yok, CLAUDE.md'nin ritüeli gereği önce spec yazılmalı:
+
+```
+/yeni-ozellik F2-T17 — AI önerili otomasyon şablonları: kullanıcının geçmiş kullanım desenlerinden (tekrarlayan komutlar, sık onaylanan aksiyon tipleri, F2-T15'in tetikleyici/koşul motorunun mevcut kullanımı, F2-T16'nın CommandsService.listProposals ile artık okunabilir hale gelen onay/red geçmişi) yola çıkarak AI'ın yeni otomasyon/tetikleyici ŞABLONLARI önermesi — kullanıcı bu önerileri inceleyip onaylayarak gerçek bir tetikleyiciye (F2-T15'in automation_triggers kaynağına) dönüştürebilir; hiçbir şablon kullanıcı onayı olmadan gerçek bir tetikleyiciye dönüşmez (fail-closed öner→onayla disiplini).
+```
