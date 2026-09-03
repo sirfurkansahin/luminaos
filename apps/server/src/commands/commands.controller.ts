@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,7 +23,11 @@ import { SessionAuthGuard } from '../auth/session-auth.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { WorkspaceMembershipGuard } from '../workspaces/workspace-membership.guard.js';
 
-import type { CommandsServiceParseResult, DecideActionResult } from './commands.service.js';
+import type {
+  CommandProposalSummary,
+  CommandsServiceParseResult,
+  DecideActionResult,
+} from './commands.service.js';
 import type { DecideActionsInput } from './dto/decide-actions.schema.js';
 import type { ParseCommandInput } from './dto/parse-command.schema.js';
 import type { MembershipRole } from '../workspaces/membership.util.js';
@@ -50,6 +56,48 @@ export class CommandsController {
     const actor = this.requireActor(req);
 
     return this.commandsService.parse(workspaceId, actor, body.command, body.sourceObjectId);
+  }
+
+  /**
+   * `GET .../commands/proposals` (F2-T16 PR3, ADR-0033 §b/§g): the HTTP
+   * layer for `CommandsService.listProposals` — RBAC (`member`+) is enforced
+   * entirely by the SERVICE layer's own `hasAtLeastRole` check, same
+   * "guard-then-service-checks-role" split this controller already uses for
+   * `decide()`. Query params are read-only convenience parsing, not strict
+   * validation (this is a read endpoint, not a mutation): `pendingOnly` is
+   * only ever set to `true` on the literal string `'true'`; `limit` is only
+   * ever set when it parses to a positive integer; anything else/absent is
+   * simply omitted, letting `CommandsService.listProposals` apply its own
+   * defaults.
+   */
+  @Get('proposals')
+  async listProposals(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Query('pendingOnly') pendingOnly: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Req() req: Request,
+  ): Promise<{ proposals: CommandProposalSummary[]; nextCursor?: string }> {
+    const callerRole = this.requireRole(req);
+
+    const filter: { pendingOnly?: boolean; limit?: number; cursor?: string } = {};
+
+    if (pendingOnly === 'true') {
+      filter.pendingOnly = true;
+    }
+
+    if (limit !== undefined) {
+      const parsedLimit = Number(limit);
+      if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+        filter.limit = parsedLimit;
+      }
+    }
+
+    if (cursor !== undefined) {
+      filter.cursor = cursor;
+    }
+
+    return this.commandsService.listProposals(workspaceId, callerRole, filter);
   }
 
   @Post(':proposalId/decide')
