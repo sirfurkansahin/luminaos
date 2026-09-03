@@ -105,6 +105,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@luminaos/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@luminaos/ai-gateway':
         specifier: workspace:*
         version: link:../../packages/ai-gateway

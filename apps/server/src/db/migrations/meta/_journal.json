@@ -253,6 +253,13 @@
       "when": 1788410960829,
       "tag": "0036_zippy_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788462105207,
+      "tag": "0037_condemned_lifeguard",
+      "breakpoints": true
     }
   ]
 }
