@@ -622,3 +622,129 @@ export function inviteMeetingBot(
     },
   );
 }
+
+/**
+ * F2-T16 PR4 (ADR-0033 §g) -- reusable webhook subscriptions CRUD client.
+ * Mirrors `listMcpGrants`/`createMcpGrant`/`revokeMcpGrant`'s exact
+ * request-shape convention. `signingSecret` is present ONLY on
+ * `CreatedWebhookSubscription` (the create response) -- never on the plain
+ * `WebhookSubscription` shape returned by `list`, so the list view is
+ * structurally incapable of rendering it.
+ */
+export interface WebhookSubscription {
+  id: string;
+  targetUrl: string;
+  eventTypes: string[];
+  createdAt: string;
+}
+
+export interface CreatedWebhookSubscription extends WebhookSubscription {
+  signingSecret: string;
+}
+
+export function listWebhookSubscriptions(
+  workspaceId: string,
+): Promise<{ subscriptions: WebhookSubscription[] }> {
+  return request<{ subscriptions: WebhookSubscription[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/webhooks`,
+    { method: 'GET' },
+  );
+}
+
+export function createWebhookSubscription(
+  workspaceId: string,
+  input: { targetUrl: string; eventTypes: string[] },
+): Promise<{ subscription: CreatedWebhookSubscription }> {
+  return request<{ subscription: CreatedWebhookSubscription }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/webhooks`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteWebhookSubscription(
+  workspaceId: string,
+  subscriptionId: string,
+): Promise<void> {
+  // No explicit `<void>` type argument, matching deleteMemoryRecord's/
+  // disconnectIntegration's rationale above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/webhooks/${encodeURIComponent(subscriptionId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/**
+ * F2-T16 PR4 (ADR-0033 §g/§h) -- command-proposal read/decide client, feeding
+ * `AutomationHistoryPanel`. Mirrors the already-merged server-side
+ * `CommandProposalSummary`/`DecideActionResult` shapes exactly
+ * (`apps/server/src/commands/commands.service.ts`).
+ */
+export interface ProposedActionSummary {
+  actionId: string;
+  type: string;
+  intent: string;
+  rationale: string;
+  resources: string[];
+  rollbackNote: string;
+  params: Record<string, unknown>;
+}
+
+export interface DecideActionResult {
+  actionId: string;
+  status: 'executed' | 'rejected' | 'failed' | 'partially_executed';
+  createdCount?: number;
+  totalCount?: number;
+  failedAtStep?: number;
+  error?: string;
+}
+
+export interface CommandProposalSummary {
+  id: string;
+  workspaceId: string;
+  command: string;
+  sourceObjectId: string | null;
+  actions: ProposedActionSummary[];
+  decisions: DecideActionResult[] | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export function listProposals(
+  workspaceId: string,
+  filter?: { pendingOnly?: boolean; limit?: number; cursor?: string },
+): Promise<{ proposals: CommandProposalSummary[]; nextCursor?: string }> {
+  const params = new URLSearchParams();
+  if (filter?.pendingOnly !== undefined) {
+    params.set('pendingOnly', String(filter.pendingOnly));
+  }
+  if (filter?.limit !== undefined) {
+    params.set('limit', String(filter.limit));
+  }
+  if (filter?.cursor !== undefined) {
+    params.set('cursor', filter.cursor);
+  }
+  const queryString = params.toString();
+  const suffix = queryString.length > 0 ? `?${queryString}` : '';
+
+  return request<{ proposals: CommandProposalSummary[]; nextCursor?: string }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/commands/proposals${suffix}`,
+    { method: 'GET' },
+  );
+}
+
+export function decideProposal(
+  workspaceId: string,
+  proposalId: string,
+  decisions: { actionId: string; decision: 'approved' | 'rejected' }[],
+): Promise<{ results: DecideActionResult[] }> {
+  return request<{ results: DecideActionResult[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/commands/${encodeURIComponent(proposalId)}/decide`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ decisions }),
+    },
+  );
+}
