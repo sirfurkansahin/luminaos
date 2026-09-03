@@ -1,6 +1,6 @@
 # F3-T1 — Ajan Çalışma Zamanı (Agent Runtime): Sandbox, Kaynak Sınırları, İzin Manifestosu
 
-**Epik:** F3-E1 (Agent Runtime + Skill SDK, Kapsam J) · **Durum:** ADR-0035 kabul edildi — `test-writer` ile PR1'e başlanıyor. Bu görev F3-E1'in ve FAZ 3'ün ("Otonomi ve Farklılaşma") açılış görevidir.
+**Epik:** F3-E1 (Agent Runtime + Skill SDK, Kapsam J) · **Durum:** Tamamlandı — ADR-0035 + PR1 (#191), PR2 (#192), PR3 (#193). Bu görev F3-E1'in ve FAZ 3'ün ("Otonomi ve Farklılaşma") açılış görevidir.
 **Bağımlılık:** F2-T17/ADR-0034 (FAZ 2'nin son görevi — bu görevden önce tamamen kapandı), F2-T8/ADR-0024 (`MemoryAccessPolicy`/`isAgentAllowedToAccessMemory` — bu görevin izin-manifestosu modelinin 2-boyutlu emsali ve consumerless v0 riski örneği).
 
 > ⚠️ MİMARİ-KARAR GEREKTİREN GÖREV — CLAUDE.md'nin ADR kriterinin (a) ve (b) fıkralarına giriyor: (a) yeni bir event-sourced varlık (`agent_permission_manifests`) icat ediliyor — `MemoryAccessPolicy`'nin (ADR-0024) grant/revoke şeklini 3 boyuta (veri kapsamı × aksiyon × zaman penceresi) genişleten, gelecekteki tüm ajan-yetkilendirme görevlerinin (F3-T2, F3-T3, F3-E2) üzerine kuracağı bir sözleşim; (b) yeni bağımsız bir paket (`packages/agent-runtime/`) ve onun sunucu bağlaması, birden fazla gelecek göreve dayatılan bir API kontratı (`AgentActionResult`, `evaluateManifestGrant`, `executeAgentAction`) tanımlıyor. `architect`'in bu iki noktayı netleştiren bir ADR taslağı (ADR-0035) + insan onayı koddan önce gerekli.
@@ -56,29 +56,44 @@ FAZ 2 boyunca kurulan tüm AI orkestratörleri (tetikleyici motoru, tetikleyici-
 
 ## Kabul Kriterleri
 
-- [ ] `evaluateManifestGrant` fail-closed çalışır: manifesto yok / iptal edilmiş (`revokedAt` set) / yanlış aksiyon tipi / kapsam dışı / zaman penceresi dışı durumlarının HER BİRİNDE `false` döner; `'all'` kapsamı + geçerli zaman penceresi + doğru aksiyon tipi kombinasyonunda `true` döner.
-- [ ] `assertValidManifestGrant` geçersiz girdiyi reddeder: boş `actionTypes`, boş `objectTypes` dizisi, `startsAt >= expiresAt`.
-- [ ] `runInAgentSandbox` hiçbir durumda (senkron throw, reddedilen promise, timeout/asla-çözülmeyen promise) çağırana istisna sızdırmaz — her çağrıda her zaman yapılandırılmış bir `AgentActionResult` döner.
-- [ ] RBAC: bir workspace member'ı `grant`/`revoke` çağıramaz (403/`ForbiddenError`); `list` çağırabilir.
-- [ ] Cross-workspace izolasyon: bir workspace'in izin manifestosu başka bir workspace'te ne görünür ne de geçerlidir.
-- [ ] grant → revoke → re-grant akışı: `revokedAt` sıfırlanır, kapsam/aksiyon/zaman penceresi güncellenir (upsert davranışı — `(workspaceId, agentIdentifier)` anahtarına yeni bir satır eklenmez).
-- [ ] Eşzamanlılık tavanı ve hız sınırı zorlanır (aşıldığında ilgili hata/red davranışı gözlemlenir); Postgres advisory-lock iki eşzamanlı çağrı altında doğru çalışır (yarış durumu yok).
-- [ ] Mevcut 4 sabit-actor'lü AI orkestratörü (`TRIGGER_ENGINE_ACTOR`, `TRIGGER_SUGGESTION_ACTOR`, `MEETING_ACTION_EXTRACTOR_ACTOR`, `COMMAND_PARSER_ACTOR`) bu görevle DEĞİŞTİRİLMEMİŞTİR (regresyon testleriyle doğrulanır).
-- [ ] UI eklenmemiştir — bu, kapsam dışı olduğu için beklenen bir durumdur, eksiklik değildir.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle: fail-closed değerlendiricinin gerçekten fail-closed olduğu, RBAC bypass'ı, cross-workspace sızıntısı, sandbox'ın istisna sızdırmadığı, advisory-lock'un TOCTOU açığı bırakmadığı).
-- [ ] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil.
+- [x] `evaluateManifestGrant` fail-closed çalışır: manifesto yok / iptal edilmiş (`revokedAt` set) / yanlış aksiyon tipi / kapsam dışı / zaman penceresi dışı durumlarının HER BİRİNDE `false` döner; `'all'` kapsamı + geçerli zaman penceresi + doğru aksiyon tipi kombinasyonunda `true` döner. PR1 (#191).
+- [x] `assertValidManifestGrant` geçersiz girdiyi reddeder: boş `actionTypes`, boş `objectTypes` dizisi, `startsAt >= expiresAt`. PR1 (#191).
+- [x] `runInAgentSandbox` hiçbir durumda (senkron throw, reddedilen promise, timeout/asla-çözülmeyen promise) çağırana istisna sızdırmaz — her çağrıda her zaman yapılandırılmış bir `AgentActionResult` döner. PR1 (#191).
+- [x] RBAC: bir workspace member'ı `grant`/`revoke` çağıramaz (403/`ForbiddenError`); `list` çağırabilir. PR2 (#192, `AgentPermissionManifestsService`/`Controller`).
+- [x] Cross-workspace izolasyon: bir workspace'in izin manifestosu başka bir workspace'te ne görünür ne de geçerlidir. PR2 (#192)'nin entegrasyon testlerinde doğrulandı.
+- [x] grant → revoke → re-grant akışı: `revokedAt` sıfırlanır, kapsam/aksiyon/zaman penceresi güncellenir (upsert davranışı — `(workspaceId, agentIdentifier)` anahtarına yeni bir satır eklenmez). PR2 (#192).
+- [x] Eşzamanlılık tavanı ve hız sınırı zorlanır (aşıldığında ilgili hata/red davranışı gözlemlenir); Postgres advisory-lock iki eşzamanlı çağrı altında doğru çalışır (yarış durumu yok). PR3 (#193, `AgentConcurrencyGuard` + `AgentResourceLimitsService.executeAgentAction`).
+- [x] Mevcut 4 sabit-actor'lü AI orkestratörü (`TRIGGER_ENGINE_ACTOR`, `TRIGGER_SUGGESTION_ACTOR`, `MEETING_ACTION_EXTRACTOR_ACTOR`, `COMMAND_PARSER_ACTOR`) bu görevle DEĞİŞTİRİLMEMİŞTİR (regresyon testleriyle doğrulanır). PR1/PR2/PR3'ün hiçbiri bu dört orkestratöre dokunmadı (ADR-0035 Karar f); mevcut regresyon test paketleri değişmeden geçti.
+- [x] UI eklenmemiştir — bu, kapsam dışı olduğu için beklenen bir durumdur, eksiklik değildir. ADR-0035 Karar (h) uyarınca v0 backend-only kalındı.
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle: fail-closed değerlendiricinin gerçekten fail-closed olduğu, RBAC bypass'ı, cross-workspace sızıntısı, sandbox'ın istisna sızdırmadığı, advisory-lock'un TOCTOU açığı bırakmadığı). PR1/PR2/PR3 için ayrı ayrı sıfır-bulgu doğrulandı.
+- [x] `pnpm typecheck && pnpm lint && pnpm test:changed` yeşil. Her PR için ayrı ayrı doğrulandı (bkz. Test kanıtı).
 
 ## Done
 
-Henüz başlanmadı — bu bölüm görev tamamlandığında PR linkleri ve test kanıtıyla doldurulacak.
+**PR'lar:**
+
+- PR1 (#191): `packages/agent-runtime` saf domain — `AgentPermissionManifest`/`AgentDataScope`/`AgentActionType`/`AgentTimeWindow` tipleri, `AgentPermissionGranted`/`AgentPermissionRevoked` olay şemaları, `assertValidManifestGrant`, fail-closed `evaluateManifestGrant`, `runInAgentSandbox` (ADR-0035 Karar a/b/c).
+- PR2 (#192): İzin manifestosu sunucu bağlaması — `apps/server/src/agent-runtime/` altında `AgentPermissionManifestsService` (`grant`/`revoke` admin+, `list` member+, `checkPermission` dahili/RBAC'sız), `AgentPermissionManifestsController` (`workspaces/:workspaceId/agent-runtime/permission-manifests`), `agent_permission_manifests` şeması + migration + projeksiyon, event-sourced grant/revoke (upsert/tombstone deseni, ADR-0035 Karar b/d/i).
+- PR3 (#193): Kaynak sınırları + sandbox icra bağlaması — `AgentConcurrencyGuard` (süreç-yerel eşzamanlılık tavanı), `AgentResourceLimitsService.executeAgentAction` (izin kontrolü → kaynak sınırı kontrolü → `runInAgentSandbox` içinde icra → sonucu kaydet; DB-destekli hız sınırı, Postgres advisory-lock), `agent_action_executions` insert-only audit ledger + projeksiyon + ilgili env değişkenleri (ADR-0035 Karar g/i/j).
+
+**Test kanıtı:**
+
+- PR1 (#191) — tam birim test paketi bu oturumda yerel olarak doğrulandı (saf domain paketi, DB bağımlılığı yok).
+- PR2 (#192) — 21 entegrasyon testi (12 servis + 9 controller); PR3 (#193) — 10 entegrasyon testi. Her ikisi de Testcontainers-destekli, gerçek Postgres gerektirir — bu oturumun sandbox'ında Docker olmadığı için yalnızca CI'ın `quality` kontrolünden geçtiği doğrulandı.
+- PR3 (#193)'ün `agent-concurrency-guard.test.ts` (8/8) ve `env-agent-runtime.test.ts` (16/16) test dosyaları DB'ye bağımlı olmadıkları için bu oturumda yerel olarak da doğrulandı.
+- Her üç PR için de `security-reviewer` geçişi ayrı ayrı sıfır-bulgu buldu.
+
+**Mimari kaynağı:** ADR-0035 (`docs/adr/ADR-0035-ajan-calisma-zamani-izin-manifestosu.md`).
+
+**Epik/Faz durumu:** F3-T1 tamamlandı, ama Epik F3-E1 (Agent Runtime + Skill SDK, Kapsam J) HENÜZ KAPANMADI — aynı epiğin F3-T2'si (Skill SDK v1: imzalı beceri paketleri, sürümleme, yetenek bildirimi, 20 birinci parti beceri) ve F3-T3'ü (ajan-insan etkileşimi) hâlâ beklemede. F3-T1 bu iki görevin üzerine kuracağı temel altyapıdır (izin manifestosu + sandbox + kaynak sınırları). `docs/PLAN.md`'nin "FAZ 3 — Otonomi ve Farklılaşma" bölümü bu görevle resmen başlamıştır — bu, FAZ 3'ün ilk tamamlanan görevidir.
 
 ---
 
-**Sıradaki adım:** ADR-0035 (`docs/adr/ADR-0035-ajan-calisma-zamani-izin-manifestosu.md`) kabul edildi. `test-writer` ile PR1'e (packages/agent-runtime saf domain) geçilebilir.
+**Sıradaki adım:** F3-T1 tamamlandı, ama Epik F3-E1'in bir sonraki görevi olan F3-T2'nin (Skill SDK v1) henüz bir spec dosyası yok — CLAUDE.md'nin ritüeli gereği (`docs/specs/<EPİK>/<GÖREV>.md` önce yazılmalı) önce spec yazılmalı, doğrudan koda geçilmemeli:
 
 ```
-docs/adr/ADR-0035-ajan-calisma-zamani-izin-manifestosu.md'deki Karar (a)-(j)'yi ve bu
-spec dosyasının Kabul Kriterleri'ni temel alarak, F3-T1 PR1 (packages/agent-runtime saf
-domain: AgentPermissionManifest tipleri, olay şemaları, assertValidManifestGrant,
-evaluateManifestGrant, runInAgentSandbox) için test-writer ile başarısız testleri yaz.
+/yeni-ozellik F3-T2 — Skill SDK v1: imzalı beceri paketleri, sürümleme, yetenek bildirimi;
+20 birinci parti beceri. Bu görev Epik F3-E1'in (Agent Runtime + Skill SDK, Kapsam J)
+ikinci görevidir ve F3-T1'in (ADR-0035) kurduğu izin manifestosu/sandbox/kaynak-sınırı
+altyapısının ilk gerçek tüketicisi olacaktır.
 ```
