@@ -21,5 +21,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
+  exports: [AutomationTriggersService],
 })
 export class AutomationModule {}
