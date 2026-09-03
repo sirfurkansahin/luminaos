@@ -18,6 +18,7 @@ import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
 import { McpAccessPanel } from './views/shared/McpAccessPanel';
 import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
+import { TriggerSuggestionsPanel } from './views/shared/TriggerSuggestionsPanel';
 import { WebhookSubscriptionsPanel } from './views/shared/WebhookSubscriptionsPanel';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
@@ -111,6 +112,7 @@ export function App() {
       <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
       <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
       <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
+      <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
