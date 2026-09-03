@@ -11,12 +11,14 @@ import { ObjectDetailHost } from './views/detail/ObjectDetailHost';
 import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
+import { AutomationHistoryPanel } from './views/shared/AutomationHistoryPanel';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
 import { McpAccessPanel } from './views/shared/McpAccessPanel';
 import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
+import { WebhookSubscriptionsPanel } from './views/shared/WebhookSubscriptionsPanel';
 import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
 import { ViewSwitcher } from './views/ViewSwitcher';
@@ -107,6 +109,8 @@ export function App() {
       <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
       <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
       <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
+      <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
+      <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
