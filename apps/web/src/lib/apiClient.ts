@@ -748,3 +748,67 @@ export function decideProposal(
     },
   );
 }
+
+/**
+ * F2-T17 PR3 (ADR-0034) -- trigger-template-suggestion read/analyze/decide
+ * client, feeding `TriggerSuggestionsPanel`. Mirrors the already-merged
+ * server-side `TriggerTemplateSuggestionSummary` shape exactly
+ * (`apps/server/src/trigger-suggestions/trigger-suggestions.controller.ts`,
+ * `trigger-suggestions.service.ts`); not imported from the server, per this
+ * file's convention of locally re-declaring every shape.
+ */
+export type TriggerSpecSummary =
+  | { kind: 'scheduled'; intervalMinutes: number; actionTemplate: { title: string } }
+  | {
+      kind: 'condition';
+      objectType: string;
+      fieldKey: string;
+      pattern: string;
+      flags: string;
+      actionTemplate: { title: string };
+    };
+
+export interface TriggerTemplateSuggestionSummary {
+  id: string;
+  workspaceId: string;
+  name: string;
+  kind: 'scheduled' | 'condition';
+  spec: TriggerSpecSummary;
+  rationale: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdTriggerId: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export function listTriggerSuggestions(
+  workspaceId: string,
+): Promise<{ suggestions: TriggerTemplateSuggestionSummary[] }> {
+  return request<{ suggestions: TriggerTemplateSuggestionSummary[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/trigger-suggestions`,
+    { method: 'GET' },
+  );
+}
+
+export function runTriggerSuggestionsAnalysis(
+  workspaceId: string,
+): Promise<{ suggestions: TriggerTemplateSuggestionSummary[] }> {
+  return request<{ suggestions: TriggerTemplateSuggestionSummary[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/trigger-suggestions/analyze`,
+    { method: 'POST' },
+  );
+}
+
+export function decideTriggerSuggestion(
+  workspaceId: string,
+  suggestionId: string,
+  decision: 'approve' | 'reject',
+): Promise<{ suggestion: TriggerTemplateSuggestionSummary }> {
+  return request<{ suggestion: TriggerTemplateSuggestionSummary }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/trigger-suggestions/${encodeURIComponent(suggestionId)}/decide`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    },
+  );
+}
