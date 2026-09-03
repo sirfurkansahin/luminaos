@@ -16,6 +16,7 @@
     "db:migrate:down": "tsx src/db/migrate-down.ts"
   },
   "dependencies": {
+    "@luminaos/agent-runtime": "workspace:*",
     "@luminaos/ai-gateway": "workspace:*",
     "@luminaos/automation": "workspace:*",
     "@luminaos/core-objects": "workspace:*",

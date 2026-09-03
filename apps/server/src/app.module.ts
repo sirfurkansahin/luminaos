@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 
+import { AgentRuntimeModule } from './agent-runtime/agent-runtime.module.js';
 import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AutomationModule } from './automation/automation.module.js';
@@ -78,6 +79,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     AutomationModule,
     TriggerSuggestionsModule,
     WebhooksModule,
+    AgentRuntimeModule,
   ],
   controllers: [AppController],
   providers: [
