@@ -32,6 +32,7 @@ import { RedisModule } from './redis/redis.module.js';
 import { RelationsModule } from './relations/relations.module.js';
 import { SavedViewsModule } from './saved-views/saved-views.module.js';
 import { SearchModule } from './search/search.module.js';
+import { TriggerSuggestionsModule } from './trigger-suggestions/trigger-suggestions.module.js';
 import { WebhooksModule } from './webhooks/webhooks.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
@@ -75,6 +76,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     McpConnectorsModule,
     McpServerModule,
     AutomationModule,
+    TriggerSuggestionsModule,
     WebhooksModule,
   ],
   controllers: [AppController],
