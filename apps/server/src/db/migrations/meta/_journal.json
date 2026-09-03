@@ -260,6 +260,13 @@
       "when": 1788462105207,
       "tag": "0037_condemned_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788465805868,
+      "tag": "0038_minor_iceman",
+      "breakpoints": true
     }
   ]
 }

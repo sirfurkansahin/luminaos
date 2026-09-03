@@ -130,6 +130,10 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       docMaxRooms: 1_000,
       searchIndexEmbeddingDebounceMs: 5_000,
       serverPublicUrl: 'http://localhost:3000',
+      agentSandboxTimeoutMs: 30_000,
+      agentSandboxMaxConcurrentPerAgent: 3,
+      agentActionRateLimitPerWindow: 100,
+      agentActionRateLimitWindowMs: 60_000,
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 

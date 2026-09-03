@@ -37,3 +37,4 @@ export * from './webhook-deliveries.js';
 export * from './trigger-template-suggestions.js';
 export * from './trigger-suggestion-analysis-state.js';
 export * from './agent-permission-manifests.js';
+export * from './agent-action-executions.js';
