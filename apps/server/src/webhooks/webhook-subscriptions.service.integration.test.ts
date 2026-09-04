@@ -334,18 +334,26 @@ describe('WebhookSubscriptionsService (real Postgres via Testcontainers, ADR-003
     const userAId = await createUser(freshEmail());
     const userBId = await createUser(freshEmail());
 
+    // BUG FIX (discovered via ci/wire-integration-tests): `a.example.com`/
+    // `b.example.com` are unregistered subdomains that never actually
+    // resolve via DNS (`example.com` has no wildcard record) -- `create()`
+    // real-DNS-resolves `targetUrl`'s hostname via `assertSafeWebhookUrl`
+    // (ADR-0033's SSRF guard), so both calls below always threw
+    // `getaddrinfo ENOTFOUND`. Differentiating by PATH instead of subdomain
+    // keeps two genuinely distinct, distinguishable target URLs while
+    // resolving against the real, guaranteed-to-resolve `example.com` host.
     await service.create(workspaceAId, actorFor(userAId), 'admin', {
-      targetUrl: 'https://a.example.com/hook',
+      targetUrl: 'https://example.com/hook-a',
       eventTypes: ['ActionsProposed'],
     });
     await service.create(workspaceBId, actorFor(userBId), 'admin', {
-      targetUrl: 'https://b.example.com/hook',
+      targetUrl: 'https://example.com/hook-b',
       eventTypes: ['ActionsProposed'],
     });
 
     const listA = await service.list(workspaceAId, 'admin');
     expect(listA).toHaveLength(1);
-    expect(listA.some((s) => s.targetUrl === 'https://b.example.com/hook')).toBe(false);
+    expect(listA.some((s) => s.targetUrl === 'https://example.com/hook-b')).toBe(false);
   });
 
   it('11. remove() as admin deletes the subscription (verified via a subsequent list() no longer including it)', async () => {
