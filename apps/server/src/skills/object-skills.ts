@@ -63,6 +63,29 @@ function parseSkillInput<T>(schema: z.ZodType<T>, input: unknown): T {
   return result.data;
 }
 
+/**
+ * BUG FIX (security-review finding, F3-T2 PR4): `SkillExecutionService.
+ * executeSkill` always injects `workspaceId`/`agentIdentifier` into `input`
+ * before `execute` runs (see that file's own doc comment). Every `.strict()`
+ * HTTP-facing DTO schema reused below (`createObjectSchema`,
+ * `setFieldValuesSchema`, etc.) declares ONLY its own body fields, so parsing
+ * the raw `input` against it directly always fails with `unrecognized_keys`
+ * for those two injected fields -- every skill below that did this was
+ * unreachable through its real `executeSkill` entry point. Stripping exactly
+ * these two known, always-present context fields before the strict body
+ * parse preserves the DTO's mass-assignment protection against any OTHER
+ * unexpected field while allowing the two fields that legitimately coexist.
+ */
+function stripAuthoritativeContext(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null) {
+    return input;
+  }
+  const withoutContext = { ...(input as Record<string, unknown>) };
+  delete withoutContext.workspaceId;
+  delete withoutContext.agentIdentifier;
+  return withoutContext;
+}
+
 const objectIdSchema = z.object({ objectId: z.string().min(1) }).strict();
 
 /**
@@ -104,7 +127,7 @@ export function buildCreateObjectSkill(objectsService: ObjectsService): Skill<un
         z.object({ workspaceId: z.string().min(1), agentIdentifier: z.string().min(1) }),
         input,
       );
-      const body = parseSkillInput(createObjectSchema, input);
+      const body = parseSkillInput(createObjectSchema, stripAuthoritativeContext(input));
 
       return objectsService.create(
         context.workspaceId,
@@ -162,7 +185,7 @@ export function buildQueryObjectsSkill(objectsService: ObjectsService): Skill<un
       );
       const { querySpec } = parseSkillInput(
         z.object({ querySpec: querySpecSchema }).strict(),
-        input,
+        stripAuthoritativeContext(input),
       );
 
       return objectsService.query(context.workspaceId, CALLER_ROLE, querySpec);
@@ -187,7 +210,7 @@ export function buildSetFieldValuesSkill(objectsService: ObjectsService): Skill<
           .loose(),
         input,
       );
-      const body = parseSkillInput(setFieldValuesSchema, input);
+      const body = parseSkillInput(setFieldValuesSchema, stripAuthoritativeContext(input));
       const entries = Object.entries(body.values).map(([fieldKey, value]) => ({
         fieldKey,
         value,
@@ -220,7 +243,7 @@ export function buildAddChecklistItemSkill(
           .loose(),
         input,
       );
-      const body = parseSkillInput(addChecklistItemSchema, input);
+      const body = parseSkillInput(addChecklistItemSchema, stripAuthoritativeContext(input));
 
       return objectsService.addChecklistItem(
         context.workspaceId,
@@ -284,7 +307,7 @@ export function buildScheduleTimeBlockSkill(
           .loose(),
         input,
       );
-      const body = parseSkillInput(scheduleTimeblockSchema, input);
+      const body = parseSkillInput(scheduleTimeblockSchema, stripAuthoritativeContext(input));
 
       return objectsService.scheduleTimeBlock(
         context.workspaceId,
@@ -343,7 +366,7 @@ export function buildSetRecurrenceRuleSkill(
           .loose(),
         input,
       );
-      const body = parseSkillInput(setRecurrenceRuleSchema, input);
+      const body = parseSkillInput(setRecurrenceRuleSchema, stripAuthoritativeContext(input));
       // `exactOptionalPropertyTypes` -- built conditionally, mirroring
       // `objects.controller.ts`'s own `setRecurrenceRule` handler, rather
       // than spreading `body` as-is (zod's `.optional()` types its output as
