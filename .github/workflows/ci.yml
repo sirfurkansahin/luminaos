@@ -99,15 +99,20 @@ jobs:
         # never weakens a real finding, only stops conflating "we couldn't
         # ask the registry" with "we found something."
         run: |
+          # NOTE: this step runs under `bash -e` -- a command-substitution
+          # assignment like `output="$(cmd)"` on its OWN line propagates
+          # `cmd`'s failure to errexit and kills the script immediately,
+          # BEFORE `exit_code=$?` or any retry logic ever runs. Putting the
+          # assignment inside an `if` condition is the standard safe idiom:
+          # errexit does not apply to commands tested in an `if` condition.
           network_error_pattern='TimeoutError|ETIMEDOUT|ENOTFOUND|ECONNRESET|ECONNREFUSED|EAI_AGAIN'
           output=""
           for attempt in 1 2 3; do
-            output="$(pnpm audit --audit-level critical 2>&1)"
-            exit_code=$?
-            echo "${output}"
-            if [ "${exit_code}" -eq 0 ]; then
+            if output="$(pnpm audit --audit-level critical 2>&1)"; then
+              echo "${output}"
               exit 0
             fi
+            echo "${output}"
             echo "pnpm audit attempt ${attempt} failed" >&2
             if [ "${attempt}" -lt 3 ]; then
               echo "retrying in 30s..." >&2
