@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { SpanStatusCode } from '@opentelemetry/api';
 import {
   ATTR_DB_QUERY_TEXT,
@@ -10,6 +11,8 @@ import { Pool } from 'pg';
 import * as schema from './schema/index.js';
 
 import type { Tracer } from '@opentelemetry/api';
+
+const logger = new Logger('DatabaseClient');
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -126,6 +129,16 @@ function wrapPoolQueryWithTracing(pool: Pool, tracer: Tracer): void {
  */
 export function createDatabaseClient(connectionString: string, tracer?: Tracer): Database {
   const pool = new Pool({ connectionString });
+
+  // `pg`'s own docs mandate this: an idle pooled client that hits a
+  // network/backend-initiated error (e.g. the server force-closing the
+  // connection during a fast shutdown) emits 'error' on the pool. With no
+  // listener attached, Node treats it as an unhandled error and crashes the
+  // process -- this must never log the raw `error` object (it carries the
+  // client's `connectionParameters`, including the plaintext password).
+  pool.on('error', (error: Error) => {
+    logger.warn(`Idle Postgres client error: ${error.message}`);
+  });
 
   if (tracer !== undefined) {
     wrapPoolQueryWithTracing(pool, tracer);
