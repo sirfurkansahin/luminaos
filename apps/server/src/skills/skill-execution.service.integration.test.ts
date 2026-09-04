@@ -398,7 +398,48 @@ describe('F3-T2 PR2 (RED step): SkillExecutionService — the ONE integration po
 
     expect(result).toEqual({ outcome: 'success', value: { done: true } });
     expect(tracked.getCallCount()).toBe(1);
-    expect(tracked.getLastInput()).toEqual(input);
+    // `executeSkill` injects the authoritative workspaceId/agentIdentifier
+    // into the input it hands to `skill.execute` (F3-T2 PR3 security fix --
+    // a skill must never be able to trust a caller-supplied workspaceId in
+    // `input` over the one that was actually permission-checked).
+    expect(tracked.getLastInput()).toEqual({ ...input, workspaceId, agentIdentifier });
+  });
+
+  it('2b. a caller-supplied, SPOOFED workspaceId/agentIdentifier inside input is overridden by the authoritative, permission-checked values -- proves the fix actually closes the workspace-isolation bypass, not just that unrelated fields pass through', async () => {
+    const workspaceIdA = await createWorkspace();
+    const workspaceIdB = await createWorkspace();
+    const agentIdentifier = 'skill-exec-spoof-agent';
+    const otherAgentIdentifier = 'skill-exec-spoof-other-agent';
+    const registry = new SkillRegistryCtor();
+    const tracked = buildTrackedSkill('spoof-check-skill', 'ok');
+    registry.register(tracked.skill, validKeyPair.publicKeyPem);
+
+    // Permission is granted for (workspaceIdA, agentIdentifier) ONLY.
+    await permissionsService.grant(workspaceIdA, fakeActor(), 'admin', {
+      agentIdentifier,
+      dataScope: { objectTypes: 'all' },
+      actionTypes: ['spoof-check-skill'],
+      timeWindow: { startsAt: null, expiresAt: null },
+    });
+
+    const service = await buildSkillExecutionService(registry);
+
+    // The caller passes workspaceIdA/agentIdentifier as executeSkill's own
+    // (correctly permission-checked) arguments, but tries to smuggle a
+    // DIFFERENT workspaceId/agentIdentifier inside `input` itself.
+    const spoofedInput = { workspaceId: workspaceIdB, agentIdentifier: otherAgentIdentifier };
+    const result = await service.executeSkill(
+      workspaceIdA,
+      agentIdentifier,
+      'spoof-check-skill',
+      spoofedInput,
+    );
+
+    expect(result).toEqual({ outcome: 'success', value: 'ok' });
+    // The skill must have received the AUTHORITATIVE values, not the
+    // attacker-supplied ones -- if the override were missing or the spread
+    // order reversed, this would instead see workspaceIdB/otherAgentIdentifier.
+    expect(tracked.getLastInput()).toEqual({ workspaceId: workspaceIdA, agentIdentifier });
   });
 
   it('3. manifest granted then revoked -> throws ForbiddenError, execute never called', async () => {

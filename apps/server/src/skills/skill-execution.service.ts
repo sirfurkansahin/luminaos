@@ -35,44 +35,58 @@ export class SkillExecutionService {
     private readonly agentResourceLimitsService: AgentResourceLimitsService,
   ) {}
 
+  /**
+   * `objectType` (F3-T2 PR3 fix of a PR2 security-review finding):
+   * `evaluateManifestGrant` (@luminaos/agent-runtime) only enforces a
+   * manifest's `dataScope.objectTypes` restriction when
+   * `request.objectType !== undefined` -- callers that know the target
+   * object's type (or a query's single target type) MUST pass it here, or
+   * that manifest dimension goes unenforced for this call.
+   *
+   * `input` is always spread with `workspaceId`/`agentIdentifier` injected
+   * LAST, right before `skill.execute` is ever called (security fix,
+   * F3-T2 PR3): a skill's own `execute` needs these values to know which
+   * workspace/agent it is acting for, but they must come from THIS
+   * method's own already-checked-permission parameters, never from
+   * caller-supplied `input` -- otherwise a caller could pass
+   * `executeSkill(workspaceIdA, ..., {workspaceId: workspaceIdB, ...})`,
+   * pass the permission check against workspace A, then have the skill
+   * silently act against workspace B. Overwriting `input.workspaceId`/
+   * `.agentIdentifier` with the authoritative values closes that gap
+   * regardless of what a caller puts in `input`.
+   */
   async executeSkill<TOutput>(
     workspaceId: string,
     agentIdentifier: string,
     skillId: string,
-    input: unknown,
+    input: Record<string, unknown>,
+    objectType?: string,
   ): Promise<AgentActionResult<TOutput>> {
     const skill = this.skillRegistry.get(skillId);
     if (!skill) {
       throw new NotFoundError(`No skill registered for id "${skillId}"`);
     }
 
-    // SECURITY NOTE (security-review finding, F3-T2 PR2): `objectType` is
-    // deliberately omitted here. `evaluateManifestGrant` (@luminaos/agent-runtime)
-    // only enforces a manifest's `dataScope.objectTypes` restriction when
-    // `request.objectType !== undefined` -- omitting it SKIPS that check
-    // entirely rather than denying, so today a manifest scoped to specific
-    // `objectTypes` (not `'all'`) grants any matching-actionType skill
-    // unconditionally, with NO dataScope narrowing enforced. This is a real
-    // gap, not a false-negative in this PR only because the registry is
-    // still empty (no real skills exist to exploit it yet). PR3+ MUST either
-    // (a) have each real skill determine and pass its own relevant
-    // `objectType` here (derived from its `input`, shape varies per skill),
-    // or (b) explicitly and deliberately document that skill-level actions
-    // bypass object-level scoping by design -- this must not ship silently.
     const allowed = await this.agentPermissionManifestsService.checkPermission(
       workspaceId,
       agentIdentifier,
-      { actionType: skillId, now: new Date() },
+      {
+        actionType: skillId,
+        now: new Date(),
+        ...(objectType === undefined ? {} : { objectType }),
+      },
     );
     if (!allowed) {
       throw new ForbiddenError();
     }
 
+    const authoritativeInput = { ...input, workspaceId, agentIdentifier };
+
     return this.agentResourceLimitsService.executeAgentAction<TOutput>(
       workspaceId,
       agentIdentifier,
       skillId,
-      () => skill.execute(input) as Promise<TOutput>,
+      () => skill.execute(authoritativeInput) as Promise<TOutput>,
     );
   }
 }
