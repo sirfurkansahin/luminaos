@@ -172,6 +172,20 @@ describe('CommandsService.listProposals() (real Postgres via Testcontainers)', (
     container = await new PostgreSqlContainer('postgres:16').start();
     const connectionString = container.getConnectionUri();
 
+    // BUG FIX (discovered via ci/wire-integration-tests): `CommandsService`
+    // (dynamically imported below) statically imports the real
+    // `AIUsageService`, which imports `env` from `../config/env.js` at
+    // module scope -- that module-level `readEnv()` call fatally
+    // `process.exit(1)`s if `DATABASE_URL`/`REDIS_URL` aren't already set.
+    // This test's own `db`/`eventStore`/`projectionRunner` are constructed
+    // directly from `connectionString`, never through `env.databaseUrl`, so
+    // these are placeholders satisfying `readEnv()`'s presence check only --
+    // mirrors `ai-usage.service.integration.test.ts`'s own identical
+    // "process.env.* set BEFORE the dynamic import" convention, which this
+    // file's header comment already claims to follow but never actually did.
+    process.env.DATABASE_URL = connectionString;
+    process.env.REDIS_URL = 'redis://commands-service-list-proposals-test-placeholder:6379';
+
     await runMigrations(connectionString);
     db = createDatabaseClient(connectionString);
     eventStore = new EventStoreService(db);
