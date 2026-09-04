@@ -86,7 +86,15 @@ function stripAuthoritativeContext(input: unknown): unknown {
   return withoutContext;
 }
 
-const objectIdSchema = z.object({ objectId: z.string().min(1) }).strict();
+// BUG FIX (discovered via ci/wire-integration-tests): `.strict()` rejected
+// ANY extra field beyond `objectId` -- but `callObjectIdBasedSkill` is a
+// shared helper for skills whose own body carries additional fields (e.g.
+// add-checklist-item's `text`), which this pre-check must not reject; each
+// skill's OWN `execute` validates its own fields separately. This bug was
+// masked until now: `object-skills.integration.test.ts`'s `beforeAll` threw
+// `ConflictError` (a separate, now-fixed bug), skipping every `it` in the
+// file before any of them could ever exercise this code path.
+const objectIdSchema = z.object({ objectId: z.string().min(1) }).loose();
 
 /**
  * A fresh Ed25519 keypair generated once, at this module's own load time --
