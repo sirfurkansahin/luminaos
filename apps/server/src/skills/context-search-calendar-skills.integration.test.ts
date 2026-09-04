@@ -700,13 +700,22 @@ describe('F3-T2 PR4 (RED step, 2/2): context-search-calendar-skills.ts — get-o
       timeWindow: { startsAt: null, expiresAt: null },
     });
 
-    await expect(
-      skillExecutionService.executeSkill(
-        workspaceId,
-        agentIdentifier,
-        'list-cached-calendar-events',
-        { start: 'not-a-date', end: new Date().toISOString() },
-      ),
-    ).rejects.toBeInstanceOf(ValidationError);
+    // `ValidationError` is thrown INSIDE the skill's own `execute` (after
+    // `executeSkill`'s permission check already passed), so it is caught by
+    // `AgentResourceLimitsService.executeAgentAction`'s sandbox
+    // (`runInAgentSandbox`, ADR-0035 Karar a: exceptions never escape) and
+    // surfaces as a RESOLVED `{outcome:'failure'}`, not a rejection --
+    // unlike `NotFoundError`/`ForbiddenError` above, which `executeSkill`
+    // itself throws directly, before the sandbox is ever entered.
+    const result = await skillExecutionService.executeSkill(
+      workspaceId,
+      agentIdentifier,
+      'list-cached-calendar-events',
+      { start: 'not-a-date', end: new Date().toISOString() },
+    );
+    expect(result.outcome).toBe('failure');
+    if (result.outcome === 'failure') {
+      expect(result.error).toBeInstanceOf(ValidationError);
+    }
   });
 });

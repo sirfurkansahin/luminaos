@@ -133,6 +133,10 @@ interface ObjectsServiceLike {
   ): Promise<ObjectWithFieldValuesLike>;
 }
 
+interface EventStoreServiceLike {
+  readByWorkspace(workspaceId: string, fromPosition: number): Promise<{ type: string }[]>;
+}
+
 interface GenerateNextOccurrenceResultLike {
   object: { id: string; type: string; title: string };
   fieldValues: Record<string, unknown>;
@@ -236,6 +240,7 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
   let mockBotClient: MockMeetingBotClient;
 
   let objectsService: ObjectsServiceLike;
+  let eventStore: EventStoreServiceLike;
   let permissionsService: AgentPermissionManifestsServiceLike;
   let skillExecutionService: SkillExecutionServiceLike;
   let meetingsService: MeetingsServiceLike;
@@ -294,6 +299,12 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
       objectsServiceModule as { ObjectsService: Type<ObjectsServiceLike> }
     ).ObjectsService;
     objectsService = app.get(ObjectsServiceCtor);
+
+    const eventStoreModule: unknown = await import('../event-store/event-store.service.js');
+    const EventStoreServiceCtor = (
+      eventStoreModule as { EventStoreService: Type<EventStoreServiceLike> }
+    ).EventStoreService;
+    eventStore = app.get(EventStoreServiceCtor);
 
     const taskRecurrenceModule: unknown = await import('../recurrence/task-recurrence.service.js');
     const TaskRecurrenceServiceCtor = (
@@ -387,6 +398,21 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
       throw new Error(`Expected a successful AgentActionResult, got: ${JSON.stringify(result)}`);
     }
     return result.value;
+  }
+
+  /**
+   * `TaskRecurrenceService.generateNextOccurrence` is NOT wired into
+   * `ObjectsService`'s own `objects_view`/`relations_view` projections (a
+   * documented, accepted gap from that service's own doc comment) -- it only
+   * appends events. Verifying real persistence therefore reads the EVENT
+   * STORE directly, mirroring `task-recurrence.service.test.ts`'s own
+   * `countEventsByType` helper, rather than `objectsService.get` (which
+   * reads the read-model projection and would see nothing, since no
+   * catch-up has run).
+   */
+  async function countEventsByType(workspaceId: string, type: string): Promise<number> {
+    const events = await eventStore.readByWorkspace(workspaceId, 0);
+    return events.filter((event) => event.type === type).length;
   }
 
   it('1. all 3 skills are registered under their exact catalog ids, retrievable via registry.get(id)', async () => {
@@ -542,10 +568,12 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     expect(first.relation.fromId).toBe(sourceTask.id);
     expect(first.relation.toId).toBe(first.object.id);
 
-    // Independently verify REAL persistence via a separate objectsService.get call.
-    const fetched = await objectsService.get(workspaceId, first.object.id, 'member');
-    expect(fetched.id).toBe(first.object.id);
-    expect(fetched.title).toBe('Weekly standup (next)');
+    // Independently verify REAL persistence via the event store (NOT
+    // `objectsService.get`, which reads `objects_view` -- a projection
+    // `generateNextOccurrence` never catches up, per its own documented
+    // gap; see `countEventsByType`'s doc comment above).
+    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(1);
+    expect(await countEventsByType(workspaceId, 'RelationCreated')).toBe(1);
 
     const secondResult =
       await meetingRecurrenceSkillsModule.callGenerateNextRecurrenceSkill<GenerateNextOccurrenceResultLike>(
@@ -558,6 +586,9 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     const second = unwrapSuccess(secondResult);
     expect(second.object.id).toBe(first.object.id);
     expect(second.relation.id).toBe(first.relation.id);
+    // The idempotent replay must not append a SECOND pair of events.
+    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(1);
+    expect(await countEventsByType(workspaceId, 'RelationCreated')).toBe(1);
   });
 
   it('5. generate-next-recurrence: when the caller OMITS causationEventId, the skill generates a fresh one itself on EACH call -- two such calls produce TWO DIFFERENT objects, never an accidental idempotent collision', async () => {
