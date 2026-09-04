@@ -85,7 +85,26 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies (critical only)
-        run: pnpm audit --audit-level critical
+        # `pnpm audit` calls out to npm's advisory-bulk endpoint
+        # (registry.npmjs.org/-/npm/v1/security/advisories/bulk), which has
+        # been observed to time out under registry-side flakiness even after
+        # pnpm's own internal retries are exhausted (~4 min). Retry the whole
+        # step a few times with backoff before failing the job -- a real
+        # critical vulnerability still fails deterministically on every
+        # attempt, so this only adds latency in that case, never masks it.
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm audit --audit-level critical; then
+              exit 0
+            fi
+            echo "pnpm audit attempt ${attempt} failed" >&2
+            if [ "${attempt}" -lt 3 ]; then
+              echo "retrying in 30s..." >&2
+              sleep 30
+            fi
+          done
+          echo "pnpm audit failed after 3 attempts" >&2
+          exit 1
 
   ai-eval:
     name: ai-eval
