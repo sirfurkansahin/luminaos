@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -9,8 +9,7 @@ import type { AgentActionResult } from '@luminaos/agent-runtime';
 import { MockMeetingBotClient } from '@luminaos/integrations';
 import { ForbiddenError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
-import { signSkillManifest, SkillRegistry } from '@luminaos/skill-sdk';
-import type { Skill } from '@luminaos/skill-sdk';
+import type { SkillRegistry, Skill } from '@luminaos/skill-sdk';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
@@ -249,30 +248,6 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
   let workspaceCounter = 0;
   let agentCounter = 0;
 
-  function generateEd25519Pem(): { privateKeyPem: string; publicKeyPem: string } {
-    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    return {
-      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
-      publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }),
-    };
-  }
-
-  function reSignForTestRegistry(
-    skill: Skill<unknown, unknown>,
-    keyPair: { privateKeyPem: string; publicKeyPem: string },
-  ): Skill<unknown, unknown> {
-    const unsigned = {
-      id: skill.manifest.id,
-      version: skill.manifest.version,
-      capability: skill.manifest.capability,
-    };
-    const signature = signSkillManifest(unsigned, keyPair.privateKeyPem);
-    return {
-      manifest: { ...unsigned, signature },
-      execute: (input: unknown) => skill.execute(input),
-    };
-  }
-
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
     redisContainer = await new RedisContainer('redis:7').start();
@@ -306,12 +281,6 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     ).EventStoreService;
     eventStore = app.get(EventStoreServiceCtor);
 
-    const taskRecurrenceModule: unknown = await import('../recurrence/task-recurrence.service.js');
-    const TaskRecurrenceServiceCtor = (
-      taskRecurrenceModule as { TaskRecurrenceService: Type<TaskRecurrenceServiceLike> }
-    ).TaskRecurrenceService;
-    const taskRecurrenceService = app.get(TaskRecurrenceServiceCtor);
-
     const meetingsServiceModule: unknown = await import('../notetaker/meetings.service.js');
     const MeetingsServiceCtor = (
       meetingsServiceModule as { MeetingsService: Type<MeetingsServiceLike> }
@@ -331,35 +300,20 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     const SkillExecutionServiceCtor = (
       skillExecutionModule as { SkillExecutionService: Type<SkillExecutionServiceLike> }
     ).SkillExecutionService;
-    const SKILL_REGISTRY_TOKEN = (skillExecutionModule as { SKILL_REGISTRY: symbol })
-      .SKILL_REGISTRY;
     skillExecutionService = app.get(SkillExecutionServiceCtor);
-    const skillRegistry = app.get<SkillRegistry>(SKILL_REGISTRY_TOKEN);
 
-    // ==========================================================================
-    // RED: `./meeting-recurrence-skills.ts` does not exist yet -- this dynamic
-    // import rejects with "Cannot find module", failing every `it` below.
-    // ==========================================================================
+    // `SkillsModule`'s own factory (part of `AppModule`, F3-T2 PR6) already
+    // registers these 3 skills into the SAME process-wide `SKILL_REGISTRY`
+    // this test's `skillExecutionService` resolves against, signed with
+    // `meeting-recurrence-skills.ts`'s own real production keypair.
+    // Re-registering them here under a second, test-owned keypair throws
+    // `ConflictError` on the same already-populated registry instance.
     const meetingRecurrenceSkillsModulePath = './meeting-recurrence-skills.js';
     const meetingRecurrenceSkillsModuleRaw: unknown = await import(
       meetingRecurrenceSkillsModulePath
     );
     meetingRecurrenceSkillsModule =
       meetingRecurrenceSkillsModuleRaw as MeetingRecurrenceSkillsModuleLike;
-
-    const registryKeyPair = generateEd25519Pem();
-    const builtSkills: Skill<unknown, unknown>[] = [
-      meetingRecurrenceSkillsModule.buildGenerateNextRecurrenceSkill(taskRecurrenceService),
-      meetingRecurrenceSkillsModule.buildInviteMeetingBotSkill(meetingsService),
-      meetingRecurrenceSkillsModule.buildGetMeetingDetailsSkill(meetingsService),
-    ];
-
-    for (const skill of builtSkills) {
-      skillRegistry.register(
-        reSignForTestRegistry(skill, registryKeyPair),
-        registryKeyPair.publicKeyPem,
-      );
-    }
   }, 120_000);
 
   afterAll(async () => {
