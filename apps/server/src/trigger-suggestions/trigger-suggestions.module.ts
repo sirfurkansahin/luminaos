@@ -33,5 +33,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   ],
   controllers: [TriggerSuggestionsController],
   providers: [TriggerSuggestionsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  exports: [TriggerSuggestionsService],
 })
 export class TriggerSuggestionsModule {}

@@ -20,5 +20,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
   imports: [DbModule, AuthModule, SearchModule, AIProviderModule, AIUsageModule],
   controllers: [QAController],
   providers: [QAService, WorkspaceMembershipGuard, WorkspaceMembershipService],
+  exports: [QAService],
 })
 export class QAModule {}

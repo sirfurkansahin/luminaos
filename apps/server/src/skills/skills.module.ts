@@ -3,6 +3,26 @@ import { Module } from '@nestjs/common';
 import { SkillRegistry } from '@luminaos/skill-sdk';
 
 import {
+  buildAnswerQuestionSkill,
+  buildListCommandProposalsSkill,
+  buildParseCommandSkill,
+  buildProposeActionsFromMeetingSkill,
+  buildRunTriggerSuggestionAnalysisSkill,
+  AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+} from './ai-command-skills.js';
+import {
+  buildGetObjectContextSkill,
+  buildListCachedCalendarEventsSkill,
+  buildSearchConnectedSourcesSkill,
+  CONTEXT_SEARCH_CALENDAR_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+} from './context-search-calendar-skills.js';
+import {
+  buildGenerateNextRecurrenceSkill,
+  buildGetMeetingDetailsSkill,
+  buildInviteMeetingBotSkill,
+  MEETING_RECURRENCE_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+} from './meeting-recurrence-skills.js';
+import {
   buildAddChecklistItemSkill,
   buildCreateObjectSkill,
   buildGetObjectSkill,
@@ -16,8 +36,23 @@ import {
 } from './object-skills.js';
 import { SKILL_REGISTRY, SkillExecutionService } from './skill-execution.service.js';
 import { AgentRuntimeModule } from '../agent-runtime/agent-runtime.module.js';
+import { CalendarEventsService } from '../calendar/calendar-events.service.js';
+import { CalendarModule } from '../calendar/calendar.module.js';
+import { CommandsModule } from '../commands/commands.module.js';
+import { CommandsService } from '../commands/commands.service.js';
+import { ContextModule } from '../context/context.module.js';
+import { ContextService } from '../context/context.service.js';
+import { MeetingsService } from '../notetaker/meetings.service.js';
+import { NotetakerModule } from '../notetaker/notetaker.module.js';
 import { ObjectsModule } from '../objects/objects.module.js';
 import { ObjectsService } from '../objects/objects.service.js';
+import { QAModule } from '../qa/qa.module.js';
+import { QAService } from '../qa/qa.service.js';
+import { TaskRecurrenceService } from '../recurrence/task-recurrence.service.js';
+import { ConnectedSearchService } from '../search/connected-search.service.js';
+import { SearchModule } from '../search/search.module.js';
+import { TriggerSuggestionsModule } from '../trigger-suggestions/trigger-suggestions.module.js';
+import { TriggerSuggestionsService } from '../trigger-suggestions/trigger-suggestions.service.js';
 
 /**
  * F3-T2 PR2/PR3 (ADR-0036 Karar f): wires `SkillExecutionService` -- the ONE
@@ -41,13 +76,34 @@ import { ObjectsService } from '../objects/objects.service.js';
  * is a follow-up concern, not fixed in this PR.
  */
 @Module({
-  imports: [AgentRuntimeModule, ObjectsModule],
+  imports: [
+    AgentRuntimeModule,
+    ObjectsModule,
+    NotetakerModule,
+    ContextModule,
+    SearchModule,
+    CalendarModule,
+    QAModule,
+    CommandsModule,
+    TriggerSuggestionsModule,
+  ],
   providers: [
     {
       provide: SKILL_REGISTRY,
-      useFactory: (objectsService: ObjectsService) => {
+      useFactory: (
+        objectsService: ObjectsService,
+        meetingsService: MeetingsService,
+        contextService: ContextService,
+        connectedSearchService: ConnectedSearchService,
+        calendarEventsService: CalendarEventsService,
+        qaService: QAService,
+        commandsService: CommandsService,
+        triggerSuggestionsService: TriggerSuggestionsService,
+        taskRecurrenceService: TaskRecurrenceService,
+      ) => {
         const registry = new SkillRegistry();
-        const builders = [
+
+        const objectSkillBuilders = [
           buildCreateObjectSkill,
           buildGetObjectSkill,
           buildQueryObjectsSkill,
@@ -58,14 +114,70 @@ import { ObjectsService } from '../objects/objects.service.js';
           buildRefreshAIFieldSkill,
           buildSetRecurrenceRuleSkill,
         ];
-
-        for (const build of builders) {
+        for (const build of objectSkillBuilders) {
           registry.register(build(objectsService), OBJECT_SKILLS_SIGNING_PUBLIC_KEY_PEM);
         }
 
+        registry.register(
+          buildGenerateNextRecurrenceSkill(taskRecurrenceService),
+          MEETING_RECURRENCE_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildInviteMeetingBotSkill(meetingsService),
+          MEETING_RECURRENCE_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildGetMeetingDetailsSkill(meetingsService),
+          MEETING_RECURRENCE_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+
+        registry.register(
+          buildGetObjectContextSkill(contextService),
+          CONTEXT_SEARCH_CALENDAR_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildSearchConnectedSourcesSkill(connectedSearchService),
+          CONTEXT_SEARCH_CALENDAR_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildListCachedCalendarEventsSkill(calendarEventsService),
+          CONTEXT_SEARCH_CALENDAR_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+
+        registry.register(
+          buildAnswerQuestionSkill(qaService),
+          AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildParseCommandSkill(commandsService),
+          AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildProposeActionsFromMeetingSkill(commandsService),
+          AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildRunTriggerSuggestionAnalysisSkill(triggerSuggestionsService),
+          AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+        registry.register(
+          buildListCommandProposalsSkill(commandsService),
+          AI_COMMAND_SKILLS_SIGNING_PUBLIC_KEY_PEM,
+        );
+
         return registry;
       },
-      inject: [ObjectsService],
+      inject: [
+        ObjectsService,
+        MeetingsService,
+        ContextService,
+        ConnectedSearchService,
+        CalendarEventsService,
+        QAService,
+        CommandsService,
+        TriggerSuggestionsService,
+        TaskRecurrenceService,
+      ],
     },
     SkillExecutionService,
   ],
