@@ -6,7 +6,7 @@ import { ConflictError, UnauthorizedError } from '@luminaos/shared';
 import { hashPassword, verifyPassword } from './password.js';
 import { SessionService } from './session.service.js';
 import { hasPostgresErrorCode } from '../common/postgres-error.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { users } from '../db/schema/users.js';
 
 import type { Database } from '../db/client.js';

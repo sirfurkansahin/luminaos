@@ -73,7 +73,7 @@ import { AIUsageService } from '../ai/ai-usage.service.js';
 import { resolveAIFieldValue } from '../ai/resolve-ai-field-value.js';
 import { selectAIModel } from '../ai/select-ai-model.js';
 import { TimeBlockPushService } from '../calendar/timeblock-push.service.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';

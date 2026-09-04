@@ -6,7 +6,7 @@ import { ConflictError, slugify } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
 import { hasPostgresErrorCode } from '../common/postgres-error.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { memberships } from '../db/schema/memberships.js';
 import { workspaces } from '../db/schema/workspaces.js';
 import { FieldDefinitionsService } from '../fields/field-definitions.service.js';

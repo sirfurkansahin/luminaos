@@ -23,7 +23,7 @@ import { ConflictError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { FieldDefinitionsViewProjection } from './field-definitions.projection.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { fieldDefinitions } from '../db/schema/field-definitions.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';

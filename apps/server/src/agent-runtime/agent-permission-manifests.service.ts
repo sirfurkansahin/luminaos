@@ -12,7 +12,7 @@ import { AppError, deriveDeterministicUuid, ForbiddenError } from '@luminaos/sha
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { AgentPermissionManifestProjection } from './agent-permission-manifests.projection.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { agentPermissionManifests } from '../db/schema/agent-permission-manifests.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';

@@ -18,7 +18,7 @@ import { suggestTriggerTemplates } from '../ai/suggest-trigger-templates.js';
 import { summarizeUsagePatterns } from '../ai/summarize-usage-patterns.js';
 import { AutomationTriggersService } from '../automation/automation-triggers.service.js';
 import { CommandsService } from '../commands/commands.service.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { triggerSuggestionAnalysisState } from '../db/schema/trigger-suggestion-analysis-state.js';
 import { triggerTemplateSuggestions } from '../db/schema/trigger-template-suggestions.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
