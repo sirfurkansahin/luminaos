@@ -15,7 +15,7 @@ import { ForbiddenError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent, QuerySpec } from '@luminaos/shared';
 
 import { SavedViewsViewProjection } from './saved-views.projection.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { savedViews } from '../db/schema/saved-views.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';

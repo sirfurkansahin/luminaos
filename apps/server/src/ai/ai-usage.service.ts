@@ -10,7 +10,7 @@ import type { NewDomainEvent } from '@luminaos/shared';
 
 import { AIUsageProjection } from './ai-usage.projection.js';
 import { env } from '../config/env.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { aiUsageRecords } from '../db/schema/ai-usage.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';

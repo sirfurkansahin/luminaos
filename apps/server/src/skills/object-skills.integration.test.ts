@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -8,8 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentActionResult } from '@luminaos/agent-runtime';
 import { ForbiddenError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
-import { signSkillManifest, SkillRegistry } from '@luminaos/skill-sdk';
-import type { Skill } from '@luminaos/skill-sdk';
+import type { Skill, SkillRegistry } from '@luminaos/skill-sdk';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
@@ -232,37 +231,6 @@ describe('F3-T2 PR3 (RED step): object-skills.ts — 9 first-party skills thinly
   let workspaceCounter = 0;
   let agentCounter = 0;
 
-  function generateEd25519Pem(): { privateKeyPem: string; publicKeyPem: string } {
-    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    return {
-      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
-      publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }),
-    };
-  }
-
-  /**
-   * Re-signs a REAL `Skill` (real `execute`, produced by `object-skills.ts`'s
-   * own build functions against the REAL `objectsService`) against THIS
-   * file's own test keypair -- see this file's header comment for why this
-   * file cannot simply reuse whatever key implementer's own build functions
-   * signed against.
-   */
-  function reSignForTestRegistry(
-    skill: Skill<unknown, unknown>,
-    keyPair: { privateKeyPem: string; publicKeyPem: string },
-  ): Skill<unknown, unknown> {
-    const unsigned = {
-      id: skill.manifest.id,
-      version: skill.manifest.version,
-      capability: skill.manifest.capability,
-    };
-    const signature = signSkillManifest(unsigned, keyPair.privateKeyPem);
-    return {
-      manifest: { ...unsigned, signature },
-      execute: (input: unknown) => skill.execute(input),
-    };
-  }
-
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
     redisContainer = await new RedisContainer('redis:7').start();
@@ -302,43 +270,23 @@ describe('F3-T2 PR3 (RED step): object-skills.ts — 9 first-party skills thinly
     const SkillExecutionServiceCtor = (
       skillExecutionModule as { SkillExecutionService: Type<SkillExecutionServiceLike> }
     ).SkillExecutionService;
-    const SKILL_REGISTRY_TOKEN = (skillExecutionModule as { SKILL_REGISTRY: symbol })
-      .SKILL_REGISTRY;
     skillExecutionService = app.get(SkillExecutionServiceCtor);
-    const skillRegistry = app.get<SkillRegistry>(SKILL_REGISTRY_TOKEN);
 
-    // ==========================================================================
-    // RED: `./object-skills.ts` does not exist yet -- this dynamic import
-    // rejects with "Cannot find module", failing every `it` below. The
-    // specifier is built from a non-literal expression (not a plain string
-    // literal in the `import(...)` call) so ESLint's import resolver -- which
-    // only ever statically analyses literal specifiers -- does not attempt
-    // to resolve it at lint time; Node's own dynamic `import()` still
-    // resolves/rejects this exact path at RUNTIME regardless.
-    // ==========================================================================
+    // `SkillsModule`'s own factory (part of `AppModule`, already merged since
+    // PR3) registers these exact 9 skills into the SAME process-wide
+    // `SKILL_REGISTRY` this test's `skillExecutionService` resolves against
+    // -- via `OBJECT_SKILLS_SIGNING_PUBLIC_KEY_PEM`, its own real production
+    // keypair. Re-registering them here under a second, test-owned keypair
+    // (as an earlier version of this file did) throws `ConflictError` on the
+    // SAME already-populated registry instance -- this bug went undetected
+    // because `*.integration.test.ts` was never wired into CI until the
+    // ci/wire-integration-tests PR, and Docker was unavailable in every dev
+    // sandbox that touched this file. Fixed by simply relying on
+    // `SkillsModule`'s own already-completed registration instead of
+    // duplicating it -- no need to import/build/re-sign the skills at all.
     const objectSkillsModulePath = './object-skills.js';
     const objectSkillsModuleRaw: unknown = await import(objectSkillsModulePath);
     objectSkillsModule = objectSkillsModuleRaw as ObjectSkillsModuleLike;
-
-    const registryKeyPair = generateEd25519Pem();
-    const builtSkills: Skill<unknown, unknown>[] = [
-      objectSkillsModule.buildCreateObjectSkill(objectsService),
-      objectSkillsModule.buildGetObjectSkill(objectsService),
-      objectSkillsModule.buildQueryObjectsSkill(objectsService),
-      objectSkillsModule.buildSetFieldValuesSkill(objectsService),
-      objectSkillsModule.buildAddChecklistItemSkill(objectsService),
-      objectSkillsModule.buildToggleChecklistItemSkill(objectsService),
-      objectSkillsModule.buildScheduleTimeBlockSkill(objectsService),
-      objectSkillsModule.buildRefreshAIFieldSkill(objectsService),
-      objectSkillsModule.buildSetRecurrenceRuleSkill(objectsService),
-    ];
-
-    for (const skill of builtSkills) {
-      skillRegistry.register(
-        reSignForTestRegistry(skill, registryKeyPair),
-        registryKeyPair.publicKeyPem,
-      );
-    }
   }, 120_000);
 
   afterAll(async () => {

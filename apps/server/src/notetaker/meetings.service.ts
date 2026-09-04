@@ -9,7 +9,7 @@ import type { Actor } from '@luminaos/shared';
 import { detectMeetingProvider } from './detect-meeting-provider.js';
 import { MEETING_BOT_CLIENT } from './meeting-bot-client.token.js';
 import { CommandsService } from '../commands/commands.service.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { commandProposals } from '../db/schema/command-proposals.js';
 import { meetingDetails } from '../db/schema/meeting-details.js';
 import { ObjectsService } from '../objects/objects.service.js';

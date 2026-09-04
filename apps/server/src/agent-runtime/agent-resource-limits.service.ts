@@ -11,7 +11,7 @@ import type { NewDomainEvent } from '@luminaos/shared';
 import { AgentActionExecutionsProjection } from './agent-action-executions.projection.js';
 import { AgentConcurrencyGuard } from './agent-concurrency-guard.js';
 import { env } from '../config/env.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { agentActionExecutions } from '../db/schema/agent-action-executions.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';

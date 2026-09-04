@@ -64,17 +64,27 @@ function parseSkillInput<T>(schema: z.ZodType<T>, input: unknown): T {
 }
 
 /**
- * BUG FIX (security-review finding, F3-T2 PR4): `SkillExecutionService.
- * executeSkill` always injects `workspaceId`/`agentIdentifier` into `input`
- * before `execute` runs (see that file's own doc comment). Every `.strict()`
- * HTTP-facing DTO schema reused below (`createObjectSchema`,
- * `setFieldValuesSchema`, etc.) declares ONLY its own body fields, so parsing
- * the raw `input` against it directly always fails with `unrecognized_keys`
- * for those two injected fields -- every skill below that did this was
- * unreachable through its real `executeSkill` entry point. Stripping exactly
- * these two known, always-present context fields before the strict body
- * parse preserves the DTO's mass-assignment protection against any OTHER
- * unexpected field while allowing the two fields that legitimately coexist.
+ * BUG FIX (security-review finding, F3-T2 PR4, later widened via
+ * ci/wire-integration-tests): `SkillExecutionService.executeSkill` always
+ * injects `workspaceId`/`agentIdentifier` into `input` before `execute`
+ * runs (see that file's own doc comment), and every objectId-based skill's
+ * own `context` parse (above each call site) reads `objectId` out of that
+ * SAME `input` object without removing it. Every `.strict()` HTTP-facing DTO
+ * schema reused below (`createObjectSchema`, `setFieldValuesSchema`,
+ * `addChecklistItemSchema`, `scheduleTimeblockSchema`,
+ * `setRecurrenceRuleSchema`) declares ONLY its own body fields, so parsing
+ * the raw `input` against it directly always failed with `unrecognized_keys`
+ * for these context fields -- every skill below that did this was
+ * unreachable through its real `executeSkill` entry point for any call that
+ * actually supplied real body data (initially found only for create-object/
+ * query-objects via `workspaceId`/`agentIdentifier`; the `objectId` half of
+ * this same bug for add-checklist-item and its siblings was masked by a
+ * SEPARATE bug -- `object-skills.integration.test.ts`'s own `ConflictError`
+ * -- until that was fixed and these skills' bodies could run for the first
+ * time). Stripping exactly these known, always-present context fields before
+ * the strict body parse preserves each DTO's mass-assignment protection
+ * against any OTHER genuinely unexpected field while allowing the ones that
+ * legitimately coexist in the same `input` object.
  */
 function stripAuthoritativeContext(input: unknown): unknown {
   if (typeof input !== 'object' || input === null) {
@@ -83,10 +93,19 @@ function stripAuthoritativeContext(input: unknown): unknown {
   const withoutContext = { ...(input as Record<string, unknown>) };
   delete withoutContext.workspaceId;
   delete withoutContext.agentIdentifier;
+  delete withoutContext.objectId;
   return withoutContext;
 }
 
-const objectIdSchema = z.object({ objectId: z.string().min(1) }).strict();
+// BUG FIX (discovered via ci/wire-integration-tests): `.strict()` rejected
+// ANY extra field beyond `objectId` -- but `callObjectIdBasedSkill` is a
+// shared helper for skills whose own body carries additional fields (e.g.
+// add-checklist-item's `text`), which this pre-check must not reject; each
+// skill's OWN `execute` validates its own fields separately. This bug was
+// masked until now: `object-skills.integration.test.ts`'s `beforeAll` threw
+// `ConflictError` (a separate, now-fixed bug), skipping every `it` in the
+// file before any of them could ever exercise this code path.
+const objectIdSchema = z.object({ objectId: z.string().min(1) }).loose();
 
 /**
  * A fresh Ed25519 keypair generated once, at this module's own load time --

@@ -14,7 +14,7 @@ import { ConflictError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { RelationsViewProjection } from './relations.projection.js';
-import { DATABASE_CONNECTION } from '../db/db.module.js';
+import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { relationsView } from '../db/schema/relations-view.js';
 import { EventStoreService } from '../event-store/event-store.service.js';

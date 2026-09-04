@@ -40,6 +40,7 @@ interface DueDeliveryRow {
   attempts: number;
   targetUrl: string;
   encryptedSigningSecret: string;
+  nextAttemptAt: Date;
 }
 
 /**
@@ -84,6 +85,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
         attempts: webhookDeliveries.attempts,
         targetUrl: webhookSubscriptions.targetUrl,
         encryptedSigningSecret: webhookSubscriptions.encryptedSigningSecret,
+        nextAttemptAt: webhookDeliveries.nextAttemptAt,
       })
       .from(webhookDeliveries)
       .innerJoin(
@@ -106,7 +108,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
 
     for (const row of rows) {
       try {
-        const claimed = await this.claimRow(row.id, now);
+        const claimed = await this.claimRow(row.id, row.nextAttemptAt);
         if (!claimed) {
           // Another (overlapping) tick already claimed this row -- skip it
           // rather than deliver a second time.
