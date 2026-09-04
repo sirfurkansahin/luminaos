@@ -598,7 +598,7 @@ describe('F3-T2 PR5 (RED step): ai-command-skills.ts — answer-question, parse-
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it('5. parse-command: CommandsService.parse reached end-to-end -- a REAL ActionsProposed-shaped proposal (with sourceObjectId threaded through) is persisted, independently verified via a separate CommandsService.listProposals call', async () => {
+  it('5. parse-command: CommandsService.parse reached end-to-end -- a REAL ActionsProposed-shaped proposal is persisted, independently verified via a separate CommandsService.listProposals call; sourceObjectId is threaded through to the persisted row even when the AI response cannot be parsed', async () => {
     const workspaceId = await createWorkspace();
     const agentIdentifier = freshAgentIdentifier('parse-command');
     const actor = fakeActor();
@@ -617,12 +617,21 @@ describe('F3-T2 PR5 (RED step): ai-command-skills.ts — answer-question, parse-
       timeWindow: { startsAt: null, expiresAt: null },
     });
 
+    // BUG FIX (discovered via CI): `sourceObjectId` is deliberately OMITTED
+    // from this call. `parse-command.ts`'s `renderCommandPrompt` appends a
+    // trailing "Source object id: <id>" line AFTER the command text
+    // whenever `sourceObjectId` is provided -- that breaks the scripted
+    // `RETURN:<json>` marker's "everything after RETURN: to the end of the
+    // prompt" convention (the JSON gains trailing garbage and fails to
+    // parse, `parseError` comes back `true` instead of `false`).
+    // sourceObjectId threading is proven separately below, in a call that
+    // doesn't depend on successful JSON parsing.
     const command = scriptedActionsCommand([oneValidCreateTaskAction]);
     const result = await skillExecutionService.executeSkill<CommandsServiceParseResultLike>(
       workspaceId,
       agentIdentifier,
       'parse-command',
-      { command, sourceObjectId: sourceObject.id },
+      { command },
     );
     const parsed = unwrapSuccess(result);
     expect(parsed.parseError).toBe(false);
@@ -634,10 +643,37 @@ describe('F3-T2 PR5 (RED step): ai-command-skills.ts — answer-question, parse-
     const persisted = proposals.find((proposal) => proposal.id === parsed.proposalId);
     expect(persisted).toBeDefined();
     expect(persisted?.workspaceId).toBe(workspaceId);
-    expect(persisted?.sourceObjectId).toBe(sourceObject.id);
     expect(Array.isArray(persisted?.actions)).toBe(true);
     expect((persisted?.actions as unknown[]).length).toBe(1);
     expect(persisted?.decidedAt).toBeNull();
+
+    // sourceObjectId threading, proven independently of JSON parsing: a
+    // plain command with no `RETURN:` marker deterministically produces
+    // `unconfiguredResponder`'s fixed "not configured" text (not valid
+    // JSON), so `parseError:true` is expected and irrelevant here --
+    // `CommandsService.parse`'s own `recordProposal` call passes
+    // `sourceObjectId` through UNCONDITIONALLY, regardless of `parseError`.
+    const secondResult = await skillExecutionService.executeSkill<CommandsServiceParseResultLike>(
+      workspaceId,
+      agentIdentifier,
+      'parse-command',
+      {
+        command: 'A plain command with no scripted response.',
+        sourceObjectId: sourceObject.id,
+      },
+    );
+    const secondParsed = unwrapSuccess(secondResult);
+    expect(typeof secondParsed.proposalId).toBe('string');
+
+    const { proposals: proposalsAfterSecond } = await commandsService.listProposals(
+      workspaceId,
+      'member',
+    );
+    const secondPersisted = proposalsAfterSecond.find(
+      (proposal) => proposal.id === secondParsed.proposalId,
+    );
+    expect(secondPersisted).toBeDefined();
+    expect(secondPersisted?.sourceObjectId).toBe(sourceObject.id);
   });
 
   it('6. parse-command: a manifest lacking the "parse-command" actionType is denied with ForbiddenError; CommandsService.parse is never invoked', async () => {
