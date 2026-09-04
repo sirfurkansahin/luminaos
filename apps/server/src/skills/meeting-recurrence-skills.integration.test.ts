@@ -571,8 +571,11 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     // Independently verify REAL persistence via the event store (NOT
     // `objectsService.get`, which reads `objects_view` -- a projection
     // `generateNextOccurrence` never catches up, per its own documented
-    // gap; see `countEventsByType`'s doc comment above).
-    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(1);
+    // gap; see `countEventsByType`'s doc comment above). `ObjectCreated`
+    // count is 2, not 1: `sourceTask`'s own creation above (via
+    // `objectsService.create`) already appended one `ObjectCreated` event
+    // to this workspace's stream, before the recurrence skill's own.
+    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(2);
     expect(await countEventsByType(workspaceId, 'RelationCreated')).toBe(1);
 
     const secondResult =
@@ -587,7 +590,7 @@ describe('F3-T2 PR4 (RED step, 1/2): meeting-recurrence-skills.ts — generate-n
     expect(second.object.id).toBe(first.object.id);
     expect(second.relation.id).toBe(first.relation.id);
     // The idempotent replay must not append a SECOND pair of events.
-    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(1);
+    expect(await countEventsByType(workspaceId, 'ObjectCreated')).toBe(2);
     expect(await countEventsByType(workspaceId, 'RelationCreated')).toBe(1);
   });
 
