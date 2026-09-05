@@ -9,6 +9,7 @@ import { AutomationModule } from './automation/automation.module.js';
 import { AvailabilityModule } from './availability/availability.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
 import { CommandsModule } from './commands/commands.module.js';
+import { CommentsModule } from './comments/comments.module.js';
 import { AppErrorFilter } from './common/app-error.filter.js';
 import { corsMiddleware } from './common/cors.middleware.js';
 import { ContextModule } from './context/context.module.js';
@@ -82,6 +83,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     WebhooksModule,
     AgentRuntimeModule,
     SkillsModule,
+    CommentsModule,
   ],
   controllers: [AppController],
   providers: [
