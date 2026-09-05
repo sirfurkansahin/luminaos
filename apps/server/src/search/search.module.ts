@@ -48,6 +48,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
       inject: [ConnectorCredentialsService, ConnectorRateLimitService],
     },
   ],
-  exports: [SearchService],
+  exports: [SearchService, ConnectedSearchService],
 })
 export class SearchModule {}

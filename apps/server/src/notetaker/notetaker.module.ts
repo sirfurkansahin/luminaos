@@ -44,5 +44,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
       useFactory: (): MeetingBotClient => new MockMeetingBotClient(),
     },
   ],
+  exports: [MeetingsService],
 })
 export class NotetakerModule {}

@@ -39,6 +39,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
-  exports: [TimeBlockPushService],
+  exports: [TimeBlockPushService, CalendarEventsService],
 })
 export class CalendarModule {}

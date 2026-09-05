@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -8,8 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentActionResult } from '@luminaos/agent-runtime';
 import { ForbiddenError, ValidationError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
-import { signSkillManifest, SkillRegistry } from '@luminaos/skill-sdk';
-import type { Skill } from '@luminaos/skill-sdk';
+import type { SkillRegistry } from '@luminaos/skill-sdk';
 
 import { callObjectIdBasedSkill } from './object-skills.js';
 import { ContextGraphSyncWorker } from '../context/context-graph-sync.worker.js';
@@ -121,15 +120,6 @@ interface ContextResponseLike {
   edges: unknown[];
 }
 
-interface ContextServiceLike {
-  getContext(
-    workspaceId: string,
-    objectId: string,
-    callerRole: string,
-    options?: { sort?: 'relevance' },
-  ): Promise<ContextResponseLike>;
-}
-
 interface ContextGraphSyncWorkerLike {
   syncOnce(): Promise<void>;
 }
@@ -145,27 +135,12 @@ interface ConnectedSearchResponseLike {
   degraded: string[];
 }
 
-interface ConnectedSearchServiceLike {
-  searchExternal(
-    workspaceId: string,
-    userId: string,
-    query: string,
-  ): Promise<ConnectedSearchResponseLike>;
-}
-
 interface CachedCalendarEventLike {
   externalId: string;
   title: string;
   start: string;
   end: string;
   meetingUrl?: string;
-}
-
-interface CalendarEventsServiceLike {
-  listCachedEvents(
-    workspaceId: string,
-    range: { start: string; end: string },
-  ): Promise<CachedCalendarEventLike[]>;
 }
 
 interface ConnectorCredentialsServiceLike {
@@ -206,16 +181,6 @@ interface SkillExecutionServiceLike {
   ): Promise<AgentActionResult<TOutput>>;
 }
 
-interface ContextSearchCalendarSkillsModuleLike {
-  buildGetObjectContextSkill(contextService: ContextServiceLike): Skill<unknown, unknown>;
-  buildSearchConnectedSourcesSkill(
-    connectedSearchService: ConnectedSearchServiceLike,
-  ): Skill<unknown, unknown>;
-  buildListCachedCalendarEventsSkill(
-    calendarEventsService: CalendarEventsServiceLike,
-  ): Skill<unknown, unknown>;
-}
-
 /** The exact catalog ids this PR's 3 skills must be registered under (spec table #13-15). */
 const EXPECTED_SKILL_IDS = [
   'get-object-context',
@@ -232,40 +197,12 @@ describe('F3-T2 PR4 (RED step, 2/2): context-search-calendar-skills.ts — get-o
   let objectsService: ObjectsService;
   let permissionsService: AgentPermissionManifestsServiceLike;
   let skillExecutionService: SkillExecutionServiceLike;
-  let contextService: ContextServiceLike;
-  let connectedSearchService: ConnectedSearchServiceLike;
-  let calendarEventsService: CalendarEventsServiceLike;
   let connectorCredentialsService: ConnectorCredentialsServiceLike;
   let contextGraphSyncWorker: ContextGraphSyncWorkerLike;
-  let contextSearchCalendarSkillsModule: ContextSearchCalendarSkillsModuleLike;
 
   let workspaceCounter = 0;
   let agentCounter = 0;
   let userCounter = 0;
-
-  function generateEd25519Pem(): { privateKeyPem: string; publicKeyPem: string } {
-    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    return {
-      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
-      publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }),
-    };
-  }
-
-  function reSignForTestRegistry(
-    skill: Skill<unknown, unknown>,
-    keyPair: { privateKeyPem: string; publicKeyPem: string },
-  ): Skill<unknown, unknown> {
-    const unsigned = {
-      id: skill.manifest.id,
-      version: skill.manifest.version,
-      capability: skill.manifest.capability,
-    };
-    const signature = signSkillManifest(unsigned, keyPair.privateKeyPem);
-    return {
-      manifest: { ...unsigned, signature },
-      execute: (input: unknown) => skill.execute(input),
-    };
-  }
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
@@ -289,26 +226,7 @@ describe('F3-T2 PR4 (RED step, 2/2): context-search-calendar-skills.ts — get-o
       .ObjectsService;
     objectsService = app.get(ObjectsServiceCtor);
 
-    const contextServiceModule: unknown = await import('../context/context.service.js');
-    const ContextServiceCtor = (
-      contextServiceModule as { ContextService: Type<ContextServiceLike> }
-    ).ContextService;
-    contextService = app.get(ContextServiceCtor);
     contextGraphSyncWorker = app.get(ContextGraphSyncWorker);
-
-    const connectedSearchServiceModule: unknown =
-      await import('../search/connected-search.service.js');
-    const ConnectedSearchServiceCtor = (
-      connectedSearchServiceModule as { ConnectedSearchService: Type<ConnectedSearchServiceLike> }
-    ).ConnectedSearchService;
-    connectedSearchService = app.get(ConnectedSearchServiceCtor);
-
-    const calendarEventsServiceModule: unknown =
-      await import('../calendar/calendar-events.service.js');
-    const CalendarEventsServiceCtor = (
-      calendarEventsServiceModule as { CalendarEventsService: Type<CalendarEventsServiceLike> }
-    ).CalendarEventsService;
-    calendarEventsService = app.get(CalendarEventsServiceCtor);
 
     const connectorCredentialsServiceModule: unknown =
       await import('../integrations/connector-credentials.service.js');
@@ -332,36 +250,14 @@ describe('F3-T2 PR4 (RED step, 2/2): context-search-calendar-skills.ts — get-o
     const SkillExecutionServiceCtor = (
       skillExecutionModule as { SkillExecutionService: Type<SkillExecutionServiceLike> }
     ).SkillExecutionService;
-    const SKILL_REGISTRY_TOKEN = (skillExecutionModule as { SKILL_REGISTRY: symbol })
-      .SKILL_REGISTRY;
     skillExecutionService = app.get(SkillExecutionServiceCtor);
-    const skillRegistry = app.get<SkillRegistry>(SKILL_REGISTRY_TOKEN);
 
-    // ==========================================================================
-    // RED: `./context-search-calendar-skills.ts` does not exist yet -- this
-    // dynamic import rejects with "Cannot find module", failing every `it`
-    // below.
-    // ==========================================================================
-    const contextSearchCalendarSkillsModulePath = './context-search-calendar-skills.js';
-    const contextSearchCalendarSkillsModuleRaw: unknown = await import(
-      contextSearchCalendarSkillsModulePath
-    );
-    contextSearchCalendarSkillsModule =
-      contextSearchCalendarSkillsModuleRaw as ContextSearchCalendarSkillsModuleLike;
-
-    const registryKeyPair = generateEd25519Pem();
-    const builtSkills: Skill<unknown, unknown>[] = [
-      contextSearchCalendarSkillsModule.buildGetObjectContextSkill(contextService),
-      contextSearchCalendarSkillsModule.buildSearchConnectedSourcesSkill(connectedSearchService),
-      contextSearchCalendarSkillsModule.buildListCachedCalendarEventsSkill(calendarEventsService),
-    ];
-
-    for (const skill of builtSkills) {
-      skillRegistry.register(
-        reSignForTestRegistry(skill, registryKeyPair),
-        registryKeyPair.publicKeyPem,
-      );
-    }
+    // `SkillsModule`'s own factory (part of `AppModule`, F3-T2 PR6) already
+    // registers these 3 skills into the SAME process-wide `SKILL_REGISTRY`
+    // this test's `skillExecutionService` resolves against, signed with
+    // `context-search-calendar-skills.ts`'s own real production keypair.
+    // Re-registering them here under a second, test-owned keypair throws
+    // `ConflictError` on the same already-populated registry instance.
   }, 120_000);
 
   afterAll(async () => {
