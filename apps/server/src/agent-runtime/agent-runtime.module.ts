@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 
 import { AgentConcurrencyGuard } from './agent-concurrency-guard.js';
+import { AgentDirectoryController } from './agent-directory.controller.js';
+import { AgentDirectoryService } from './agent-directory.service.js';
 import { AgentPermissionManifestsController } from './agent-permission-manifests.controller.js';
 import { AgentPermissionManifestsService } from './agent-permission-manifests.service.js';
 import { AgentResourceLimitsService } from './agent-resource-limits.service.js';
@@ -26,10 +28,11 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  */
 @Module({
   imports: [EventStoreModule, DbModule, AuthModule],
-  controllers: [AgentPermissionManifestsController],
+  controllers: [AgentPermissionManifestsController, AgentDirectoryController],
   providers: [
     AgentPermissionManifestsService,
     AgentResourceLimitsService,
+    AgentDirectoryService,
     {
       provide: AgentConcurrencyGuard,
       useFactory: () => new AgentConcurrencyGuard(env.agentSandboxMaxConcurrentPerAgent),
@@ -37,6 +40,6 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     WorkspaceMembershipGuard,
     WorkspaceMembershipService,
   ],
-  exports: [AgentPermissionManifestsService, AgentResourceLimitsService],
+  exports: [AgentPermissionManifestsService, AgentResourceLimitsService, AgentDirectoryService],
 })
 export class AgentRuntimeModule {}

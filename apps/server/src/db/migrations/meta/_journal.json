@@ -267,6 +267,13 @@
       "when": 1788465805868,
       "tag": "0038_minor_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788604032889,
+      "tag": "0039_little_meltdown",
+      "breakpoints": true
     }
   ]
 }
