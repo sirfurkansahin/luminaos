@@ -40,3 +40,4 @@ export * from './agent-permission-manifests.js';
 export * from './agent-action-executions.js';
 export * from './agents.js';
 export * from './object-comments.js';
+export * from './mention-actions.js';
