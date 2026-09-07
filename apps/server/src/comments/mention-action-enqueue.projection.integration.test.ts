@@ -12,6 +12,7 @@ import { CommentsService } from './object-comments.service.js';
 import { AgentDirectoryService } from '../agent-runtime/agent-directory.service.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { mentionActions } from '../db/schema/mention-actions.js';
 import { objectsView } from '../db/schema/objects-view.js';
 import { workspaces } from '../db/schema/workspaces.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
@@ -352,5 +353,133 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
 
     const rows = await readMentionActionRowsForComment(commentId);
     expect(rows).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------
+  // F3-T3 PR6 (ADR-0037 hardening pass): workspace-wide rolling-window rate
+  // limit on the mention-enqueue path -- MAX_MENTION_ACTIONS_PER_COMMENT
+  // only caps a SINGLE comment, this caps the WORKSPACE across TIME.
+  // `MENTION_ENQUEUE_RATE_LIMIT_PER_WINDOW`/`_WINDOW_MS` are fixed module
+  // constants in `mention-action-enqueue.projection.ts` (100 / 60_000ms) --
+  // mirrored here as local literals rather than imported, since they are
+  // deliberately NOT exported (this file only observes behavior through the
+  // projection's own public `apply()`/`CommentsService.create()` surface).
+  // -------------------------------------------------------------------
+
+  const RATE_LIMIT_PER_WINDOW = 100;
+  const RATE_LIMIT_WINDOW_MS = 60_000;
+
+  /** Directly seeds `count` `mention_actions` rows for `workspaceId` with a caller-controlled `createdAt`, bypassing the projection entirely -- used to put a workspace at/over/under the rate-limit boundary without needing 100 real comments. */
+  async function seedMentionActionRows(
+    workspaceId: string,
+    count: number,
+    createdAt: Date,
+  ): Promise<void> {
+    if (count === 0) {
+      return;
+    }
+    await db.insert(mentionActions).values(
+      Array.from({ length: count }, () => ({
+        workspaceId,
+        commentId: ulid(),
+        objectId: ulid(),
+        objectType: 'task',
+        agentIdentifier: 'rate-limit-seed-agent',
+        status: 'pending',
+        attempts: 0,
+        nextAttemptAt: createdAt,
+        replyCommentId: null,
+        lastError: null,
+        createdAt,
+      })),
+    );
+  }
+
+  it("6. a workspace already AT the rate limit (100 recent mention_actions rows) has a new comment's mentions skipped entirely -- zero new rows enqueued, no exception thrown, the comment itself is still created", async () => {
+    const workspaceId = await createWorkspace();
+    const objectId = await insertObject(workspaceId, 'Rate Limit At Ceiling Target');
+    const agent = await registerAgent(
+      workspaceId,
+      'RateLimitBot',
+      freshAgentIdentifier('at-limit'),
+    );
+    await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW, new Date());
+
+    const comment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+      objectId,
+      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+    });
+
+    const rows = await readMentionActionRowsForComment(comment.id);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('7. mention_actions rows OLDER than the rate-limit window do not count against the limit', async () => {
+    const workspaceId = await createWorkspace();
+    const objectId = await insertObject(workspaceId, 'Rate Limit Old Rows Target');
+    const agent = await registerAgent(
+      workspaceId,
+      'RateLimitBot',
+      freshAgentIdentifier('old-rows'),
+    );
+    const wellOutsideWindow = new Date(Date.now() - RATE_LIMIT_WINDOW_MS - 10_000);
+    await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW, wellOutsideWindow);
+
+    const comment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+      objectId,
+      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+    });
+
+    const rows = await readMentionActionRowsForComment(comment.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.agent_identifier).toBe(agent.agentIdentifier);
+  });
+
+  it("8. a DIFFERENT workspace's recent mention_actions rows never count toward this workspace's rate limit (cross-workspace isolation)", async () => {
+    const busyWorkspaceId = await createWorkspace();
+    const quietWorkspaceId = await createWorkspace();
+    const objectId = await insertObject(quietWorkspaceId, 'Rate Limit Cross Workspace Target');
+    const agent = await registerAgent(
+      quietWorkspaceId,
+      'RateLimitBot',
+      freshAgentIdentifier('cross-ws'),
+    );
+    await seedMentionActionRows(busyWorkspaceId, RATE_LIMIT_PER_WINDOW, new Date());
+
+    const comment = await commentsService.create(quietWorkspaceId, fakeActor(), 'member', {
+      objectId,
+      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+    });
+
+    const rows = await readMentionActionRowsForComment(comment.id);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('9. boundary: exactly ONE BELOW the rate limit still allows the next enqueue, but reaching the limit blocks the one after that', async () => {
+    const workspaceId = await createWorkspace();
+    const objectIdFirst = await insertObject(workspaceId, 'Rate Limit Boundary Target 1');
+    const objectIdSecond = await insertObject(workspaceId, 'Rate Limit Boundary Target 2');
+    const agent = await registerAgent(
+      workspaceId,
+      'RateLimitBot',
+      freshAgentIdentifier('boundary'),
+    );
+    await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW - 1, new Date());
+
+    const firstComment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+      objectId: objectIdFirst,
+      body: `Hey @${agent.agentIdentifier}, please take a look (below the limit).`,
+    });
+    const firstRows = await readMentionActionRowsForComment(firstComment.id);
+    expect(firstRows).toHaveLength(1);
+
+    // The row inserted above brings the workspace to EXACTLY the limit --
+    // the NEXT comment's mentions must now be skipped.
+    const secondComment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+      objectId: objectIdSecond,
+      body: `Hey @${agent.agentIdentifier}, please take a look (at the limit now).`,
+    });
+    const secondRows = await readMentionActionRowsForComment(secondComment.id);
+    expect(secondRows).toHaveLength(0);
   });
 });
