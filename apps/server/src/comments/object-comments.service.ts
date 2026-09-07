@@ -67,7 +67,7 @@ function toObjectComment(row: ObjectCommentRow): ObjectComment {
  * test's "no implicit de-duplication assumed beyond what resolution
  * naturally produces" expectation.
  */
-function extractMentionCandidates(body: string): string[] {
+export function extractMentionCandidates(body: string): string[] {
   const candidates: string[] = [];
   for (const match of body.matchAll(MENTION_REGEX)) {
     const handle = match[1];

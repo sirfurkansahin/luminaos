@@ -606,6 +606,113 @@ describe('CommandsService.executeReconfigureAgentPermissions() via decide() (F3-
   });
 
   // ---------------------------------------------------------------------
+  // F3-T3 PR6 (ADR-0037 hardening pass) -- genuine gaps in AC8's malformed-
+  // params coverage: AC8a/AC8b only exercise a WRONG-SHAPE `dataScope`/
+  // `timeWindow.startsAt` VALUE, never `dataScope`/`timeWindow` being the
+  // wrong TYPE entirely or ABSENT from `params`, and never an `actionTypes`
+  // that passes `requireStringArrayParam` (a valid, if empty, string array)
+  // but must still be rejected downstream by
+  // `AgentPermissionManifestsService.grant`'s own `assertValidManifestGrant`.
+  // ---------------------------------------------------------------------
+
+  describe('AC8c: a grant reconfiguration whose dataScope is not an object at all (a bare string)', () => {
+    it('reports failed with a clean, non-leaking error message, and no manifest is created', async () => {
+      const workspaceId = await createWorkspace('execute-reconfigure-ac8c-datascope-not-object');
+      const adminActor: Actor = { type: 'user', id: crypto.randomUUID() };
+      const agentIdentifier = 'grant-agent-ac8c';
+
+      const { proposalId, actionId } = await proposeReconfigurationAndGetActionId(
+        workspaceId,
+        adminActor,
+        agentIdentifier,
+        {
+          agentIdentifier,
+          operation: 'grant',
+          dataScope: 'all',
+          actionTypes: ['answer-question'],
+          timeWindow: { startsAt: null, expiresAt: null },
+        },
+      );
+
+      const { results } = await service.decide(workspaceId, proposalId, adminActor, 'admin', [
+        { actionId, decision: 'approved' },
+      ]);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ actionId, status: 'failed' });
+      expect(typeof results[0]?.error).toBe('string');
+      expect(results[0]?.error).not.toMatch(/at Object|node_modules|\.ts:\d+/);
+
+      const row = await getManifestRow(workspaceId, agentIdentifier);
+      expect(row).toBeUndefined();
+    });
+  });
+
+  describe('AC8d: a grant reconfiguration whose params entirely OMIT timeWindow (not merely a bad value inside it)', () => {
+    it('reports failed with a clean, non-leaking error message, and no manifest is created', async () => {
+      const workspaceId = await createWorkspace('execute-reconfigure-ac8d-timewindow-absent');
+      const adminActor: Actor = { type: 'user', id: crypto.randomUUID() };
+      const agentIdentifier = 'grant-agent-ac8d';
+
+      const { proposalId, actionId } = await proposeReconfigurationAndGetActionId(
+        workspaceId,
+        adminActor,
+        agentIdentifier,
+        {
+          agentIdentifier,
+          operation: 'grant',
+          dataScope: { objectTypes: 'all' },
+          actionTypes: ['answer-question'],
+          // `timeWindow` deliberately omitted entirely.
+        },
+      );
+
+      const { results } = await service.decide(workspaceId, proposalId, adminActor, 'admin', [
+        { actionId, decision: 'approved' },
+      ]);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ actionId, status: 'failed' });
+      expect(typeof results[0]?.error).toBe('string');
+
+      const row = await getManifestRow(workspaceId, agentIdentifier);
+      expect(row).toBeUndefined();
+    });
+  });
+
+  describe('AC8e: a grant reconfiguration whose actionTypes is a schema-valid but EMPTY array', () => {
+    it("passes requireStringArrayParam locally but is still rejected fail-closed (by AgentPermissionManifestsService.grant's own assertValidManifestGrant), with no manifest created", async () => {
+      const workspaceId = await createWorkspace('execute-reconfigure-ac8e-empty-action-types');
+      const adminActor: Actor = { type: 'user', id: crypto.randomUUID() };
+      const agentIdentifier = 'grant-agent-ac8e';
+
+      const { proposalId, actionId } = await proposeReconfigurationAndGetActionId(
+        workspaceId,
+        adminActor,
+        agentIdentifier,
+        {
+          agentIdentifier,
+          operation: 'grant',
+          dataScope: { objectTypes: 'all' },
+          actionTypes: [],
+          timeWindow: { startsAt: null, expiresAt: null },
+        },
+      );
+
+      const { results } = await service.decide(workspaceId, proposalId, adminActor, 'admin', [
+        { actionId, decision: 'approved' },
+      ]);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ actionId, status: 'failed' });
+      expect(typeof results[0]?.error).toBe('string');
+
+      const row = await getManifestRow(workspaceId, agentIdentifier);
+      expect(row).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // AC9 -- unknown operation value
   // ---------------------------------------------------------------------
 

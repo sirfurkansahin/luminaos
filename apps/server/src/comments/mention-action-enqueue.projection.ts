@@ -1,4 +1,5 @@
-import { and, eq } from 'drizzle-orm';
+import { Logger } from '@nestjs/common';
+import { and, eq, gte, sql } from 'drizzle-orm';
 
 import type { DomainEvent, Projection, ProjectionTx } from '@luminaos/shared';
 
@@ -18,6 +19,24 @@ import type { Database } from '../db/client.js';
  * mention. Capped well below anything a legitimate comment would need.
  */
 const MAX_MENTION_ACTIONS_PER_COMMENT = 20;
+
+/**
+ * F3-T3 PR6 (ADR-0037 hardening pass): `MAX_MENTION_ACTIONS_PER_COMMENT`
+ * above only caps a SINGLE comment -- without a workspace-wide ceiling
+ * across TIME, a user could post many separate comments in quick succession
+ * and drive unbounded real skill executions for the workspace. Fixed module
+ * constants (not env-configurable) deliberately mirror
+ * `MAX_MENTION_ACTIONS_PER_COMMENT`'s own established style -- this file has
+ * never read process config, and routing these two values through the
+ * shared `env.ts` singleton would force this projection's (and every
+ * caller's) tests to satisfy `env.ts`'s unrelated `DATABASE_URL`/`REDIS_URL`
+ * boot-time guard just to import this module, which is not a tradeoff this
+ * hardening-only change should make.
+ */
+const MENTION_ENQUEUE_RATE_LIMIT_PER_WINDOW = 100;
+
+/** Rolling window size in milliseconds for `MENTION_ENQUEUE_RATE_LIMIT_PER_WINDOW` (F3-T3 PR6) -- 60 seconds, matching `AgentResourceLimitsService`'s own default window. */
+const MENTION_ENQUEUE_RATE_LIMIT_WINDOW_MS = 60_000;
 
 /** The transaction handle `Database['transaction']`'s callback receives (mirrors `WebhookDeliveryEnqueueProjection`'s own `asDbTransaction`). */
 type DbTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -51,6 +70,7 @@ function asDbTransaction(tx: ProjectionTx): DbTransaction {
 export class MentionActionEnqueueProjection implements Projection {
   readonly name = 'mention-action-enqueue';
   readonly handles: readonly string[] = ['CommentAdded'];
+  private readonly logger = new Logger(MentionActionEnqueueProjection.name);
 
   async apply(event: DomainEvent, tx: ProjectionTx): Promise<void> {
     const dbTx = asDbTransaction(tx);
@@ -102,6 +122,38 @@ export class MentionActionEnqueueProjection implements Projection {
     );
 
     if (resolvedAgents.length === 0) {
+      return;
+    }
+
+    // F3-T3 PR6 (ADR-0037 hardening pass): `MAX_MENTION_ACTIONS_PER_COMMENT`
+    // above only caps a SINGLE comment -- without a workspace-wide ceiling
+    // across TIME, a user could post many separate comments in quick
+    // succession and drive unbounded real skill executions for the
+    // workspace. Mirrors `AgentResourceLimitsService.assertActionRateNotExceeded`'s
+    // COUNT-in-window pattern exactly, but UNLIKE that method, this NEVER
+    // throws: `apply()` runs inside `ProjectionRunner.catchUp`, and throwing
+    // here would drop ALL of this comment's mentions (including ones under
+    // any limit) and disrupt the catch-up cycle for other comments too --
+    // strictly worse than the "cap and skip" discipline already used above
+    // for `MAX_MENTION_ACTIONS_PER_COMMENT`. Only `event.workspaceId` is
+    // logged -- NEVER the comment body, `mentionedAgentIds`, or agent
+    // identifiers.
+    const windowStart = new Date(Date.now() - MENTION_ENQUEUE_RATE_LIMIT_WINDOW_MS);
+    const [rateRow] = await dbTx
+      .select({ total: sql<string>`COUNT(*)` })
+      .from(mentionActions)
+      .where(
+        and(
+          eq(mentionActions.workspaceId, event.workspaceId),
+          gte(mentionActions.createdAt, windowStart),
+        ),
+      );
+    const totalRecentlyEnqueued = Number(rateRow?.total ?? 0);
+
+    if (totalRecentlyEnqueued >= MENTION_ENQUEUE_RATE_LIMIT_PER_WINDOW) {
+      this.logger.warn(
+        `Mention enqueue rate limit exceeded for workspace ${event.workspaceId}; skipping this comment's mentions.`,
+      );
       return;
     }
 
