@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { CommandsController } from './commands.controller.js';
 import { CommandsService } from './commands.service.js';
+import { AgentRuntimeModule } from '../agent-runtime/agent-runtime.module.js';
 import { AIProviderModule } from '../ai/ai-provider.module.js';
 import { AIUsageModule } from '../ai/ai-usage.module.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -20,6 +21,10 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * mirroring `QAModule`'s identical pattern. `ObjectsModule`/`RelationsModule`
  * are imported (not just their services provided directly) so `ObjectsService`/
  * `RelationsService` are constructed with their own full dependency graphs.
+ *
+ * `AgentRuntimeModule` (F3-T3 PR4, ADR-0037 §4) is imported so
+ * `AgentPermissionManifestsService` resolves via DI for
+ * `CommandsService.executeReconfigureAgentPermissions`.
  */
 @Module({
   imports: [
@@ -30,6 +35,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AIUsageModule,
     ObjectsModule,
     RelationsModule,
+    AgentRuntimeModule,
   ],
   controllers: [CommandsController],
   providers: [CommandsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
