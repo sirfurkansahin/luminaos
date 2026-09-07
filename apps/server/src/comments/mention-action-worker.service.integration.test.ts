@@ -3,20 +3,23 @@ import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { AgentActionResult } from '@luminaos/agent-runtime';
+import type { EmbeddingProvider } from '@luminaos/ai-gateway';
 import { newObjectId } from '@luminaos/core-objects';
 import type { Actor } from '@luminaos/shared';
 
 import { CommentsService } from './object-comments.service.js';
 import { AgentDirectoryService } from '../agent-runtime/agent-directory.service.js';
+import { EMBEDDING_PROVIDER } from '../ai/embedding-provider.token.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { objectComments } from '../db/schema/object-comments.js';
 import { objectsView } from '../db/schema/objects-view.js';
+import { searchIndex } from '../db/schema/search-index.js';
 import { workspaces } from '../db/schema/workspaces.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
@@ -179,6 +182,7 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- real SkillExecutionServic
   let permissionsService: AgentPermissionManifestsService;
   let qaService: QAService;
   let skillExecutionService: SkillExecutionService;
+  let embeddingProvider: EmbeddingProvider;
   let worker: MentionActionWorkerLike;
   let workspaceCounter = 0;
   let agentCounter = 0;
@@ -223,6 +227,7 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- real SkillExecutionServic
       skillExecutionModule as { SkillExecutionService: Type<SkillExecutionService> }
     ).SkillExecutionService;
     skillExecutionService = app.get(SkillExecutionServiceCtor);
+    embeddingProvider = app.get<EmbeddingProvider>(EMBEDDING_PROVIDER);
 
     // Deliberately NOT resolvable until `implementer` creates
     // `./mention-action-worker.service.ts` and wires it as a `CommentsModule`
@@ -263,6 +268,45 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- real SkillExecutionServic
   function freshAgentIdentifier(label: string): string {
     agentCounter += 1;
     return `mention-worker-real-chain-test-${label}-agent-${String(agentCounter)}`;
+  }
+
+  /**
+   * Bug fix (F3-T3 PR3, caught only in real CI): `answerQuestion()`
+   * short-circuits to a fixed "No relevant content..." reply WITHOUT ever
+   * calling the AI provider when `SearchService.search` returns zero
+   * passages -- this test's own `insertObject` raw-inserts into
+   * `objects_view` directly, bypassing the event-sourced pipeline that
+   * would otherwise populate a matching `search_index` row via
+   * `SearchIndexProjection`. Mirrors `ai-command-skills.integration.test.ts`'s
+   * own `seedSearchIndexRow`/`attachEmbeddingForText` precedent: a raw
+   * `search_index` row is inserted directly (same shape
+   * `SearchIndexProjection` itself writes, including `to_tsvector`), then
+   * `attachEmbeddingForText` embeds the EXACT question text the worker will
+   * construct so the semantic candidate is a guaranteed top hit (cosine
+   * similarity 1.0 against itself) regardless of any real semantic meaning.
+   */
+  async function seedSearchIndexRow(
+    workspaceId: string,
+    objectId: string,
+    title: string,
+    docText: string,
+  ): Promise<void> {
+    await db.insert(searchIndex).values({
+      objectId,
+      workspaceId,
+      title,
+      docText,
+      tsv: sql`to_tsvector('simple', ${title} || ' ' || ${docText})`,
+      updatedAt: new Date(),
+    });
+  }
+
+  async function attachEmbeddingForText(objectId: string, text: string): Promise<void> {
+    const { vector } = await embeddingProvider.embed({ text });
+    await db
+      .update(searchIndex)
+      .set({ embedding: vector })
+      .where(eq(searchIndex.objectId, objectId));
   }
 
   async function insertObject(workspaceId: string, title: string): Promise<string> {
@@ -312,6 +356,16 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- real SkillExecutionServic
 
     const plantedAnswer = 'Mention-driven planted answer, unique to this success test.';
     const body = `Hey @MentionSuccessBot, can you help? ${returnDirective(plantedAnswer)}`;
+    const objectTitle = 'Mention Target Object';
+    // Bug fix (F3-T3 PR3): seed + embed a real `search_index` row so
+    // `SearchService.search` returns >=1 passage -- otherwise
+    // `answerQuestion()` short-circuits to a fixed "No relevant content..."
+    // reply WITHOUT ever reaching the (mocked) AI provider. Embedding the
+    // EXACT question the worker will construct guarantees a top hit.
+    await seedSearchIndexRow(workspaceId, objectId, objectTitle, 'placeholder doc text');
+    const expectedQuestion = `Regarding "${objectTitle}": ${body}`;
+    await attachEmbeddingForText(objectId, expectedQuestion);
+
     const comment = await commentsService.create(workspaceId, fakeActor(), 'member', {
       objectId,
       body,
@@ -654,7 +708,11 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- claim/retry/backoff/isola
     const row = await readMentionActionRow(rowId);
     expect(row?.status).toBe('pending');
     expect(row?.attempts).toBe(1);
-    expect(row?.next_attempt_at.getTime()).toBeGreaterThan(beforeRun);
+    // Bug fix (F3-T3 PR3, caught only in real CI): raw `db.execute(sql\`...\`)`
+    // (unlike Drizzle's typed query builder) returns `timestamptz` columns as
+    // ISO strings via node-postgres, not parsed `Date` instances -- wrapping
+    // in `new Date(...)` normalizes either shape safely.
+    expect(new Date(row?.next_attempt_at ?? 0).getTime()).toBeGreaterThan(beforeRun);
     expect(row?.last_error).toBe('boom-transient-error');
   });
 
