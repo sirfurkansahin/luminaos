@@ -16,6 +16,7 @@ import { ContextModule } from './context/context.module.js';
 import { DesktopSignalConsentsModule } from './context/desktop-signal-consents.module.js';
 import { DesktopSignalsModule } from './context/desktop-signals.module.js';
 import { DbModule } from './db/db.module.js';
+import { DirectMessagesModule } from './direct-messages/direct-messages.module.js';
 import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
 import { FieldsModule } from './fields/fields.module.js';
@@ -84,6 +85,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     AgentRuntimeModule,
     SkillsModule,
     CommentsModule,
+    DirectMessagesModule,
   ],
   controllers: [AppController],
   providers: [
