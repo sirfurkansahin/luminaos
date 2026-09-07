@@ -41,3 +41,4 @@ export * from './agent-action-executions.js';
 export * from './agents.js';
 export * from './object-comments.js';
 export * from './mention-actions.js';
+export * from './dm-messages.js';
