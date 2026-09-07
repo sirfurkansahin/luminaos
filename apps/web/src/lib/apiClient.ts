@@ -812,3 +812,76 @@ export function decideTriggerSuggestion(
     },
   );
 }
+
+/**
+ * F3-T3 PR7a (ADR-0037 §b/§d) -- agent directory read/register client, feeding
+ * `AgentDirectoryPanel`. Mirrors the server-side `Agent` shape exactly
+ * (`apps/server/src/agent-runtime/agent-directory.controller.ts`); not
+ * imported from the server, per this file's convention of locally
+ * re-declaring every shape.
+ */
+export interface Agent {
+  id: string;
+  workspaceId: string;
+  name: string;
+  agentIdentifier: string;
+  lifecycle: 'active' | 'deactivated';
+  createdAt: string;
+}
+
+export function listAgents(workspaceId: string): Promise<{ agents: Agent[] }> {
+  return request<{ agents: Agent[] }>(`/workspaces/${encodeURIComponent(workspaceId)}/agents`, {
+    method: 'GET',
+  });
+}
+
+export function registerAgent(
+  workspaceId: string,
+  input: { name: string; agentIdentifier: string },
+): Promise<{ agent: Agent }> {
+  return request<{ agent: Agent }>(`/workspaces/${encodeURIComponent(workspaceId)}/agents`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * F3-T3 PR7a (ADR-0037 §c) -- object comments read/post client, feeding
+ * `CommentThread`. Mirrors the server-side `ObjectComment` shape exactly
+ * (`apps/server/src/comments/object-comments.controller.ts`); not imported
+ * from the server, per this file's convention of locally re-declaring every
+ * shape.
+ */
+export interface Comment {
+  id: string;
+  workspaceId: string;
+  objectId: string;
+  authorActor: { type: 'user' | 'agent'; id: string };
+  body: string;
+  mentionedAgentIds: string[];
+  createdAt: string;
+}
+
+export function listComments(
+  workspaceId: string,
+  objectId: string,
+): Promise<{ comments: Comment[] }> {
+  return request<{ comments: Comment[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/comments`,
+    { method: 'GET' },
+  );
+}
+
+export function postComment(
+  workspaceId: string,
+  objectId: string,
+  body: string,
+): Promise<{ comment: Comment }> {
+  return request<{ comment: Comment }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/objects/${encodeURIComponent(objectId)}/comments`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    },
+  );
+}

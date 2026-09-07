@@ -11,6 +11,7 @@ import { ObjectDetailHost } from './views/detail/ObjectDetailHost';
 import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
+import { AgentDirectoryPanel } from './views/shared/AgentDirectoryPanel';
 import { AutomationHistoryPanel } from './views/shared/AutomationHistoryPanel';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
@@ -113,6 +114,7 @@ export function App() {
       <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
       <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
+      <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
