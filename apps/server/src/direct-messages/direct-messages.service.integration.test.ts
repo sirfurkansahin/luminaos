@@ -10,6 +10,7 @@ import type { Actor } from '@luminaos/shared';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
+import { users } from '../db/schema/users.js';
 import { workspaces } from '../db/schema/workspaces.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
@@ -328,14 +329,35 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
     return row.id;
   }
 
-  function fakeActor(): Actor {
-    return { type: 'user', id: crypto.randomUUID() };
+  /**
+   * CI-only bug fix (F3-T3 PR5): `dm_messages.user_id` carries a REAL FK to
+   * `users.id` (mirrors `memory_access_policies.user_id`'s identical FK) --
+   * unlike `agents`' actor param (never persisted as an FK), a fabricated
+   * `crypto.randomUUID()` actor here fails the insert with a foreign-key
+   * violation the moment `DirectMessagesService.send()` tries to record the
+   * user's own message. This never surfaced locally (Testcontainers
+   * unavailable in the sandbox), only in real CI. Seeds a real `users` row
+   * so every actor this file hands to `service.send()`/`.list()` is backed by
+   * an FK-satisfying row.
+   */
+  async function fakeActor(): Promise<Actor> {
+    const [row] = await db
+      .insert(users)
+      .values({
+        email: `dm-test-user-${crypto.randomUUID()}@example.com`,
+        passwordHash: 'unused-test-hash',
+      })
+      .returning({ id: users.id });
+    if (!row) {
+      throw new Error('Failed to create test user');
+    }
+    return { type: 'user', id: row.id };
   }
 
   async function registerActiveAgent(workspaceId: string): Promise<string> {
     agentCounter += 1;
     const agentIdentifier = `dm-test-agent-${String(agentCounter)}`;
-    await agentDirectoryService.register(workspaceId, fakeActor(), 'admin', {
+    await agentDirectoryService.register(workspaceId, await fakeActor(), 'admin', {
       name: `Dm-Test-Agent-${String(agentCounter)}`,
       agentIdentifier,
     });
@@ -385,7 +407,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('1. send() by an admin with a valid reconfiguration DM persists a user message and an agent reply with a real, non-null proposalId', async () => {
     const workspaceId = await createWorkspace();
-    const adminActor = fakeActor();
+    const adminActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     const dmMessageText = scriptedDmMessage([oneValidReconfigureAction(agentIdentifier)]);
 
@@ -429,7 +451,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('2. send() by a "member" (not admin) still persists the user message, replies with the fixed rejection string (proposalId null), never calls the AI provider, and records no command_proposals row', async () => {
     const workspaceId = await createWorkspace();
-    const memberActor = fakeActor();
+    const memberActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     const dmMessageText = scriptedDmMessage([oneValidReconfigureAction(agentIdentifier)]);
 
@@ -469,7 +491,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('3. send() targeting a nonexistent agentIdentifier throws NotFoundError and writes nothing', async () => {
     const workspaceId = await createWorkspace();
-    const actor = fakeActor();
+    const actor = await fakeActor();
     const callsBefore = completeSpy.mock.calls.length;
 
     await expect(
@@ -489,7 +511,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('3b. send() targeting a DEACTIVATED agentIdentifier throws NotFoundError and writes nothing', async () => {
     const workspaceId = await createWorkspace();
-    const adminActor = fakeActor();
+    const adminActor = await fakeActor();
     agentCounter += 1;
     const agentIdentifier = `dm-test-agent-deactivated-${String(agentCounter)}`;
     const agent = await agentDirectoryService.register(workspaceId, adminActor, 'admin', {
@@ -527,7 +549,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('4. send() by a "guest" (below member) throws ForbiddenError and writes nothing', async () => {
     const workspaceId = await createWorkspace();
-    const guestActor = fakeActor();
+    const guestActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     const callsBefore = completeSpy.mock.calls.length;
 
@@ -552,7 +574,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('5. list() by the thread owner returns both messages in chronological order after send()', async () => {
     const workspaceId = await createWorkspace();
-    const adminActor = fakeActor();
+    const adminActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     const dmMessageText = scriptedDmMessage([oneValidReconfigureAction(agentIdentifier)]);
 
@@ -586,8 +608,8 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it("6. list() by a different, non-admin member requesting someone else's thread throws ForbiddenError", async () => {
     const workspaceId = await createWorkspace();
-    const ownerActor = fakeActor();
-    const otherMemberActor = fakeActor();
+    const ownerActor = await fakeActor();
+    const otherMemberActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     await service.send(workspaceId, ownerActor, 'admin', agentIdentifier, 'Hi from the owner');
 
@@ -602,8 +624,8 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it("7. list() by an admin requesting a DIFFERENT user's thread succeeds and returns that user's messages", async () => {
     const workspaceId = await createWorkspace();
-    const memberActor = fakeActor();
-    const adminActor = fakeActor();
+    const memberActor = await fakeActor();
+    const adminActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     const { userMessage, agentReply } = await service.send(
       workspaceId,
@@ -632,7 +654,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
   it("8. list() scoped to workspace B never returns a thread's messages recorded in workspace A, even with the same userId/agentIdentifier", async () => {
     const workspaceA = await createWorkspace();
     const workspaceB = await createWorkspace();
-    const actor = fakeActor();
+    const actor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceA);
 
     await service.send(workspaceA, actor, 'admin', agentIdentifier, 'Hello in workspace A');
@@ -647,8 +669,8 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('9. two distinct (userId, agentIdentifier) pairs in the same workspace never leak into each other’s list() results', async () => {
     const workspaceId = await createWorkspace();
-    const userA = fakeActor();
-    const userB = fakeActor();
+    const userA = await fakeActor();
+    const userB = await fakeActor();
     const agentX = await registerActiveAgent(workspaceId);
     const agentY = await registerActiveAgent(workspaceId);
 
@@ -683,7 +705,7 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
 
   it('10. send() where extractDirectMessageReconfiguration returns parseError: true still resolves with a persisted agent reply (proposalId null) whose body is a non-empty string', async () => {
     const workspaceId = await createWorkspace();
-    const adminActor = fakeActor();
+    const adminActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
     // Deliberately invalid JSON on both the first attempt and the retry.
     const dmMessageText = `Garbled DM. ${RETURN_MARKER}{not valid json at all`;
