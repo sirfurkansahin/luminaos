@@ -611,7 +611,13 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
     const ownerActor = await fakeActor();
     const otherMemberActor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceId);
-    await service.send(workspaceId, ownerActor, 'admin', agentIdentifier, 'Hi from the owner');
+    await service.send(
+      workspaceId,
+      ownerActor,
+      'admin',
+      agentIdentifier,
+      scriptedDmMessage([oneValidReconfigureAction(agentIdentifier)]),
+    );
 
     await expect(
       service.list(workspaceId, otherMemberActor.id, ownerActor.id, agentIdentifier, 'member'),
@@ -657,7 +663,13 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
     const actor = await fakeActor();
     const agentIdentifier = await registerActiveAgent(workspaceA);
 
-    await service.send(workspaceA, actor, 'admin', agentIdentifier, 'Hello in workspace A');
+    await service.send(
+      workspaceA,
+      actor,
+      'admin',
+      agentIdentifier,
+      scriptedDmMessage([oneValidReconfigureAction(agentIdentifier)]),
+    );
 
     const threadInB = await service.list(workspaceB, actor.id, actor.id, agentIdentifier, 'admin');
     expect(threadInB).toHaveLength(0);
@@ -674,9 +686,27 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
     const agentX = await registerActiveAgent(workspaceId);
     const agentY = await registerActiveAgent(workspaceId);
 
-    const sentAX = await service.send(workspaceId, userA, 'admin', agentX, 'A talking to X');
-    const sentAY = await service.send(workspaceId, userA, 'admin', agentY, 'A talking to Y');
-    const sentBY = await service.send(workspaceId, userB, 'admin', agentY, 'B talking to Y');
+    const sentAX = await service.send(
+      workspaceId,
+      userA,
+      'admin',
+      agentX,
+      scriptedDmMessage([oneValidReconfigureAction(agentX)]),
+    );
+    const sentAY = await service.send(
+      workspaceId,
+      userA,
+      'admin',
+      agentY,
+      scriptedDmMessage([oneValidReconfigureAction(agentY)]),
+    );
+    const sentBY = await service.send(
+      workspaceId,
+      userB,
+      'admin',
+      agentY,
+      scriptedDmMessage([oneValidReconfigureAction(agentY)]),
+    );
 
     const threadAX = await service.list(workspaceId, userA.id, userA.id, agentX, 'admin');
     const threadAY = await service.list(workspaceId, userA.id, userA.id, agentY, 'admin');
