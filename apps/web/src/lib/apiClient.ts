@@ -885,3 +885,45 @@ export function postComment(
     },
   );
 }
+
+/**
+ * F3-T3 PR7b (ADR-0037 §d) -- DM thread read/send client, feeding
+ * `DirectMessagePanel`. Mirrors the server-side `DmMessage` shape exactly
+ * (`apps/server/src/direct-messages/direct-messages.controller.ts`); not
+ * imported from the server, per this file's convention of locally
+ * re-declaring every shape.
+ */
+export interface DmMessage {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  agentIdentifier: string;
+  sender: 'user' | 'agent';
+  body: string;
+  proposalId: string | null;
+  createdAt: string;
+}
+
+export function listDmMessages(
+  workspaceId: string,
+  agentIdentifier: string,
+): Promise<{ messages: DmMessage[] }> {
+  return request<{ messages: DmMessage[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentIdentifier)}/dm`,
+    { method: 'GET' },
+  );
+}
+
+export function sendDmMessage(
+  workspaceId: string,
+  agentIdentifier: string,
+  body: string,
+): Promise<{ userMessage: DmMessage; agentReply: DmMessage }> {
+  return request<{ userMessage: DmMessage; agentReply: DmMessage }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentIdentifier)}/dm`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    },
+  );
+}
