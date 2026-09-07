@@ -8,6 +8,38 @@ import { ThemeProvider } from '@luminaos/ui';
 import { App } from './App';
 
 /**
+ * F3-T3 PR7a (ADR-0037 §b/§d) addendum — `AgentDirectoryPanel` must be
+ * mounted once in `App.tsx`, alongside the other global (not object-scoped)
+ * panels (`AutomationHistoryPanel`/`McpAccessPanel`/etc.), passed
+ * `workspaceId={DEV_WORKSPACE_ID}`. `./views/shared/AgentDirectoryPanel` is
+ * mocked wholesale here (capturing its props via a module-level array,
+ * mirroring `TaskDetailPanel.test.tsx`'s "mock the child wholesale, capture
+ * props" convention) so this file proves ONLY the wiring, not
+ * `AgentDirectoryPanel`'s own internals (separately pinned by
+ * `AgentDirectoryPanel.test.tsx`) — and so this test doesn't depend on the
+ * real `useAgentsQuery`/apiClient network call succeeding against the
+ * stubbed global `fetch` above. `./views/shared/AgentDirectoryPanel.tsx`
+ * does not exist yet, so this mock factory (and the real import path it
+ * shadows) is expected to fail to resolve until PR7a's implementer builds
+ * it — the documented TDD red state.
+ */
+
+interface CapturedAgentDirectoryPanelProps {
+  workspaceId: string;
+}
+
+const agentDirectoryPanelState = vi.hoisted(() => ({
+  calls: [] as CapturedAgentDirectoryPanelProps[],
+}));
+
+vi.mock('./views/shared/AgentDirectoryPanel', () => ({
+  AgentDirectoryPanel: (props: CapturedAgentDirectoryPanelProps) => {
+    agentDirectoryPanelState.calls.push(props);
+    return <div data-testid="agent-directory-panel" />;
+  },
+}));
+
+/**
  * Theme-toggle contract for `implementer` (F0-T7 PR-C, not yet built):
  *
  * `App.tsx` must render a control that lets the user switch between the
@@ -78,6 +110,7 @@ beforeEach(() => {
     'fetch',
     vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ objects: [] }) }),
   );
+  agentDirectoryPanelState.calls = [];
 });
 
 afterEach(() => {
@@ -132,5 +165,12 @@ describe('App', () => {
     renderApp();
 
     expect(screen.getByTestId('create-object-button')).toBeInTheDocument();
+  });
+
+  it('mounts AgentDirectoryPanel with workspaceId={DEV_WORKSPACE_ID} (F3-T3 PR7a)', () => {
+    renderApp();
+
+    expect(screen.getByTestId('agent-directory-panel')).toBeInTheDocument();
+    expect(agentDirectoryPanelState.calls.at(-1)).toEqual({ workspaceId: 'dev-workspace' });
   });
 });

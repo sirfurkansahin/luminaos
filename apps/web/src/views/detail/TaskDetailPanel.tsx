@@ -8,6 +8,7 @@ import {
 } from '@luminaos/ui';
 
 import { ChecklistWidget } from './ChecklistWidget.js';
+import { CommentThread } from './CommentThread.js';
 import { RecurrenceRulePicker } from './RecurrenceRulePicker.js';
 import { ReminderPicker } from './ReminderPicker.js';
 import { StatusPrioritySelect } from './StatusPrioritySelect.js';
@@ -94,6 +95,7 @@ export function TaskDetailPanel({ workspaceId }: TaskDetailPanelProps) {
                 currentValue={data.object.fieldValues.priority}
               />
             ) : null}
+            <CommentThread workspaceId={workspaceId} objectId={data.object.id} />
           </>
         ) : null}
         <DialogClose data-testid="task-detail-panel-close">Kapat</DialogClose>

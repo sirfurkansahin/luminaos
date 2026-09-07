@@ -234,6 +234,22 @@ vi.mock('./ReminderPicker.js', () => ({
   },
 }));
 
+interface CapturedCommentThreadProps {
+  workspaceId: string;
+  objectId: string;
+}
+
+const commentThreadState = vi.hoisted(() => ({
+  calls: [] as CapturedCommentThreadProps[],
+}));
+
+vi.mock('./CommentThread.js', () => ({
+  CommentThread: (props: CapturedCommentThreadProps) => {
+    commentThreadState.calls.push(props);
+    return <div data-testid="comment-thread" />;
+  },
+}));
+
 const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
 const mockedUseObjectQuery = vi.mocked(useObjectQuery);
 const mockedUseFieldDefinitionsQuery = vi.mocked(useFieldDefinitionsQuery);
@@ -334,6 +350,7 @@ beforeEach(() => {
   checklistWidgetState.calls = [];
   recurrenceRulePickerState.calls = [];
   reminderPickerState.calls = [];
+  commentThreadState.calls = [];
 });
 
 afterEach(() => {
@@ -807,6 +824,83 @@ describe('TaskDetailPanel', () => {
       await screen.findByTestId('recurrence-rule-picker');
 
       expect(recurrenceRulePickerState.calls.at(-1)?.currentRule).toBeUndefined();
+    });
+  });
+
+  describe('comment thread wiring (PR7a)', () => {
+    function mockOpenPanelWithObject(): void {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: { object: makeObject() },
+        isLoading: false,
+        isError: false,
+        error: null,
+      });
+    }
+
+    it('does not render a CommentThread while the object itself is still loading', () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'obj-1',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(screen.queryByTestId('comment-thread')).not.toBeInTheDocument();
+    });
+
+    it('does not render a CommentThread in the not-found (isError) state', async () => {
+      mockedUseObjectIdParam.mockReturnValue({
+        objectId: 'missing-obj',
+        openObject: vi.fn(),
+        closeObject: vi.fn(),
+      });
+      mockedUseObjectQuery.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: Object.assign(new Error('Not found'), { code: 'NOT_FOUND', status: 404 }),
+      });
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('task-detail-panel-not-found');
+
+      expect(screen.queryByTestId('comment-thread')).not.toBeInTheDocument();
+    });
+
+    it('renders a CommentThread once the object has loaded, independent of field-definitions loading state', async () => {
+      mockOpenPanelWithObject();
+      // Deliberately left NOT loaded (mockFieldDefinitionsNotLoaded, the
+      // beforeEach default) — CommentThread does not depend on
+      // useFieldDefinitionsQuery at all, mirroring ChecklistWidget's/
+      // RecurrenceRulePicker's own independence from that hook.
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+
+      expect(await screen.findByTestId('comment-thread')).toBeInTheDocument();
+    });
+
+    it('wires CommentThread with the correct props (workspaceId, objectId)', async () => {
+      mockOpenPanelWithObject();
+
+      render(<TaskDetailPanel workspaceId={workspaceId} />);
+      await screen.findByTestId('comment-thread');
+
+      expect(commentThreadState.calls.at(-1)).toEqual({
+        workspaceId,
+        objectId: 'obj-1',
+      });
     });
   });
 });
