@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
 import { ulid } from 'ulid';
 
 import { ForbiddenError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
+import { MentionActionEnqueueProjection } from './mention-action-enqueue.projection.js';
 import { ObjectCommentsProjection } from './object-comments.projection.js';
 import { AgentDirectoryService } from '../agent-runtime/agent-directory.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
@@ -94,7 +95,9 @@ function extractMentionCandidates(body: string): string[] {
  */
 @Injectable()
 export class CommentsService {
+  private readonly logger = new Logger(CommentsService.name);
   private readonly projection = new ObjectCommentsProjection();
+  private readonly mentionActionEnqueueProjection = new MentionActionEnqueueProjection();
 
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
@@ -115,7 +118,12 @@ export class CommentsService {
 
     await this.requireObjectExists(workspaceId, input.objectId);
 
-    const mentionedAgentIds = await this.resolveMentions(workspaceId, input.body);
+    // Anti-recursion guard (F3-T3 PR3): an agent-authored comment's own
+    // mentions are NEVER resolved -- closes the ping-pong loop an agent's
+    // own `@mention`-containing reply could otherwise create via
+    // `MentionActionEnqueueProjection`/`MentionActionWorker`.
+    const mentionedAgentIds =
+      actor.type === 'agent' ? [] : await this.resolveMentions(workspaceId, input.body);
 
     const commentId = ulid();
     const streamId = randomUUID();
@@ -138,6 +146,7 @@ export class CommentsService {
 
     await this.eventStore.append(streamId, 0, [event]);
     await this.projectionRunner.catchUp(this.projection);
+    await this.catchUpMentionActionEnqueue();
 
     return {
       id: commentId,
@@ -206,6 +215,26 @@ export class CommentsService {
 
     if (!row) {
       throw new NotFoundError('Object not found');
+    }
+  }
+
+  /**
+   * F3-T3 PR3: runs `MentionActionEnqueueProjection` in a SEPARATE
+   * `ProjectionRunner.catchUp` transaction from this class's own primary
+   * `ObjectCommentsProjection` catch-up, mirroring `CommandsService
+   * .catchUpWebhookDeliveryEnqueue()`'s identical precedent -- a comment is
+   * already durably committed to the event log by the time this runs, so an
+   * enqueue-projection failure must never be able to undo that or fail the
+   * whole `create()` call. Log-only, never rethrown.
+   */
+  private async catchUpMentionActionEnqueue(): Promise<void> {
+    try {
+      await this.projectionRunner.catchUp(this.mentionActionEnqueueProjection);
+    } catch (error) {
+      this.logger.error(
+        'Mention action enqueue projection catch-up failed; the comment itself was already committed.',
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 }
