@@ -31,7 +31,7 @@ function PendingProposalRow({
   onDecide: (proposalId: string, actionId: string, decision: 'approved' | 'rejected') => void;
 }) {
   return (
-    <li data-testid={`proposal-item-${proposal.id}`}>
+    <li id={`proposal-item-${proposal.id}`} data-testid={`proposal-item-${proposal.id}`}>
       <p>{proposal.command}</p>
       <ul>
         {proposal.actions.map((action) => (

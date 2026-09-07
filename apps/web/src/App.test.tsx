@@ -40,6 +40,37 @@ vi.mock('./views/shared/AgentDirectoryPanel', () => ({
 }));
 
 /**
+ * F3-T3 PR7b (ADR-0037 §d) addendum — `DirectMessagePanel` must be mounted
+ * once in `App.tsx`, alongside the other global (not object-scoped) panels
+ * (`AutomationHistoryPanel`/`AgentDirectoryPanel`/etc.), passed
+ * `workspaceId={DEV_WORKSPACE_ID}`. `./views/shared/DirectMessagePanel` is
+ * mocked wholesale here (capturing its props via a module-level array,
+ * mirroring the `AgentDirectoryPanel` mock immediately above) so this test
+ * proves ONLY the wiring, not `DirectMessagePanel`'s own internals
+ * (separately pinned by `DirectMessagePanel.test.tsx`) — and so this test
+ * doesn't depend on the real `useAgentsQuery`/`useDmMessagesQuery`/apiClient
+ * network calls succeeding against the stubbed global `fetch` above.
+ * `./views/shared/DirectMessagePanel.tsx` does not exist yet, so this mock
+ * factory (and the real import path it shadows) is expected to fail to
+ * resolve until PR7b's implementer builds it — the documented TDD red state.
+ */
+
+interface CapturedDirectMessagePanelProps {
+  workspaceId: string;
+}
+
+const directMessagePanelState = vi.hoisted(() => ({
+  calls: [] as CapturedDirectMessagePanelProps[],
+}));
+
+vi.mock('./views/shared/DirectMessagePanel', () => ({
+  DirectMessagePanel: (props: CapturedDirectMessagePanelProps) => {
+    directMessagePanelState.calls.push(props);
+    return <div data-testid="direct-message-panel" />;
+  },
+}));
+
+/**
  * Theme-toggle contract for `implementer` (F0-T7 PR-C, not yet built):
  *
  * `App.tsx` must render a control that lets the user switch between the
@@ -111,6 +142,7 @@ beforeEach(() => {
     vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ objects: [] }) }),
   );
   agentDirectoryPanelState.calls = [];
+  directMessagePanelState.calls = [];
 });
 
 afterEach(() => {
@@ -172,5 +204,12 @@ describe('App', () => {
 
     expect(screen.getByTestId('agent-directory-panel')).toBeInTheDocument();
     expect(agentDirectoryPanelState.calls.at(-1)).toEqual({ workspaceId: 'dev-workspace' });
+  });
+
+  it('mounts DirectMessagePanel with workspaceId={DEV_WORKSPACE_ID} (F3-T3 PR7b)', () => {
+    renderApp();
+
+    expect(screen.getByTestId('direct-message-panel')).toBeInTheDocument();
+    expect(directMessagePanelState.calls.at(-1)).toEqual({ workspaceId: 'dev-workspace' });
   });
 });

@@ -16,6 +16,7 @@ import { AutomationHistoryPanel } from './views/shared/AutomationHistoryPanel';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
+import { DirectMessagePanel } from './views/shared/DirectMessagePanel';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
 import { McpAccessPanel } from './views/shared/McpAccessPanel';
 import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
@@ -115,6 +116,7 @@ export function App() {
       <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
       <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
+      <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})

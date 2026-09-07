@@ -238,6 +238,22 @@ describe('AutomationHistoryPanel', () => {
     expect(screen.getByTestId('proposal-action-reject-action-1')).toBeInTheDocument();
   });
 
+  // F3-T3 PR7b (ADR-0037 §d) — DirectMessagePanel's reconfiguration-proposal
+  // banner links to this exact element via `href="#proposal-item-<id>"`,
+  // which only works if the element actually carries a real `id` attribute
+  // (an anchor's `href="#foo"` matches an element's `id="foo"`, NOT its
+  // `data-testid`). This pins that the pending-proposal `<li>` carries BOTH.
+  it('gives each pending-proposal row a real DOM id matching its data-testid (F3-T3 PR7b anchor target)', () => {
+    const proposal = makeProposalFixture({ id: 'proposal-1' });
+    mockQuery({ proposals: [proposal] });
+    mockDecideMutation();
+
+    render(<AutomationHistoryPanel workspaceId={workspaceId} />);
+
+    const proposalRow = screen.getByTestId('proposal-item-proposal-1');
+    expect(proposalRow).toHaveAttribute('id', 'proposal-item-proposal-1');
+  });
+
   it('renders one action row per action for a multi-action pending proposal', () => {
     const proposal = makeProposalFixture({
       id: 'proposal-1',

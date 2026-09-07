@@ -13,14 +13,16 @@ import {
   getMemoryRecords,
   getMemoryRecordsJsonLdExport,
   getSavedViews,
+  listDmMessages,
   patchFieldValues,
   postObjectsQuery,
+  sendDmMessage,
   updateMemoryRecord,
   updateSavedView,
   ApiError,
 } from './apiClient.js';
 
-import type { SavedViewCreateInput, SavedViewUpdateInput } from './apiClient.js';
+import type { DmMessage, SavedViewCreateInput, SavedViewUpdateInput } from './apiClient.js';
 
 /**
  * Contract under test (not yet implemented — implementer must build
@@ -784,6 +786,126 @@ describe('deleteMemoryRecord', () => {
       code: 'FORBIDDEN',
       statusCode: 403,
     });
+  });
+});
+
+// F3-T3 PR7b (ADR-0037 §d) — DM thread read/send client, feeding
+// `DirectMessagePanel`. Mirrors `listComments`/`postComment`'s exact
+// request-shape convention above. Backend route already merged:
+// `apps/server/src/direct-messages/direct-messages.controller.ts`'s
+// `GET`/`POST /workspaces/:workspaceId/agents/:agentIdentifier/dm`.
+// `listDmMessages`/`sendDmMessage`/the `DmMessage` type do not exist in
+// apiClient.ts yet — these imports/usages are expected to fail to resolve
+// until the implementer adds them (TDD red state).
+function makeDmMessageFixture(overrides: Partial<DmMessage> = {}): DmMessage {
+  return {
+    id: 'dm-1',
+    workspaceId: 'ws-1',
+    userId: 'user-1',
+    agentIdentifier: 'report-bot@luminaos.internal',
+    sender: 'user',
+    body: 'Merhaba ReportBot',
+    proposalId: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('listDmMessages', () => {
+  const workspaceId = 'ws-1';
+  const agentIdentifier = 'report-bot@luminaos.internal';
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    mockFetchOnce(200, { messages: [] });
+
+    await listDmMessages(workspaceId, agentIdentifier);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('GETs /workspaces/:workspaceId/agents/:agentIdentifier/dm', async () => {
+    mockFetchOnce(200, { messages: [] });
+
+    await listDmMessages(workspaceId, agentIdentifier);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/agents/${encodeURIComponent(agentIdentifier)}/dm`);
+    expect(init.method).toBe('GET');
+  });
+
+  it('resolves with the parsed { messages } body on success', async () => {
+    const message = makeDmMessageFixture();
+    mockFetchOnce(200, { messages: [message] });
+
+    const result = await listDmMessages(workspaceId, agentIdentifier);
+
+    expect(result).toEqual({ messages: [message] });
+  });
+
+  it('rejects with an ApiError carrying the server error code/message on a non-ok response', async () => {
+    mockFetchOnce(403, {
+      error: { code: 'FORBIDDEN', message: 'Bu DM dizisini görüntüleyemezsiniz' },
+    });
+
+    await expect(listDmMessages(workspaceId, agentIdentifier)).rejects.toBeInstanceOf(ApiError);
+    await expect(listDmMessages(workspaceId, agentIdentifier)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+});
+
+describe('sendDmMessage', () => {
+  const workspaceId = 'ws-1';
+  const agentIdentifier = 'report-bot@luminaos.internal';
+  const body = 'ReportBot, lütfen şu görevi kontrol eder misin?';
+
+  it('issues the fetch request with credentials: "include"', async () => {
+    const userMessage = makeDmMessageFixture({ id: 'dm-1', body, sender: 'user' });
+    const agentReply = makeDmMessageFixture({ id: 'dm-2', body: 'Tamamdır', sender: 'agent' });
+    mockFetchOnce(201, { userMessage, agentReply });
+
+    await sendDmMessage(workspaceId, agentIdentifier, body);
+
+    const [, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
+  it('POSTs to /workspaces/:workspaceId/agents/:agentIdentifier/dm with { body } as the JSON body', async () => {
+    const userMessage = makeDmMessageFixture({ id: 'dm-1', body, sender: 'user' });
+    const agentReply = makeDmMessageFixture({ id: 'dm-2', body: 'Tamamdır', sender: 'agent' });
+    mockFetchOnce(201, { userMessage, agentReply });
+
+    await sendDmMessage(workspaceId, agentIdentifier, body);
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/workspaces/${workspaceId}/agents/${encodeURIComponent(agentIdentifier)}/dm`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ body });
+  });
+
+  it('resolves with the parsed { userMessage, agentReply } body on success', async () => {
+    const userMessage = makeDmMessageFixture({ id: 'dm-1', body, sender: 'user' });
+    const agentReply = makeDmMessageFixture({
+      id: 'dm-2',
+      body: 'Anlaşıldı, kontrol ediyorum.',
+      sender: 'agent',
+      proposalId: 'proposal-1',
+    });
+    mockFetchOnce(201, { userMessage, agentReply });
+
+    const result = await sendDmMessage(workspaceId, agentIdentifier, body);
+
+    expect(result).toEqual({ userMessage, agentReply });
+  });
+
+  it('rejects with an ApiError on a non-ok response', async () => {
+    mockFetchOnce(422, { error: { code: 'VALIDATION_ERROR', message: 'Mesaj boş olamaz' } });
+
+    await expect(sendDmMessage(workspaceId, agentIdentifier, body)).rejects.toBeInstanceOf(
+      ApiError,
+    );
   });
 });
 
