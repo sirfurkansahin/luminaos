@@ -17,8 +17,10 @@ import {
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ActionProposalProjection } from './action-proposal.projection.js';
+import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIUsageService } from '../ai/ai-usage.service.js';
+import { extractDirectMessageReconfiguration } from '../ai/extract-direct-message-reconfiguration.js';
 import { extractMeetingActions } from '../ai/extract-meeting-actions.js';
 import { parseCommand, proposedActionSchema } from '../ai/parse-command.js';
 import { selectAIModel } from '../ai/select-ai-model.js';
@@ -137,6 +139,89 @@ function requireStringArrayParam(params: Record<string, unknown>, key: string): 
   return value;
 }
 
+/**
+ * `executeReconfigureAgentPermissions`'s own `dataScope` param validator
+ * (F3-T3 PR4, ADR-0037 §4): the shared `AgentDataScope` shape
+ * (`{ objectTypes: string[] | 'all' }`, `@luminaos/agent-runtime`) is never
+ * trusted from an AI-produced action's untyped `params` at runtime —
+ * `assertValidManifestGrant` (called downstream by
+ * `AgentPermissionManifestsService.grant`) only checks the ARRAY case isn't
+ * empty, it never checks the raw shape itself, so this method must reject
+ * anything else (e.g. an arbitrary string that isn't the `'all'` sentinel)
+ * itself, as a `ValidationError`.
+ */
+function requireDataScopeParam(params: Record<string, unknown>): { objectTypes: string[] | 'all' } {
+  const value = params.dataScope;
+
+  if (value === null || typeof value !== 'object') {
+    throw new ValidationError('Action param "dataScope" must be an object.');
+  }
+
+  const objectTypes = (value as { objectTypes?: unknown }).objectTypes;
+
+  if (objectTypes === 'all') {
+    return { objectTypes: 'all' };
+  }
+
+  if (
+    !Array.isArray(objectTypes) ||
+    !objectTypes.every((item): item is string => typeof item === 'string')
+  ) {
+    throw new ValidationError(
+      'Action param "dataScope.objectTypes" must be "all" or an array of strings.',
+    );
+  }
+
+  return { objectTypes };
+}
+
+/**
+ * Parses a single nullable ISO-8601 date-string field of `timeWindow` into a
+ * `Date | null` — `null` passes through unchanged, an unparseable string is a
+ * `ValidationError` (never a silently-produced `Invalid Date`).
+ */
+function parseNullableIsoDateParam(value: unknown, fieldPath: string): Date | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new ValidationError(`Action param "${fieldPath}" must be an ISO date string or null.`);
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw new ValidationError(`Action param "${fieldPath}" is not a valid date.`);
+  }
+
+  return parsed;
+}
+
+/**
+ * `executeReconfigureAgentPermissions`'s own `timeWindow` param validator —
+ * ISO-8601 strings are parsed to `Date | null` HERE, at execute-time, never
+ * earlier (`extractDirectMessageReconfiguration` treats `params` as fully
+ * opaque, by design).
+ */
+function requireTimeWindowParam(params: Record<string, unknown>): {
+  startsAt: Date | null;
+  expiresAt: Date | null;
+} {
+  const value = params.timeWindow;
+
+  if (value === null || typeof value !== 'object') {
+    throw new ValidationError('Action param "timeWindow" must be an object.');
+  }
+
+  const raw = value as { startsAt?: unknown; expiresAt?: unknown };
+
+  return {
+    startsAt: parseNullableIsoDateParam(raw.startsAt, 'timeWindow.startsAt'),
+    expiresAt: parseNullableIsoDateParam(raw.expiresAt, 'timeWindow.expiresAt'),
+  };
+}
+
 /** The dedicated event-stream type for a proposal's own `ActionsProposed`/`ActionsDecided` events — never the calling user's or source object's own stream (ADR-0015 §b). */
 const PROPOSAL_STREAM_TYPE = 'action-proposal';
 
@@ -168,6 +253,18 @@ const MEETING_ACTION_EXTRACTOR_ACTOR = { type: 'agent', id: 'meeting-action-extr
  * transcript).
  */
 const TRIGGER_ENGINE_ACTOR = { type: 'agent', id: 'trigger-engine' } as const;
+
+/**
+ * The always-and-only actor recorded for a DM-triggered reconfiguration
+ * proposal's own `ActionsProposed` event (ADR-0037 §4) — deliberately
+ * distinct from `COMMAND_PARSER_ACTOR`/`MEETING_ACTION_EXTRACTOR_ACTOR`/
+ * `TRIGGER_ENGINE_ACTOR`, so an audit query can tell all four proposal
+ * sources apart purely from `actor.id`. NEVER the calling human's own
+ * `actor`/`callerRole` passed into `proposeFromDirectMessage`, no matter
+ * what that argument is — those are only ever used for the pre-AI-call
+ * admin-gate check.
+ */
+const DM_RECONFIGURATION_ACTOR = { type: 'agent', id: 'dm-reconfiguration-parser' } as const;
 
 export interface CommandsServiceParseResult {
   proposalId: string;
@@ -203,6 +300,7 @@ export class CommandsService {
     private readonly objectsService: ObjectsService,
     private readonly relationsService: RelationsService,
     private readonly workspaceMembershipService: WorkspaceMembershipService,
+    private readonly agentPermissionManifestsService: AgentPermissionManifestsService,
   ) {}
 
   /**
@@ -343,6 +441,67 @@ export class CommandsService {
       sourceObjectId,
       `[trigger] triggerId=${triggerId}`,
       false,
+    );
+  }
+
+  /**
+   * `proposeFromDirectMessage` (ADR-0037 §4): the DM-triggered sibling of
+   * `parse()`/`proposeFromMeeting()` — sources its proposed actions from
+   * `extractDirectMessageReconfiguration` (`../ai/extract-direct-message-reconfiguration.ts`)
+   * instead of `parseCommand`/`extractMeetingActions`, and shares
+   * `recordProposal` below rather than duplicating it. Every resulting
+   * `ActionsProposed` event is always authored by the fixed
+   * `DM_RECONFIGURATION_ACTOR`, NEVER the calling human's own `actor`.
+   *
+   * THE DEFINING difference from every other `propose*` method: a
+   * SYNCHRONOUS, pre-AI-call admin-gate check (`hasAtLeastRole(callerRole,
+   * 'admin')`) as the literal first statement — a non-admin caller is
+   * rejected with `ForbiddenError` before `aiUsageService`/`aiProvider` are
+   * touched at all (no quota spent, no event recorded).
+   *
+   * The `command` column stores `dmMessageText` VERBATIM (unlike
+   * `proposeFromMeeting`'s "never store the raw transcript" discipline) —
+   * ADR-0037 §4's own "kısa insan-yazılı metin" rationale: a DM message is
+   * already a short, human-authored string, unlike a full meeting
+   * transcript.
+   */
+  async proposeFromDirectMessage(
+    workspaceId: string,
+    _actor: Actor,
+    callerRole: Role,
+    _agentIdentifier: string,
+    dmMessageText: string,
+  ): Promise<CommandsServiceParseResult> {
+    if (!hasAtLeastRole(callerRole, 'admin')) {
+      throw new ForbiddenError();
+    }
+
+    const { actions, parseError, message } = await this.aiUsageService.withWorkspaceAILock(
+      workspaceId,
+      async () => {
+        await this.aiUsageService.assertAITokenQuotaNotExceeded(workspaceId);
+        await this.aiUsageService.assertAICostBudgetNotExceeded(workspaceId);
+
+        const model = selectAIModel({ outputType: 'command' });
+
+        return extractDirectMessageReconfiguration({
+          provider: this.aiProvider,
+          dmMessageText,
+          model,
+          recordUsage: (usage) =>
+            this.aiUsageService.recordAIUsage(workspaceId, undefined, undefined, usage, model),
+        });
+      },
+    );
+
+    return this.recordProposal(
+      workspaceId,
+      DM_RECONFIGURATION_ACTOR,
+      actions,
+      undefined,
+      dmMessageText,
+      parseError,
+      message,
     );
   }
 
@@ -632,6 +791,13 @@ export class CommandsService {
           callerRole,
           causationEventId,
         );
+      case 'reconfigureAgentPermissions':
+        return this.executeReconfigureAgentPermissions(
+          workspaceId,
+          action,
+          approverActor,
+          callerRole,
+        );
     }
   }
 
@@ -685,6 +851,65 @@ export class CommandsService {
         callerRole,
       );
       return { actionId, status: 'executed' };
+    } catch (error) {
+      return { actionId, status: 'failed', error: toErrorMessage(error) };
+    }
+  }
+
+  /**
+   * `executeReconfigureAgentPermissions` (F3-T3 PR4, ADR-0037 §4): dispatched
+   * from `executeDecidedAction`'s `reconfigureAgentPermissions` case.
+   * Delegates the REAL mutation to `AgentPermissionManifestsService.grant`/
+   * `.revoke` — the two-layer-defense contract already established by
+   * ADR-0034/F2-T17's pattern: an AI-shaped proposal is NEVER trusted as
+   * sufficient authority on its own, so `approverActor`/`callerRole` here are
+   * ALWAYS the REAL `decide()`-time approver's own identity/role, NEVER
+   * `DM_RECONFIGURATION_ACTOR` — `AgentPermissionManifestsService` re-checks
+   * `admin`+ for real, independently, against the REAL approver.
+   *
+   * `operation` must be exactly `'grant'` or `'revoke'` — anything else is a
+   * `ValidationError`. `dataScope`/`actionTypes`/`timeWindow` are only read
+   * (and their ISO-8601 date strings only parsed to `Date | null`) for the
+   * `'grant'` branch, at THIS execute-time step, never earlier —
+   * `extractDirectMessageReconfiguration` treats `params` as fully opaque.
+   */
+  private async executeReconfigureAgentPermissions(
+    workspaceId: string,
+    action: DecidableAction,
+    approverActor: Actor,
+    callerRole: Role,
+  ): Promise<DecideActionResult> {
+    const { actionId } = action;
+
+    try {
+      const agentIdentifier = requireStringParam(action.params, 'agentIdentifier');
+      const operation = action.params.operation;
+
+      if (operation === 'revoke') {
+        await this.agentPermissionManifestsService.revoke(
+          workspaceId,
+          agentIdentifier,
+          approverActor,
+          callerRole,
+        );
+        return { actionId, status: 'executed' };
+      }
+
+      if (operation === 'grant') {
+        const dataScope = requireDataScopeParam(action.params);
+        const actionTypes = requireStringArrayParam(action.params, 'actionTypes');
+        const timeWindow = requireTimeWindowParam(action.params);
+
+        await this.agentPermissionManifestsService.grant(workspaceId, approverActor, callerRole, {
+          agentIdentifier,
+          dataScope,
+          actionTypes,
+          timeWindow,
+        });
+        return { actionId, status: 'executed' };
+      }
+
+      throw new ValidationError('Action param "operation" must be "grant" or "revoke".');
     } catch (error) {
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }

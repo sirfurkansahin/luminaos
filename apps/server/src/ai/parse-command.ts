@@ -30,7 +30,8 @@ export interface ProposedAction {
     | 'generateSubtasks'
     | 'assignPeople'
     | 'createTaskFromMeeting'
-    | 'createTaskFromTrigger';
+    | 'createTaskFromTrigger'
+    | 'reconfigureAgentPermissions';
   intent: string;
   rationale: string;
   resources: string[];
@@ -55,6 +56,25 @@ export interface ParseCommandResult {
 const PARSE_EXHAUSTED_MESSAGE =
   'AI response could not be parsed into valid proposed actions after retry';
 
+/**
+ * Security-review finding (F3-T3 PR4): `proposedActionSchema` accepts 6
+ * types total, but `renderCommandPrompt` below only ever asks the model for
+ * these 3 -- `createTaskFromMeeting`/`createTaskFromTrigger`/
+ * `reconfigureAgentPermissions` are reserved for their OWN dedicated,
+ * appropriately-gated extractors (`extractMeetingActions`/
+ * `extractDirectMessageReconfiguration`). Without this allowlist, a
+ * schema-valid-but-wrong-type response (e.g. a prompt-injected command
+ * string coercing the model into emitting `reconfigureAgentPermissions`)
+ * would be accepted here too -- and `parse()`'s own caller is member+, NOT
+ * the admin-gated `proposeFromDirectMessage` path that type is meant to be
+ * exclusive to.
+ */
+const ALLOWED_PARSE_COMMAND_TYPES: ReadonlySet<ProposedAction['type']> = new Set([
+  'createTask',
+  'generateSubtasks',
+  'assignPeople',
+]);
+
 export const proposedActionSchema = z
   .object({
     type: z.enum([
@@ -63,6 +83,7 @@ export const proposedActionSchema = z
       'assignPeople',
       'createTaskFromMeeting',
       'createTaskFromTrigger',
+      'reconfigureAgentPermissions',
     ]),
     intent: z.string().min(1),
     rationale: z.string().min(1),
@@ -100,6 +121,14 @@ function tryParseActions(text: string): ProposedAction[] | undefined {
   const result = proposedActionSchema.safeParse(parsed);
 
   if (!result.success) {
+    return undefined;
+  }
+
+  const allAllowedTypes = result.data.every((action) =>
+    ALLOWED_PARSE_COMMAND_TYPES.has(action.type),
+  );
+
+  if (!allAllowedTypes) {
     return undefined;
   }
 
