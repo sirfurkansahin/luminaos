@@ -13,7 +13,6 @@ import type { Actor } from '@luminaos/shared';
 
 import { CommentsService } from './object-comments.service.js';
 import { AgentDirectoryService } from '../agent-runtime/agent-directory.service.js';
-import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { objectComments } from '../db/schema/object-comments.js';
@@ -21,10 +20,26 @@ import { objectsView } from '../db/schema/objects-view.js';
 import { workspaces } from '../db/schema/workspaces.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
-import { QAService } from '../qa/qa.service.js';
-import { SkillExecutionService } from '../skills/skill-execution.service.js';
 
+/**
+ * Bug fix (F3-T3 PR3, caught only in real CI -- Docker was unavailable in
+ * the local sandbox): `QAService`/`SkillExecutionService` transitively
+ * import `../config/env.js` (via `AIUsageService`/`AgentResourceLimitsService`
+ * respectively), whose `export const env: Env = readEnv()` calls
+ * `process.exit(1)` if `DATABASE_URL`/`REDIS_URL` aren't set -- which they
+ * aren't until THIS file's own `beforeAll` starts the Testcontainers and
+ * sets them. A STATIC top-level import of either class therefore crashes
+ * the whole test file at module-load time, before any `beforeAll` runs.
+ * Mirrors `ai-command-skills.integration.test.ts`'s own established fix for
+ * the identical landmine: only `import type` these classes (safe, erased at
+ * compile time) and obtain the real runtime constructors via a DYNAMIC
+ * `await import(...)` inside `beforeAll`, AFTER `DATABASE_URL`/`REDIS_URL`
+ * are set.
+ */
+import type { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import type { Database } from '../db/client.js';
+import type { QAService } from '../qa/qa.service.js';
+import type { SkillExecutionService } from '../skills/skill-execution.service.js';
 import type { INestApplication, Type } from '@nestjs/common';
 
 /**
@@ -189,9 +204,25 @@ describe('F3-T3 PR3 (RED step): MentionActionWorker -- real SkillExecutionServic
 
     commentsService = app.get(CommentsService);
     agentDirectoryService = app.get(AgentDirectoryService);
-    permissionsService = app.get(AgentPermissionManifestsService);
-    qaService = app.get(QAService);
-    skillExecutionService = app.get(SkillExecutionService);
+
+    const permissionsModule: unknown =
+      await import('../agent-runtime/agent-permission-manifests.service.js');
+    const AgentPermissionManifestsServiceCtor = (
+      permissionsModule as {
+        AgentPermissionManifestsService: Type<AgentPermissionManifestsService>;
+      }
+    ).AgentPermissionManifestsService;
+    permissionsService = app.get(AgentPermissionManifestsServiceCtor);
+
+    const qaServiceModule: unknown = await import('../qa/qa.service.js');
+    const QAServiceCtor = (qaServiceModule as { QAService: Type<QAService> }).QAService;
+    qaService = app.get(QAServiceCtor);
+
+    const skillExecutionModule: unknown = await import('../skills/skill-execution.service.js');
+    const SkillExecutionServiceCtor = (
+      skillExecutionModule as { SkillExecutionService: Type<SkillExecutionService> }
+    ).SkillExecutionService;
+    skillExecutionService = app.get(SkillExecutionServiceCtor);
 
     // Deliberately NOT resolvable until `implementer` creates
     // `./mention-action-worker.service.ts` and wires it as a `CommentsModule`
