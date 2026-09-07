@@ -395,7 +395,16 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
     );
   }
 
-  it("6. a workspace already AT the rate limit (100 recent mention_actions rows) has a new comment's mentions skipped entirely -- zero new rows enqueued, no exception thrown, the comment itself is still created", async () => {
+  // Mirrors test 5's own crafted-event + direct `projectionRunner.catchUp(new
+  // MentionActionEnqueueProjection())` invocation -- deliberately NOT routed
+  // through `commentsService.create()` (which additionally runs its OWN
+  // primary `ObjectCommentsProjection` catch-up plus a SEPARATE mention-
+  // enqueue catch-up, and depends on `AgentDirectoryService.resolveByName`'s
+  // own timing) -- this keeps every assertion below scoped to EXACTLY the
+  // one thing under test: this projection's OWN `apply()` rate-limit gate,
+  // with a single, deterministic `catchUp()` call per event.
+
+  it("6. a workspace already AT the rate limit (100 recent mention_actions rows) has a new comment's mentions skipped entirely -- zero new rows enqueued, no exception thrown", async () => {
     const workspaceId = await createWorkspace();
     const objectId = await insertObject(workspaceId, 'Rate Limit At Ceiling Target');
     const agent = await registerAgent(
@@ -405,12 +414,17 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
     );
     await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW, new Date());
 
-    const comment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+    const commentId = ulid();
+    await appendCraftedCommentAddedEvent({
+      workspaceId,
       objectId,
-      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+      commentId,
+      body: 'irrelevant -- mentionedAgentIds is set directly below',
+      mentionedAgentIds: [agent.id],
     });
+    await projectionRunner.catchUp(new MentionActionEnqueueProjection());
 
-    const rows = await readMentionActionRowsForComment(comment.id);
+    const rows = await readMentionActionRowsForComment(commentId);
     expect(rows).toHaveLength(0);
   });
 
@@ -425,12 +439,17 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
     const wellOutsideWindow = new Date(Date.now() - RATE_LIMIT_WINDOW_MS - 10_000);
     await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW, wellOutsideWindow);
 
-    const comment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+    const commentId = ulid();
+    await appendCraftedCommentAddedEvent({
+      workspaceId,
       objectId,
-      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+      commentId,
+      body: 'irrelevant -- mentionedAgentIds is set directly below',
+      mentionedAgentIds: [agent.id],
     });
+    await projectionRunner.catchUp(new MentionActionEnqueueProjection());
 
-    const rows = await readMentionActionRowsForComment(comment.id);
+    const rows = await readMentionActionRowsForComment(commentId);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.agent_identifier).toBe(agent.agentIdentifier);
   });
@@ -446,12 +465,17 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
     );
     await seedMentionActionRows(busyWorkspaceId, RATE_LIMIT_PER_WINDOW, new Date());
 
-    const comment = await commentsService.create(quietWorkspaceId, fakeActor(), 'member', {
+    const commentId = ulid();
+    await appendCraftedCommentAddedEvent({
+      workspaceId: quietWorkspaceId,
       objectId,
-      body: `Hey @${agent.agentIdentifier}, please take a look.`,
+      commentId,
+      body: 'irrelevant -- mentionedAgentIds is set directly below',
+      mentionedAgentIds: [agent.id],
     });
+    await projectionRunner.catchUp(new MentionActionEnqueueProjection());
 
-    const rows = await readMentionActionRowsForComment(comment.id);
+    const rows = await readMentionActionRowsForComment(commentId);
     expect(rows).toHaveLength(1);
   });
 
@@ -466,20 +490,30 @@ describe('F3-T3 PR3 (RED step): MentionActionEnqueueProjection -- CommentAdded -
     );
     await seedMentionActionRows(workspaceId, RATE_LIMIT_PER_WINDOW - 1, new Date());
 
-    const firstComment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+    const firstCommentId = ulid();
+    await appendCraftedCommentAddedEvent({
+      workspaceId,
       objectId: objectIdFirst,
-      body: `Hey @${agent.agentIdentifier}, please take a look (below the limit).`,
+      commentId: firstCommentId,
+      body: 'irrelevant -- mentionedAgentIds is set directly below (below the limit)',
+      mentionedAgentIds: [agent.id],
     });
-    const firstRows = await readMentionActionRowsForComment(firstComment.id);
+    await projectionRunner.catchUp(new MentionActionEnqueueProjection());
+    const firstRows = await readMentionActionRowsForComment(firstCommentId);
     expect(firstRows).toHaveLength(1);
 
     // The row inserted above brings the workspace to EXACTLY the limit --
     // the NEXT comment's mentions must now be skipped.
-    const secondComment = await commentsService.create(workspaceId, fakeActor(), 'member', {
+    const secondCommentId = ulid();
+    await appendCraftedCommentAddedEvent({
+      workspaceId,
       objectId: objectIdSecond,
-      body: `Hey @${agent.agentIdentifier}, please take a look (at the limit now).`,
+      commentId: secondCommentId,
+      body: 'irrelevant -- mentionedAgentIds is set directly below (at the limit now)',
+      mentionedAgentIds: [agent.id],
     });
-    const secondRows = await readMentionActionRowsForComment(secondComment.id);
+    await projectionRunner.catchUp(new MentionActionEnqueueProjection());
+    const secondRows = await readMentionActionRowsForComment(secondCommentId);
     expect(secondRows).toHaveLength(0);
   });
 });
