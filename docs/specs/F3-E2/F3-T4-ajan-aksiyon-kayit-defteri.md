@@ -62,15 +62,26 @@ Bu görev ikisini TEK birleşik `AgentActionRecord` defterinde toplar: her ajan 
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `AgentActionRecordsService.list`/`.get` member+ RBAC uygular (guest reddedilir); cross-workspace izolasyon doğrulanır (bir workspace'in kaydı başka bir workspace'te görünmez/erişilmez); `record()` best-effort'tur — kasıtlı bir DB hatası enjekte edildiğinde `record()` fırlatmaz, yalnızca loglar.
-- [ ] **PR2:** 6 `executeXxx`'in her biri doğru `provenance:'decided'`, `actionType`, `resources[]` (kendi bildiği somut id'lerden inşa edilmiş), `rollbackPlan`, `causationEventId` ile bir kayıt yazdığı doğrulanır; `executeAssignPeople`/`executeReconfigureAgentPermissions`'ın `causationEventId` boşluğunun kapandığı ayrıca doğrulanır; `rejected`/`failed` `DecideActionResult`'ların da kaydedildiği doğrulanır; ledger-yazım hatası enjekte edildiğinde asıl mutasyonun/`DecideActionResult`'ın ETKİLENMEDİĞİ doğrulanır.
-- [ ] **PR3:** Başarı yolunda `provenance:'autonomous'`, `actor:{type:'agent',id:agentIdentifier}`, `resultRef:{kind:'comment',commentId:...}`, `causationEventId:null` doğru yazılır; izin-reddi (`ForbiddenError`) yolunda `outcome:'failed'`, `resultRef:null`, `rollbackPlan:{kind:'none',...}` yazılır; timeout/failure retry döngüsünde HER deneme için ayrı kayıt YAZILMADIĞI (yalnızca nihai sonucun kaydedildiği) veya ADR'de tarif edilen davranış doğrulanır; `executeSkill`'in imzası DEĞİŞMEDİĞİ (tip-seviyesinde) doğrulanır.
-- [ ] **Yapısal doğruluk (PR1-PR3 geneli):** `resources[]` hiçbir zaman `ProposedAction.resources: string[]`'in AI-yazımı serbest metninden DOĞRUDAN türetilmez — her kayıt noktası kendi bildiği somut id'lerden yapısal olarak inşa eder (kod incelemesi + testle kanıtlanır).
-- [ ] **Yazma yüzeyi:** Ledger için hiçbir HTTP POST/PUT/PATCH/DELETE route'u YOKTUR — yalnızca GET (`list`/`get`) mevcuttur; bu router tanımlarının statik incelemesiyle doğrulanır.
-- [ ] `agent_action_records` migration'ının down script'i mevcuttur ve geri-alma test edilmiştir (CLAUDE.md: "Migration'ı down script'i olmadan yazma").
-- [ ] **PR4:** `FlightRecorderPanel.tsx` salt-okunur — hiçbir düzenleme/aksiyon/geri-al butonu içermez; her satır niyet/gerekçe/kaynaklar/geri-alma-planı/actor/`occurredAt`/outcome rozetini gösterir.
-- [ ] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR4 ayrıca `@luminaos/web` için).
-- [ ] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2/PR3: ledger-yazım hatasının gerçek aksiyonu bozmadığı, `resources[]`'ın hiçbir zaman doğrulanmamış AI metninden türetilmediği).
+- [x] **PR1:** `AgentActionRecordsService.list`/`.get` member+ RBAC uygular (guest reddedilir); cross-workspace izolasyon doğrulanır (bir workspace'in kaydı başka bir workspace'te görünmez/erişilmez); `record()` best-effort'tur — kasıtlı bir DB hatası enjekte edildiğinde `record()` fırlatmaz, yalnızca loglar.
+- [x] **PR2:** 6 `executeXxx`'in her biri doğru `provenance:'decided'`, `actionType`, `resources[]` (kendi bildiği somut id'lerden inşa edilmiş), `rollbackPlan`, `causationEventId` ile bir kayıt yazdığı doğrulanır; `executeAssignPeople`/`executeReconfigureAgentPermissions`'ın `causationEventId` boşluğunun kapandığı ayrıca doğrulanır; `rejected`/`failed` `DecideActionResult`'ların da kaydedildiği doğrulanır; ledger-yazım hatası enjekte edildiğinde asıl mutasyonun/`DecideActionResult`'ın ETKİLENMEDİĞİ doğrulanır.
+- [x] **PR3:** Başarı yolunda `provenance:'autonomous'`, `actor:{type:'agent',id:agentIdentifier}`, `resultRef:{kind:'comment',commentId:...}`, `causationEventId:null` doğru yazılır; izin-reddi (`ForbiddenError`) yolunda `outcome:'failed'`, `resultRef:null`, `rollbackPlan:{kind:'none',...}` yazılır; timeout/failure retry döngüsünde HER deneme için ayrı kayıt YAZILMADIĞI (yalnızca nihai sonucun kaydedildiği) veya ADR'de tarif edilen davranış doğrulanır; `executeSkill`'in imzası DEĞİŞMEDİĞİ (tip-seviyesinde) doğrulanır.
+- [x] **Yapısal doğruluk (PR1-PR3 geneli):** `resources[]` hiçbir zaman `ProposedAction.resources: string[]`'in AI-yazımı serbest metninden DOĞRUDAN türetilmez — her kayıt noktası kendi bildiği somut id'lerden yapısal olarak inşa eder (kod incelemesi + testle kanıtlanır).
+- [x] **Yazma yüzeyi:** Ledger için hiçbir HTTP POST/PUT/PATCH/DELETE route'u YOKTUR — yalnızca GET (`list`/`get`) mevcuttur; bu router tanımlarının statik incelemesiyle doğrulanır.
+- [x] `agent_action_records` migration'ının down script'i mevcuttur ve geri-alma test edilmiştir (CLAUDE.md: "Migration'ı down script'i olmadan yazma").
+- [x] **PR4:** `FlightRecorderPanel.tsx` salt-okunur — hiçbir düzenleme/aksiyon/geri-al butonu içermez; her satır niyet/gerekçe/kaynaklar/geri-alma-planı/actor/`occurredAt`/outcome rozetini gösterir.
+- [x] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR4 ayrıca `@luminaos/web` için).
+- [x] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2/PR3: ledger-yazım hatasının gerçek aksiyonu bozmadığı, `resources[]`'ın hiçbir zaman doğrulanmamış AI metninden türetilmediği).
+
+## Done
+
+Tüm 4 PR `main`'e merge edildi:
+
+- **PR1 — Defter altyapısı** (#220): `packages/agent-runtime/src/agent-action-record.ts` + `agent-action-record-events.ts` (saf tipler + zod payload şeması), `agent_action_records` şeması + migration `0043` (+ down script), `AgentActionRecordProjection`, `AgentActionRecordsService` (`record`/`list`/`get`, `agentActionRecordedPayloadSchema.parse()` ile payload doğrulamalı best-effort yazım), yalnızca-GET `AgentActionRecordsController`, modül kablolaması.
+- **PR2 — decide()-yol kablolaması** (#221): 6 `CommandsService.executeXxx` metodunun tamamı artık ledger kayıtlarını yeni bir `recordDecidedLedgerEntry` yardımcısı üzerinden yazıyor (kendi savunmacı try/catch'iyle); `executeAssignPeople`/`executeReconfigureAgentPermissions` daha önce eksik olan `causationEventId` parametresini kazandı; reddedilen kararlar da kaydediliyor (`outcome:'rejected'`); `resources[]`/`rollbackPlan`/`resultRef` her zaman ilgili metodun kendi somut id'lerinden yapısal olarak inşa ediliyor, AI-önerisinin serbest-metin alanlarından ASLA türetilmiyor.
+- **PR3 — Otonom mention→beceri yol kablolaması** (#222): `MentionActionWorker.runOnce()` ledger kayıtlarını `recordSuccess`/`recordTerminalFailure` yardımcıları üzerinden yazıyor (kendi savunmacı try/catch'iyle); `retryOrFail` artık `Promise<boolean>` döndürüyor (nihai-başarısızlık mı yoksa yalnızca-planlanmış-yeniden-deneme mi) böylece her satır için yalnızca NİHAİ sonuç kaydediliyor, her yeniden deneme denemesi için ayrı kayıt YAZILMIYOR; bu yolda `causationEventId` her zaman `null`; sabit şablon `intent`/`rationale` dizeleri kullanılıyor (ham mention gövdesi/AI cevap metni asla loglanmıyor).
+- **PR4 — Frontend** (#223): yeni salt-okunur `FlightRecorderPanel.tsx` (`AutomationHistoryPanel.tsx`'in düz-liste konvansiyonunu izler, sıfır düzenleme/aksiyon/geri-al butonu), `useAgentActionRecordsQuery` hook'u, `apiClient.ts` eklentileri (`AgentActionRecord` tipleri + `listAgentActionRecords`), `App.tsx`'e kablolandı.
+- Not: bu, CLAUDE.md'nin `{niyet, gerekçe, kaynaklar[], geri_alma_planı}` mimari değişmezini ajan aksiyonları için yalnızca İHLAL ETMEYEN değil, gerçekten GERÇEKLEŞTİREN ilk ADR'dir (ADR-0038).
+- Kanıt: `@luminaos/server` + `@luminaos/web` test paketlerinin tamamı 4 PR boyunca yeşil (birim + entegrasyon, Testcontainers üzerinden gerçek Postgres/Redis), `pnpm typecheck && pnpm lint` boyunca yeşil, her PR'da `security-reviewer` çalıştı ve sıfır bloklayıcı bulgu bıraktı (bir yan-ürün olarak uygulama-geneli, F3-T4'ten BAĞIMSIZ, önceden var olan bir hata bulundu — `AppErrorFilter`'ın global `@Catch()`'ü, gerçekten eşleşmeyen route'lar için NestJS'in kendi dahili `NotFoundException`'ını HTTP 404 yerine 500 olarak yanlış sınıflandırıyor; bu görevde DÜZELTİLMEDİ, ayrı bir gelecekteki düzeltme için işaretlendi).
 
 ## Açık Sorular
 
@@ -82,8 +93,8 @@ Bu görev için gerçekten açık bir soru yok — ADR-0038 Bağlam/Karar/Altern
 ## Sıradaki adım
 
 ```
-docs/adr/ADR-0038-ajan-aksiyon-kayit-defteri.md'deki Karar (a)-(i)'yi ve
-docs/specs/F3-E2/F3-T4-ajan-aksiyon-kayit-defteri.md'nin Kabul Kriterleri'ni temel alarak, F3-T4
-PR1 (packages/agent-runtime saf domain: AgentActionRecord/ActionResourceReference/RollbackPlan
-tipleri, AgentActionRecorded olay şeması) için test-writer ile başarısız testleri yaz.
+docs/PLAN.md'nin Epik F3-E2 (Cam Kutu Otonomi) sıralamasına göre F3-T4 kapandı; sıradaki görev
+F3-T5 — Otonomi kadranı: öner / onayla-yap / yap-bildir, görev tipi başına kullanıcı ayarı.
+Önce docs/specs/F3-E2/F3-T5-otonomi-kadrani.md spec dosyasını (henüz yazılmadıysa explorer ile
+mevcut agent-runtime/decide() akışını keşfedip) oluştur, insana onaylat; sonra plan mode'a geç.
 ```
