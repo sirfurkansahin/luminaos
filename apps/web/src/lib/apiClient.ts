@@ -927,3 +927,54 @@ export function sendDmMessage(
     },
   );
 }
+
+/**
+ * F3-T4 PR4 (ADR-0038 §h) -- unified agent-action ledger ("Uçuş Kayıt
+ * Cihazı") read client, feeding `FlightRecorderPanel`. Mirrors the
+ * already-merged server-side `AgentActionRecord`/`ActionResourceReference`/
+ * `RollbackPlan` shapes exactly (`packages/agent-runtime/src/agent-action-
+ * record.ts`) -- `occurredAt` is `string` here (not `Date`), matching
+ * `CommandProposalSummary.createdAt`'s own established convention, since
+ * timestamps cross JSON/HTTP as strings.
+ */
+export type ActionProvenance = 'decided' | 'autonomous';
+
+export type AgentActionOutcome = 'succeeded' | 'partially_succeeded' | 'failed' | 'rejected';
+
+export type ActionResourceReference =
+  | { kind: 'object'; objectId: string }
+  | { kind: 'comment'; commentId: string }
+  | { kind: 'meeting'; meetingId: string }
+  | { kind: 'agent'; agentIdentifier: string }
+  | { kind: 'external'; label: string };
+
+export interface RollbackPlan {
+  kind: 'delete' | 'revertFieldValue' | 'revokePermission' | 'manual' | 'none';
+  targetResource?: ActionResourceReference;
+  description: string;
+}
+
+export interface AgentActionRecord {
+  id: string;
+  workspaceId: string;
+  provenance: ActionProvenance;
+  actor: { type: 'user' | 'agent' | 'system'; id: string };
+  actionType: string;
+  intent: string;
+  rationale: string;
+  resources: ActionResourceReference[];
+  rollbackPlan: RollbackPlan;
+  outcome: AgentActionOutcome;
+  resultRef: ActionResourceReference | null;
+  causationEventId: string | null;
+  occurredAt: string;
+}
+
+export function listAgentActionRecords(
+  workspaceId: string,
+): Promise<{ records: AgentActionRecord[] }> {
+  return request<{ records: AgentActionRecord[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/agent-action-records`,
+    { method: 'GET' },
+  );
+}
