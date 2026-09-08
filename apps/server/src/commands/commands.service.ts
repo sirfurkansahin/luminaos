@@ -4,6 +4,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { agentResource, objectResource } from '@luminaos/agent-runtime';
+import type { ActionResourceReference, AgentActionOutcome } from '@luminaos/agent-runtime';
 import type { AIProvider } from '@luminaos/ai-gateway';
 import { newObjectId } from '@luminaos/core-objects';
 import type { Role } from '@luminaos/core-objects';
@@ -17,6 +19,7 @@ import {
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ActionProposalProjection } from './action-proposal.projection.js';
+import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
 import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIUsageService } from '../ai/ai-usage.service.js';
@@ -105,6 +108,23 @@ export type DecideActionResult = {
   failedAtStep?: number;
   error?: string;
 };
+
+/**
+ * F3-T4 PR2 (ADR-0038 Karar b): maps `DecideActionResult.status`'s vocabulary
+ * onto the unified ledger's `AgentActionOutcome` vocabulary.
+ */
+function toAgentActionOutcome(status: DecideActionResult['status']): AgentActionOutcome {
+  switch (status) {
+    case 'executed':
+      return 'succeeded';
+    case 'partially_executed':
+      return 'partially_succeeded';
+    case 'failed':
+      return 'failed';
+    case 'rejected':
+      return 'rejected';
+  }
+}
 
 /**
  * `@luminaos/shared`'s `AppError` subclasses carry deliberately clean,
@@ -301,6 +321,7 @@ export class CommandsService {
     private readonly relationsService: RelationsService,
     private readonly workspaceMembershipService: WorkspaceMembershipService,
     private readonly agentPermissionManifestsService: AgentPermissionManifestsService,
+    private readonly agentActionRecordsService: AgentActionRecordsService,
   ) {}
 
   /**
@@ -695,6 +716,31 @@ export class CommandsService {
           actionId: decision.actionId,
           status: 'rejected',
         });
+
+        // Reddedilen bir aksiyon hiçbir executeXxx'e ulaşmaz -- yine de
+        // ledger'a kaydedilir (ADR-0038 §c: "reddedilen/başarısız kararlar
+        // da kaydedilir"). Ham veri şema-geçersizse (malformed/corrupted
+        // jsonb) kayıt atlanır -- anlamlı actionType/intent/rationale yok.
+        const rejectedParsed = decidableActionSchema.safeParse(
+          rawActionsById.get(decision.actionId),
+        );
+        if (rejectedParsed.success) {
+          await this.recordDecidedLedgerEntry(
+            row.workspaceId,
+            rejectedParsed.data,
+            approverActor,
+            decidedEvent.id,
+            {
+              resources: [],
+              rollbackPlan: {
+                kind: 'none',
+                description: 'İnsan bu aksiyonu reddetti; hiçbir mutasyon oluşmadı.',
+              },
+              outcome: toAgentActionOutcome('rejected'),
+              resultRef: null,
+            },
+          );
+        }
         continue;
       }
 
@@ -738,6 +784,57 @@ export class CommandsService {
   }
 
   /**
+   * F3-T4 PR2 (ADR-0038 Karar c/f): writes the unified ledger entry for a
+   * single decided action — `provenance:'decided'`/`actor` are ALWAYS the
+   * real `approverActor` here (never a proposal-source actor), `intent`/
+   * `rationale` are copied verbatim from the decided proposal for DISPLAY
+   * only (§f) — `resources`/`rollbackPlan`/`resultRef` are supplied by each
+   * call site, built EXCLUSIVELY from its own structurally-known concrete
+   * ids, never from the proposal's own free-text `resources`/`rollbackNote`.
+   * `AgentActionRecordsService.record` is itself best-effort/never-throws —
+   * this method ALSO wraps the call in its own try/catch (defense in depth,
+   * security review): a ledger write must never break the real action's own
+   * result even under a hypothetical future regression in `record()`'s own
+   * contract, and this is called from BOTH a try block's success path and
+   * its own catch block, so an unguarded second failure here must not
+   * escape and mask the first.
+   */
+  private async recordDecidedLedgerEntry(
+    workspaceId: string,
+    action: { type: string; intent: string; rationale: string },
+    approverActor: Actor,
+    causationEventId: string | null,
+    fields: {
+      resources: ActionResourceReference[];
+      rollbackPlan: { kind: string; targetResource?: ActionResourceReference; description: string };
+      outcome: AgentActionOutcome;
+      resultRef: ActionResourceReference | null;
+    },
+  ): Promise<void> {
+    try {
+      await this.agentActionRecordsService.record(workspaceId, {
+        provenance: 'decided',
+        actor: approverActor,
+        actionType: action.type,
+        intent: action.intent,
+        rationale: action.rationale,
+        resources: fields.resources,
+        rollbackPlan: fields.rollbackPlan as Parameters<
+          AgentActionRecordsService['record']
+        >[1]['rollbackPlan'],
+        outcome: fields.outcome,
+        resultRef: fields.resultRef,
+        causationEventId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Ledger record write failed for workspace ${workspaceId}, action "${action.type}"; the decided action's own result is unaffected.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
    * Dispatches a single approved, already-re-validated action by `type` —
    * see this class's `decide()` doc comment for the actor-attribution
    * contract every branch below must honor. `causationEventId` (the
@@ -774,7 +871,13 @@ export class CommandsService {
           causationEventId,
         );
       case 'assignPeople':
-        return this.executeAssignPeople(workspaceId, action, approverActor, callerRole);
+        return this.executeAssignPeople(
+          workspaceId,
+          action,
+          approverActor,
+          callerRole,
+          causationEventId,
+        );
       case 'createTaskFromMeeting':
         return this.executeCreateTaskFromMeeting(
           workspaceId,
@@ -797,6 +900,7 @@ export class CommandsService {
           action,
           approverActor,
           callerRole,
+          causationEventId,
         );
     }
   }
@@ -812,14 +916,30 @@ export class CommandsService {
 
     try {
       const title = requireStringParam(action.params, 'title');
-      await this.objectsService.create(
+      const created = await this.objectsService.create(
         workspaceId,
         approverActor,
         { objectType: 'task', title, causationEventId },
         callerRole,
       );
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [objectResource(created.id)],
+        rollbackPlan: {
+          kind: 'delete',
+          targetResource: objectResource(created.id),
+          description: 'Oluşturulan görevi sil.',
+        },
+        outcome: toAgentActionOutcome('executed'),
+        resultRef: objectResource(created.id),
+      });
       return { actionId, status: 'executed' };
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Görev oluşturma başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
   }
@@ -844,14 +964,30 @@ export class CommandsService {
 
     try {
       const title = requireStringParam(action.params, 'title');
-      await this.objectsService.create(
+      const created = await this.objectsService.create(
         workspaceId,
         approverActor,
         { objectType: 'task', title, causationEventId },
         callerRole,
       );
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [objectResource(created.id)],
+        rollbackPlan: {
+          kind: 'delete',
+          targetResource: objectResource(created.id),
+          description: 'Oluşturulan görevi sil.',
+        },
+        outcome: toAgentActionOutcome('executed'),
+        resultRef: objectResource(created.id),
+      });
       return { actionId, status: 'executed' };
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Görev oluşturma başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
   }
@@ -878,6 +1014,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
+    causationEventId: string,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -892,6 +1029,17 @@ export class CommandsService {
           approverActor,
           callerRole,
         );
+        await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+          resources: [agentResource(agentIdentifier)],
+          rollbackPlan: {
+            // v0 YAGNI (spec İnsan Kararı 3, ADR-0038 §g): revoke-öncesi
+            // manifesto durumu snapshot'lanmadığı için yapısal bir tersi yok.
+            kind: 'manual',
+            description: 'Önceki izin manifestosunu elle yeniden ver.',
+          },
+          outcome: toAgentActionOutcome('executed'),
+          resultRef: agentResource(agentIdentifier),
+        });
         return { actionId, status: 'executed' };
       }
 
@@ -906,11 +1054,27 @@ export class CommandsService {
           actionTypes,
           timeWindow,
         });
+        await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+          resources: [agentResource(agentIdentifier)],
+          rollbackPlan: {
+            kind: 'revokePermission',
+            targetResource: agentResource(agentIdentifier),
+            description: 'Verilen izni geri al.',
+          },
+          outcome: toAgentActionOutcome('executed'),
+          resultRef: agentResource(agentIdentifier),
+        });
         return { actionId, status: 'executed' };
       }
 
       throw new ValidationError('Action param "operation" must be "grant" or "revoke".');
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'İzin yeniden yapılandırma başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
   }
@@ -939,11 +1103,18 @@ export class CommandsService {
       parentObjectId = requireStringParam(action.params, 'parentObjectId');
       subtaskTitles = requireStringArrayParam(action.params, 'subtaskTitles');
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Alt görev oluşturma başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
 
     const totalCount = subtaskTitles.length;
     let createdCount = 0;
+    const createdIds: string[] = [];
     let failure: { step: number; error: string } | undefined;
 
     for (const [index, title] of subtaskTitles.entries()) {
@@ -960,6 +1131,7 @@ export class CommandsService {
           kind: 'parentChild',
           causationEventId,
         });
+        createdIds.push(created.id);
         createdCount += 1;
       } catch (error) {
         failure = { step: index + 1, error: toErrorMessage(error) };
@@ -967,14 +1139,35 @@ export class CommandsService {
       }
     }
 
+    // Multi-resource action (ADR-0038 §g): `rollbackPlan` stays singular/
+    // optional -- NO `targetResource` here regardless of outcome, the full
+    // list of created ids is read from `resources[]` instead.
     if (!failure) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: createdIds.map((id) => objectResource(id)),
+        rollbackPlan: { kind: 'delete', description: 'Oluşturulan alt görevleri sil.' },
+        outcome: toAgentActionOutcome('executed'),
+        resultRef: null,
+      });
       return { actionId, status: 'executed' };
     }
 
     if (createdCount === 0) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Hiçbir alt görev oluşturulamadı.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: failure.error };
     }
 
+    await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+      resources: createdIds.map((id) => objectResource(id)),
+      rollbackPlan: { kind: 'delete', description: 'Kısmen oluşturulan alt görevleri sil.' },
+      outcome: toAgentActionOutcome('partially_executed'),
+      resultRef: null,
+    });
     return {
       actionId,
       status: 'partially_executed',
@@ -1027,8 +1220,24 @@ export class CommandsService {
         callerRole,
       );
 
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [objectResource(created.id)],
+        rollbackPlan: {
+          kind: 'delete',
+          targetResource: objectResource(created.id),
+          description: 'Oluşturulan görevi sil.',
+        },
+        outcome: toAgentActionOutcome('executed'),
+        resultRef: objectResource(created.id),
+      });
       return { actionId, status: 'executed' };
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Görev oluşturma başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
   }
@@ -1201,6 +1410,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
+    causationEventId: string,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -1215,8 +1425,24 @@ export class CommandsService {
         { fieldKey, value: userIds },
       ]);
 
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [objectResource(objectId)],
+        rollbackPlan: {
+          kind: 'revertFieldValue',
+          targetResource: objectResource(objectId),
+          description: `"${fieldKey}" alanının önceki değerini geri yükle.`,
+        },
+        outcome: toAgentActionOutcome('executed'),
+        resultRef: objectResource(objectId),
+      });
       return { actionId, status: 'executed' };
     } catch (error) {
+      await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
+        resources: [],
+        rollbackPlan: { kind: 'none', description: 'Kişi atama başarısız oldu.' },
+        outcome: toAgentActionOutcome('failed'),
+        resultRef: null,
+      });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
     }
   }
