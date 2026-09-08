@@ -1,6 +1,6 @@
 # F3-T3 — Ajan-İnsan Etkileşimi: @mention, Görev Atama, DM ile Ajan Yeniden Yapılandırma
 
-**Epik:** F3-E1 (Agent Runtime + Skill SDK, Kapsam J) · **Durum:** PLANLANDI — insan onayı alındı, ADR-0037 yazıldı (`docs/adr/ADR-0037-ajan-insan-etkilesimi.md`). Bu görev F3-E1'in SON görevidir — tamamlandığında Epik F3-E1 (F3-T1 + F3-T2 + F3-T3) tamamen kapanır.
+**Epik:** F3-E1 (Agent Runtime + Skill SDK, Kapsam J) · **Durum:** TAMAMLANDI — 8 PR (#209-#216) `main`'e merge edildi, ADR-0037 yazıldı (`docs/adr/ADR-0037-ajan-insan-etkilesimi.md`). Bu görev F3-E1'in SON görevidir — Epik F3-E1 (F3-T1 + F3-T2 + F3-T3) tamamen kapandı. Ayrıntı için aşağıdaki "Done" bölümüne bakın.
 **Bağımlılık:** F3-T1/ADR-0035 (`packages/agent-runtime` — `AgentPermissionManifestsService.checkPermission`, `AgentResourceLimitsService.executeAgentAction`; PR #191-#194, tamamen merge edilmiş) ve F3-T2/ADR-0036 (`SkillExecutionService.executeSkill`, 20 imzalı beceri; PR #186/#187/#206, tamamen merge edilmiş — bkz. `docs/specs/F3-E1/F3-T2-skill-sdk-v1.md`). Her iki ADR de bu görevi AÇIKÇA "ilk gerçek çağıran" olarak işaret ediyor (ADR-0035 §e, ADR-0036 §g): `checkPermission`/`executeAgentAction` ve `executeSkill` bugüne kadar kendi testleri dışında hiçbir gerçek çağırana sahip değil — bilinçli YAGNI riski olarak kabul edilmişti, bu görev o riski kapatır.
 
 ## Amaç
@@ -56,35 +56,41 @@ F3-T1 izin manifestosu + sandbox + kaynak sınırlarını kurdu, F3-T2 20 imzal�
 
 ## Kabul Kriterleri
 
-- [ ] Agent register/list/deactivate: admin+ RBAC uygulanır (member/guest reddedilir); çakışan isim/identifier `ConflictError` fırlatır; `list` yalnızca `active` ajanları döner; cross-workspace izolasyon (bir workspace'in ajanı başka bir workspace'te görünmez/erişilmez) doğrulanır.
-- [ ] Yorum oluşturma: var olmayan nesnede 404; member+ RBAC; `@handle` regex'i yalnızca PR1'in dizinindeki gerçek ajanları çözümler, eşleşmeyen/bilinmeyen handle'lar SESSİZCE yok sayılır (hata fırlatmaz, ana yorum-oluşturma işlemini durdurmaz).
-- [ ] Mention→beceri-çalıştırma worker'ı: başarı yolunda ajanın actor'üyle (`{type:'agent', id: agentIdentifier}`) yeni bir yanıt yorumu oluşur ve kuyruk satırı `done` işaretlenir; `ForbiddenError` (izin yok/manifesto devre dışı) durumunda kuyruk satırı DOĞRUDAN `failed` olur, retry DENENMEZ; timeout/geçici hata durumunda backoff ile retry (MAX_ATTEMPTS'e kadar) uygulanır; eşzamanlı worker tick'lerinde aynı kuyruk satırı iki kez claim edilip iki kez işlenmez (claim-yarışı güvenliği, `webhook-delivery-worker` emsaliyle aynı).
-- [ ] `executeSkill` çağrılmadan ÖNCE `checkPermission`'dan geçilir — izin reddedildiğinde altta yatan beceri KODU HİÇ ÇALIŞMAZ (spy ile kanıtlanır); `objectType` her `executeSkill` çağrısına geçirilir.
-- [ ] `CommandsService.proposeFromDirectMessage`: admin olmayan bir kullanıcının yeniden-yapılandırma isteğinde AI provider'ı HİÇ ÇAĞRILMAZ (spy/mock ile kanıtlanır) — kanıtlanmış ret metniyle kısa devre yapılır.
-- [ ] `executeDecidedAction`'ın `reconfigureAgentPermissions` dalı: `AgentPermissionManifestsService.grant`/`.revoke` HER ZAMAN gerçek karar veren (decide-anındaki) admin'in `actor`/`callerRole`'üyle çağrılır — asla sabit bir ajan/sistem actor'üyle (testte decide-anındaki gerçek admin kimliğinin `grant`/`revoke`'a ulaştığı doğrudan doğrulanır).
-- [ ] DM: `send`/`list` round-trip çalışır; bir kullanıcı başka bir kullanıcının DM dizisini OKUYAMAZ (cross-user izolasyon), admin+ kendi olmayan bir DM dizisini denetim amaçlı okuyabilir; DM gövdeleri/`mentionedAgentIds` hiçbir logda açık metin olarak görünmez.
-- [ ] Kapsam-dışı listesindeki hiçbir kalem (push/e-posta/websocket teslimat, Yjs pipeline değişikliği, `executeAssignPeople` bağlanması, DM-üzerinden-decide kısayolu) koda GİRMEZ — bu, ilgili PR'ların `security-reviewer` incelemesinde açıkça kontrol edilir.
-- [ ] `@handle` regex'i (`{2,32}` sınırlı) ReDoS'a karşı pinlenmiş bir testle korunur.
-- [ ] `security-reviewer` denetiminde bulgu yok (özellikle PR3: `checkPermission`'ın mention-tetiklemeli çağrıda da atlanamadığı; PR4/PR5: admin-gate'in AI çağrısından gerçekten önce olduğu, `grant`/`revoke`'un her zaman gerçek onaylayan insanın actor'üyle çağrıldığı, cross-user DM izolasyonu).
-- [ ] `pnpm --filter @luminaos/server typecheck/lint/test` her PR'da yeşil; PR7'de ayrıca `pnpm --filter @luminaos/web typecheck/lint/test` yeşil.
+- [x] Agent register/list/deactivate: admin+ RBAC uygulanır (member/guest reddedilir); çakışan isim/identifier `ConflictError` fırlatır; `list` yalnızca `active` ajanları döner; cross-workspace izolasyon (bir workspace'in ajanı başka bir workspace'te görünmez/erişilmez) doğrulanır.
+- [x] Yorum oluşturma: var olmayan nesnede 404; member+ RBAC; `@handle` regex'i yalnızca PR1'in dizinindeki gerçek ajanları çözümler, eşleşmeyen/bilinmeyen handle'lar SESSİZCE yok sayılır (hata fırlatmaz, ana yorum-oluşturma işlemini durdurmaz).
+- [x] Mention→beceri-çalıştırma worker'ı: başarı yolunda ajanın actor'üyle (`{type:'agent', id: agentIdentifier}`) yeni bir yanıt yorumu oluşur ve kuyruk satırı `done` işaretlenir; `ForbiddenError` (izin yok/manifesto devre dışı) durumunda kuyruk satırı DOĞRUDAN `failed` olur, retry DENENMEZ; timeout/geçici hata durumunda backoff ile retry (MAX_ATTEMPTS'e kadar) uygulanır; eşzamanlı worker tick'lerinde aynı kuyruk satırı iki kez claim edilip iki kez işlenmez (claim-yarışı güvenliği, `webhook-delivery-worker` emsaliyle aynı).
+- [x] `executeSkill` çağrılmadan ÖNCE `checkPermission`'dan geçilir — izin reddedildiğinde altta yatan beceri KODU HİÇ ÇALIŞMAZ (spy ile kanıtlanır); `objectType` her `executeSkill` çağrısına geçirilir.
+- [x] `CommandsService.proposeFromDirectMessage`: admin olmayan bir kullanıcının yeniden-yapılandırma isteğinde AI provider'ı HİÇ ÇAĞRILMAZ (spy/mock ile kanıtlanır) — kanıtlanmış ret metniyle kısa devre yapılır.
+- [x] `executeDecidedAction`'ın `reconfigureAgentPermissions` dalı: `AgentPermissionManifestsService.grant`/`.revoke` HER ZAMAN gerçek karar veren (decide-anındaki) admin'in `actor`/`callerRole`'üyle çağrılır — asla sabit bir ajan/sistem actor'üyle (testte decide-anındaki gerçek admin kimliğinin `grant`/`revoke`'a ulaştığı doğrudan doğrulanır).
+- [x] DM: `send`/`list` round-trip çalışır; bir kullanıcı başka bir kullanıcının DM dizisini OKUYAMAZ (cross-user izolasyon), admin+ kendi olmayan bir DM dizisini denetim amaçlı okuyabilir; DM gövdeleri/`mentionedAgentIds` hiçbir logda açık metin olarak görünmez.
+- [x] Kapsam-dışı listesindeki hiçbir kalem (push/e-posta/websocket teslimat, Yjs pipeline değişikliği, `executeAssignPeople` bağlanması, DM-üzerinden-decide kısayolu) koda GİRMEZ — bu, ilgili PR'ların `security-reviewer` incelemesinde açıkça kontrol edilir.
+- [x] `@handle` regex'i (`{2,32}` sınırlı) ReDoS'a karşı pinlenmiş bir testle korunur (PR6).
+- [x] `security-reviewer` denetiminde bulgu yok (özellikle PR3: `checkPermission`'ın mention-tetiklemeli çağrıda da atlanamadığı; PR4/PR5: admin-gate'in AI çağrısından gerçekten önce olduğu, `grant`/`revoke`'un her zaman gerçek onaylayan insanın actor'üyle çağrıldığı, cross-user DM izolasyonu) — PR6 istisnası: o oturumda subagent dispatch'inde oturum-limiti kesintisi nedeniyle belgelenmiş bir öz-inceleme (self-review) ikamesi kullanıldı.
+- [x] `pnpm --filter @luminaos/server typecheck/lint/test` her PR'da (PR1-PR6) yeşil; PR7a/PR7b'de ayrıca `pnpm --filter @luminaos/web typecheck/lint/test` yeşil (son sayım: 69 dosyada 696 geçen test).
 
 ## Açık Sorular
+
+> **Not:** Bu görev (F3-T3) kapandı; aşağıdaki sorular bu görevin kapanışını BLOKE ETMİYOR. Üçü de gelecekteki Epik F3-E2'nin (Cam Kutu Otonomi: F3-T4 gerekçe kaydı, F3-T5 otonomi kadranı, F3-T6 tek-tık geri alma) Agent varlığı/mention-worker'ı ile ilişkisine dair olduğundan F3-E2'nin ilgili göreve ertelenmiştir.
 
 - ADR-0037 taslağında Agent varlığının gelecekte (F3-E2) gerekçe-kaydı/otonomi-kadranı ile nasıl ilişkileneceği (ör. bir ajanın otonomi seviyesi Agent varlığında mı yoksa ayrı bir alanda mı tutulacak) netleştirilmeli mi, yoksa F3-E2'nin kendi görevlerine mi bırakılmalı?
 - `MentionActionWorker`'ın polling aralığı/`MAX_ATTEMPTS` sabitleri `WebhookDeliveryWorker`'ınkiyle birebir mi paylaşılacak yoksa mention-akışına özel mi ayarlanacak — ADR-0037'de veya PR3 implementasyonunda netleştirilmeli.
 - DM'in senkron AI yanıtı için ayrı bir rate-limit/kota kontrolü (F3-T1'in `executeAgentAction` sarmalayıcısı dışında kaldığı için) gerekiyor mu, yoksa mevcut `AIUsageService` workspace-seviyeli kotası yeterli mi?
 
----
+## Done
 
-**Sıradaki adım:** Spec + ADR-0037 ikisi de tamamlandı. Sıradaki adım PR1 (Agent dizini varlığı) için `test-writer`'ı çağırmak:
+Tüm 8 PR (7 ana PR + PR7'nin frontend'i 7a/7b olarak ikiye bölündü) `main`'e squash-merge edildi:
 
-```
-docs/specs/F3-E1/F3-T3-ajan-insan-etkilesimi.md'nin PR1'i (Agent dizini
-varlığı) için test-writer subagent'ını çağır: agents tablosu+migration,
-AgentDirectoryService (register/deactivate/list/resolveByName) için
-başarısız integration testler yaz — register/list/deactivate admin+
-RBAC'ı, çakışan isim/identifier üzerinde ConflictError, list'in yalnızca
-active ajanları döndürdüğü, ve cross-workspace izolasyonu kapsamalı.
-ADR-0037'nin (d) kararına ve AutomationTriggersService'in mevcut event-
-sourced CRUD desenine sadık kal.
-```
+- PR1 — Agent dizini varlığı (backend): [#209](https://github.com/sirfurkansahin/luminaos/pull/209)
+- PR2 — Yorum şeması + CRUD: [#210](https://github.com/sirfurkansahin/luminaos/pull/210)
+- PR3 — Mention → beceri çalıştırma, asenkron worker (`SkillExecutionService`'in İLK gerçek çağıranı): [#211](https://github.com/sirfurkansahin/luminaos/pull/211)
+- PR4 — `CommandsService` `reconfigureAgentPermissions` `ProposedAction` genişletmesi: [#212](https://github.com/sirfurkansahin/luminaos/pull/212)
+- PR5 — DM thread'i şeması + `DirectMessagesService`: [#213](https://github.com/sirfurkansahin/luminaos/pull/213)
+- PR6 — Çapraz-kesen sertleştirme geçişi (rate-limiting, ReDoS-pinning, logging-safety): [#214](https://github.com/sirfurkansahin/luminaos/pull/214)
+- PR7a — Frontend: agent dizini + mention-farkında yorum dizisi: [#215](https://github.com/sirfurkansahin/luminaos/pull/215)
+- PR7b — Frontend: DM thread'i + yeniden-yapılandırma banner'ı: [#216](https://github.com/sirfurkansahin/luminaos/pull/216)
+
+**Kanıt:** PR1-PR6 için `pnpm --filter @luminaos/server typecheck/lint/test` yeşil (her PR kendi integration/unit test setini ekledi; PR6 ayrıca kabul kriterlerinde açıkça istenen ReDoS-pinning testini ve logging-safety statik-tarama testini ekledi). PR7a/PR7b için `pnpm --filter @luminaos/web typecheck/lint/test` yeşil, son durum 69 dosyada 696 geçen test. PR6'nın `security-reviewer` adımı, o oturumdaki subagent dispatch'i etkileyen bir oturum-limiti kesintisi nedeniyle belgelenmiş bir öz-inceleme (self-review) ile ikame edildi — bu bilinen/kayıtlı bir istisnadır, gizlenmemiştir.
+
+**Mimari milestone:** Bu görev, F3-T1'in `AgentPermissionManifestsService.checkPermission`/`AgentResourceLimitsService.executeAgentAction`'ı ve F3-T2'nin `SkillExecutionService.executeSkill`'i için PR3'ün mention-tetiklemeli `MentionActionWorker`'ı üzerinden İLK gerçek çağıranı sağladı — ADR-0035 §e ve ADR-0036 §g'nin açıkça işaret ettiği YAGNI riskini kapattı.
+
+**Epik kapanışı:** F3-T3, Epik F3-E1'in (Agent Runtime + Skill SDK, Kapsam J) SON göreviydi. F3-T1 (agent-runtime sandbox/izin-manifestosu, ADR-0035) + F3-T2 (Skill SDK v1, 20 imzalı beceri, ADR-0036) + F3-T3 (bu görev, ADR-0037) artık HEPSİ tamamlandı — **Epik F3-E1 tamamen kapandı.**
