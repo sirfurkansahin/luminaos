@@ -1,3 +1,5 @@
+export * from './agent-action-record.js';
+export * from './agent-action-record-events.js';
 export * from './agent-permission-manifest.js';
 export * from './agent-permission-manifest-events.js';
 export * from './permission-manifest-commands.js';
