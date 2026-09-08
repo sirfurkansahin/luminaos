@@ -8,6 +8,8 @@ import { AgentDirectoryService } from './agent-directory.service.js';
 import { AgentPermissionManifestsController } from './agent-permission-manifests.controller.js';
 import { AgentPermissionManifestsService } from './agent-permission-manifests.service.js';
 import { AgentResourceLimitsService } from './agent-resource-limits.service.js';
+import { AutonomyTierSettingsController } from './autonomy-tier-settings.controller.js';
+import { AutonomyTierSettingsService } from './autonomy-tier-settings.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { env } from '../config/env.js';
 import { DbModule } from '../db/db.module.js';
@@ -34,12 +36,14 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentPermissionManifestsController,
     AgentDirectoryController,
     AgentActionRecordsController,
+    AutonomyTierSettingsController,
   ],
   providers: [
     AgentPermissionManifestsService,
     AgentResourceLimitsService,
     AgentDirectoryService,
     AgentActionRecordsService,
+    AutonomyTierSettingsService,
     {
       provide: AgentConcurrencyGuard,
       useFactory: () => new AgentConcurrencyGuard(env.agentSandboxMaxConcurrentPerAgent),
@@ -52,6 +56,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentResourceLimitsService,
     AgentDirectoryService,
     AgentActionRecordsService,
+    AutonomyTierSettingsService,
   ],
 })
 export class AgentRuntimeModule {}
