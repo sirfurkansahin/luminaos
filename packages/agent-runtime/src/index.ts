@@ -2,6 +2,8 @@ export * from './agent-action-record.js';
 export * from './agent-action-record-events.js';
 export * from './agent-permission-manifest.js';
 export * from './agent-permission-manifest-events.js';
+export * from './autonomy-tier.js';
+export * from './autonomy-tier-events.js';
 export * from './permission-manifest-commands.js';
 export * from './evaluate-manifest-grant.js';
 export * from './run-in-agent-sandbox.js';
