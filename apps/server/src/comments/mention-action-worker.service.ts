@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
-import type { AgentActionResult } from '@luminaos/agent-runtime';
+import { commentResource, objectResource } from '@luminaos/agent-runtime';
+import type { ActionResourceReference, AgentActionResult } from '@luminaos/agent-runtime';
 import { ForbiddenError, NotFoundError } from '@luminaos/shared';
 
 import { CommentsService } from './object-comments.service.js';
+import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { SkillExecutionService } from '../skills/skill-execution.service.js';
 
@@ -25,6 +27,16 @@ const FORBIDDEN_LAST_ERROR = 'Agent lacks permission or skill not registered';
 
 /** A sanitized, fixed error string for a `'timeout'` outcome -- pinned exactly by this task's spec. */
 const TIMEOUT_LAST_ERROR = 'Skill execution timed out';
+
+/**
+ * F3-T4 PR3 (ADR-0038 Karar d): FIXED template strings for every ledger
+ * record this worker writes -- NEVER the raw mention `body`/AI `answer`
+ * text, mirroring `FORBIDDEN_LAST_ERROR`/`TIMEOUT_LAST_ERROR`'s own
+ * never-log-user-content discipline.
+ */
+const AUTONOMOUS_MENTION_INTENT = "Bir yorumdaki @mention'a yanıt verildi";
+const AUTONOMOUS_MENTION_RATIONALE =
+  "Ajan, kendi izin manifestosu kapsamında bu nesnedeki bir mention'a otomatik yanıt verdi (ikinci bir insan onayı adımı yok, ADR-0037 Karar d).";
 
 // `type` (not `interface`) so this satisfies `db.execute<T>()`'s
 // `T extends Record<string, unknown>` constraint -- an `interface` here
@@ -72,6 +84,7 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
     @Inject(DATABASE_CONNECTION) private readonly db: Database,
     private readonly skillExecutionService: SkillExecutionService,
     private readonly commentsService: CommentsService,
+    private readonly agentActionRecordsService: AgentActionRecordsService,
   ) {}
 
   onModuleInit(): void {
@@ -118,6 +131,11 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
 
         const question = `Regarding "${row.title ?? ''}": ${row.body}`;
 
+        const contextResources: ActionResourceReference[] = [
+          objectResource(row.objectId),
+          commentResource(row.commentId),
+        ];
+
         let executionResult: AgentActionResult<{ answer: string }>;
         try {
           executionResult = await this.skillExecutionService.executeSkill<{ answer: string }>(
@@ -130,11 +148,23 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           if (error instanceof ForbiddenError || error instanceof NotFoundError) {
             await this.markFailedImmediately(row.id, row.attempts, FORBIDDEN_LAST_ERROR);
+            await this.recordTerminalFailure(
+              row.workspaceId,
+              row.agentIdentifier,
+              contextResources,
+            );
             continue;
           }
           // Any other thrown error is treated as transient -- same retry
           // path as `outcome: 'failure'`.
-          await this.retryOrFail(row.id, row.attempts, this.sanitizeError(error));
+          const terminal = await this.retryOrFail(row.id, row.attempts, this.sanitizeError(error));
+          if (terminal) {
+            await this.recordTerminalFailure(
+              row.workspaceId,
+              row.agentIdentifier,
+              contextResources,
+            );
+          }
           continue;
         }
 
@@ -150,12 +180,29 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
           } catch (error) {
             // No reply was ever posted -- safe to retry the whole pipeline
             // (re-running `executeSkill` cannot duplicate anything yet).
-            await this.retryOrFail(row.id, row.attempts, this.sanitizeError(error));
+            const terminal = await this.retryOrFail(
+              row.id,
+              row.attempts,
+              this.sanitizeError(error),
+            );
+            if (terminal) {
+              await this.recordTerminalFailure(
+                row.workspaceId,
+                row.agentIdentifier,
+                contextResources,
+              );
+            }
             continue;
           }
 
           try {
             await this.markDone(row.id, reply.id);
+            await this.recordSuccess(
+              row.workspaceId,
+              row.agentIdentifier,
+              contextResources,
+              reply.id,
+            );
           } catch (error) {
             // Security-review finding (F3-T3 PR3): the reply WAS already
             // posted here -- letting this row go back to `'pending'` would
@@ -168,21 +215,40 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
               error instanceof Error ? error.stack : undefined,
             );
             await this.markFailedAfterReply(row.id, row.attempts, reply.id);
+            // The reply comment genuinely exists (a real mutation happened) --
+            // recorded as `succeeded`, never `failed`, even though this
+            // row's OWN bookkeeping update failed (ADR-0038 §d).
+            await this.recordSuccess(
+              row.workspaceId,
+              row.agentIdentifier,
+              contextResources,
+              reply.id,
+            );
           }
           continue;
         }
 
         if (executionResult.outcome === 'timeout') {
-          await this.retryOrFail(row.id, row.attempts, TIMEOUT_LAST_ERROR);
+          const terminal = await this.retryOrFail(row.id, row.attempts, TIMEOUT_LAST_ERROR);
+          if (terminal) {
+            await this.recordTerminalFailure(
+              row.workspaceId,
+              row.agentIdentifier,
+              contextResources,
+            );
+          }
           continue;
         }
 
         // `outcome: 'failure'`.
-        await this.retryOrFail(
+        const terminal = await this.retryOrFail(
           row.id,
           row.attempts,
           this.resultErrorToString(executionResult.error),
         );
+        if (terminal) {
+          await this.recordTerminalFailure(row.workspaceId, row.agentIdentifier, contextResources);
+        }
       } catch (error) {
         // One row's failure must never abort the rest of the scan --
         // mirrors `WebhookDeliveryWorker.runOnce()`'s identical per-row
@@ -231,11 +297,19 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
     `);
   }
 
+  /**
+   * F3-T4 PR3: returns `true` when THIS call reached the terminal
+   * `'failed'` state (`newAttempts >= MAX_ATTEMPTS`), `false` when it merely
+   * scheduled a future retry (row stays `'pending'`) -- callers use this to
+   * decide whether a ledger record belongs to this call (only the FINAL
+   * outcome is ever recorded, never one record per retry attempt, per
+   * ADR-0038 §d/spec PR3 kabul kriteri).
+   */
   private async retryOrFail(
     rowId: string,
     currentAttempts: number,
     lastError: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const newAttempts = currentAttempts + 1;
 
     if (newAttempts < MAX_ATTEMPTS) {
@@ -246,12 +320,93 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
         SET status = 'pending', attempts = ${newAttempts}, next_attempt_at = ${nextAttemptAt}, last_error = ${lastError}
         WHERE id = ${rowId}
       `);
-    } else {
-      await this.db.execute(sql`
-        UPDATE mention_actions
-        SET status = 'failed', attempts = ${newAttempts}, last_error = ${lastError}
-        WHERE id = ${rowId}
-      `);
+      return false;
+    }
+
+    await this.db.execute(sql`
+      UPDATE mention_actions
+      SET status = 'failed', attempts = ${newAttempts}, last_error = ${lastError}
+      WHERE id = ${rowId}
+    `);
+    return true;
+  }
+
+  /**
+   * F3-T4 PR3 (ADR-0038 §d): writes the unified ledger entry for a
+   * successfully-answered mention -- `provenance:'autonomous'`, `actor` is
+   * the agent itself (never a human), `intent`/`rationale` are the FIXED
+   * template strings (never the raw question/body/answer text).
+   * `AgentActionRecordsService.record` is itself best-effort/never-throws --
+   * this method ALSO wraps the call in its own try/catch (defense in depth,
+   * mirrors `CommandsService.recordDecidedLedgerEntry`'s identical F3-T4 PR2
+   * precedent): a ledger write must never surface as (or be masked by)
+   * `runOnce()`'s own per-row error log, which would misattribute a ledger
+   * failure as a mention-processing failure even though the real mutation
+   * already succeeded.
+   */
+  private async recordSuccess(
+    workspaceId: string,
+    agentIdentifier: string,
+    resources: ActionResourceReference[],
+    replyCommentId: string,
+  ): Promise<void> {
+    try {
+      await this.agentActionRecordsService.record(workspaceId, {
+        provenance: 'autonomous',
+        actor: { type: 'agent', id: agentIdentifier },
+        actionType: 'answer-question',
+        intent: AUTONOMOUS_MENTION_INTENT,
+        rationale: AUTONOMOUS_MENTION_RATIONALE,
+        resources,
+        rollbackPlan: {
+          kind: 'delete',
+          targetResource: commentResource(replyCommentId),
+          description: 'Ajanın yanıt yorumunu sil.',
+        },
+        outcome: 'succeeded',
+        resultRef: commentResource(replyCommentId),
+        causationEventId: null,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Ledger record write failed for workspace ${workspaceId}, agent "${agentIdentifier}"; the mention reply itself is unaffected.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * F3-T4 PR3 (ADR-0038 §d): writes the unified ledger entry for a
+   * terminally-failed mention (permission denied, or retries exhausted) --
+   * never called for a merely-scheduled retry. Own try/catch, same
+   * defense-in-depth reasoning as `recordSuccess` above.
+   */
+  private async recordTerminalFailure(
+    workspaceId: string,
+    agentIdentifier: string,
+    resources: ActionResourceReference[],
+  ): Promise<void> {
+    try {
+      await this.agentActionRecordsService.record(workspaceId, {
+        provenance: 'autonomous',
+        actor: { type: 'agent', id: agentIdentifier },
+        actionType: 'answer-question',
+        intent: AUTONOMOUS_MENTION_INTENT,
+        rationale: AUTONOMOUS_MENTION_RATIONALE,
+        resources,
+        rollbackPlan: {
+          kind: 'none',
+          description: 'Ajan bu mention’a yanıt veremedi; hiçbir mutasyon oluşmadı.',
+        },
+        outcome: 'failed',
+        resultRef: null,
+        causationEventId: null,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Ledger record write failed for workspace ${workspaceId}, agent "${agentIdentifier}"; the mention_actions row's own terminal state is unaffected.`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 
