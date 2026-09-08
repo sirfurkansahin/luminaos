@@ -641,8 +641,18 @@ describe('F3-T4 PR3 (RED step): MentionActionWorker ledger wiring -- only the FI
     // real wall-clock backoff (no precedent for that anywhere in this
     // codebase; the sibling file's own equivalent scenario, test 8c,
     // presets `attempts` directly instead of ticking through real retries).
+    // A JS-side `Date` value is passed as a query PARAMETER (not SQL
+    // `now()`) so the exact millisecond-precision value written is what
+    // `runOnce()`'s own SELECT reads back and `claimRow`'s optimistic-
+    // concurrency equality check compares against -- `now()`'s own
+    // microsecond precision would round-trip through node-postgres's
+    // JS-`Date` (millisecond) representation and intermittently fail that
+    // equality check.
     async function forceRowDueNow(): Promise<void> {
-      await db.execute(sql`UPDATE mention_actions SET next_attempt_at = now() WHERE id = ${rowId}`);
+      const dueNow = new Date();
+      await db.execute(
+        sql`UPDATE mention_actions SET next_attempt_at = ${dueNow} WHERE id = ${rowId}`,
+      );
     }
 
     // Tick 1: attempts 0 -> 1, stays pending.
