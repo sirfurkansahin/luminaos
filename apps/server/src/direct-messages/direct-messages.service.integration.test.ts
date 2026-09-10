@@ -162,7 +162,26 @@ type CommandsServiceConstructor = new (
   projectionRunner: ProjectionRunner,
   aiUsageService: AIUsageServiceContract,
   aiProvider: AIProvider,
+  objectsService: unknown,
+  relationsService: unknown,
+  workspaceMembershipService: unknown,
+  agentPermissionManifestsService: unknown,
+  agentActionRecordsService: unknown,
+  autonomyTierSettingsService: AutonomyTierSettingsServiceContract,
+  commentsService: unknown,
 ) => CommandsServiceContract;
+
+/**
+ * A minimal, hand-written stub (F3-T5 PR2, ADR-0039) -- this file uses a
+ * lightweight, no-Nest-app harness, so there is no real DI container to pull
+ * a real `AutonomyTierSettingsService` out of. Always resolves to the
+ * fail-safe default `'propose'` tier -- this file never configures a
+ * non-default autonomy tier, so every `routeProposedActions` call here
+ * behaves exactly as before this PR.
+ */
+interface AutonomyTierSettingsServiceContract {
+  resolveTier(workspaceId: string, actionType: string): Promise<'propose'>;
+}
 
 interface AgentContract {
   id: string;
@@ -294,12 +313,22 @@ describe('F3-T3 PR5 (RED step): DirectMessagesService -- 1:1 user<->agent DM thr
     const commandsModule: unknown = await import('../commands/commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
       .CommandsService;
+    const autonomyTierSettingsService: AutonomyTierSettingsServiceContract = {
+      resolveTier: () => Promise.resolve('propose'),
+    };
     commandsService = new CommandsServiceCtor(
       db,
       eventStore,
       projectionRunner,
       aiUsageService,
       provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      autonomyTierSettingsService,
+      undefined,
     );
 
     const dmModule: unknown = await import('./direct-messages.service.js');

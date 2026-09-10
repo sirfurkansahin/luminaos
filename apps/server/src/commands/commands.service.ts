@@ -21,12 +21,14 @@ import type { Actor, NewDomainEvent } from '@luminaos/shared';
 import { ActionProposalProjection } from './action-proposal.projection.js';
 import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
 import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
+import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { AIUsageService } from '../ai/ai-usage.service.js';
 import { extractDirectMessageReconfiguration } from '../ai/extract-direct-message-reconfiguration.js';
 import { extractMeetingActions } from '../ai/extract-meeting-actions.js';
 import { parseCommand, proposedActionSchema } from '../ai/parse-command.js';
 import { selectAIModel } from '../ai/select-ai-model.js';
+import { CommentsService } from '../comments/object-comments.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { commandProposals } from '../db/schema/command-proposals.js';
 import { memberships } from '../db/schema/memberships.js';
@@ -286,11 +288,25 @@ const TRIGGER_ENGINE_ACTOR = { type: 'agent', id: 'trigger-engine' } as const;
  */
 const DM_RECONFIGURATION_ACTOR = { type: 'agent', id: 'dm-reconfiguration-parser' } as const;
 
+/**
+ * The always-and-only actor recorded for an autonomy-dial-driven autonomous
+ * execution (F3-T5 PR2, ADR-0039) — used both as the `decide()`-time
+ * `approverActor` for a batch of `'approve_and_act'`-tier actions and as the
+ * `executeDecidedAction`/`dispatchExecute`-time `actor` for a single
+ * `'act_and_notify'`-tier action executed without ever going through
+ * `decide()` at all. Reference equality against this exact singleton is how
+ * `recordDecidedLedgerEntry` distinguishes an autonomous execution from a
+ * real human `decide()` call — every autonomous-path caller passes this
+ * exact object, never a copy.
+ */
+const AUTONOMY_DIAL_ACTOR = { type: 'system', id: 'autonomy-dial' } as const;
+
 export interface CommandsServiceParseResult {
   proposalId: string;
   actions: ProposedAction[];
   parseError: boolean;
   message?: string;
+  autonomousResults?: DecideActionResult[];
 }
 
 /**
@@ -322,6 +338,8 @@ export class CommandsService {
     private readonly workspaceMembershipService: WorkspaceMembershipService,
     private readonly agentPermissionManifestsService: AgentPermissionManifestsService,
     private readonly agentActionRecordsService: AgentActionRecordsService,
+    private readonly autonomyTierSettingsService: AutonomyTierSettingsService,
+    private readonly commentsService: CommentsService,
   ) {}
 
   /**
@@ -367,7 +385,7 @@ export class CommandsService {
       },
     );
 
-    return this.recordProposal(
+    return this.routeProposedActions(
       workspaceId,
       COMMAND_PARSER_ACTOR,
       actions,
@@ -415,7 +433,7 @@ export class CommandsService {
       },
     );
 
-    return this.recordProposal(
+    return this.routeProposedActions(
       workspaceId,
       MEETING_ACTION_EXTRACTOR_ACTOR,
       actions,
@@ -455,7 +473,7 @@ export class CommandsService {
     sourceObjectId: string | undefined,
     actions: ProposedAction[],
   ): Promise<CommandsServiceParseResult> {
-    return this.recordProposal(
+    return this.routeProposedActions(
       workspaceId,
       TRIGGER_ENGINE_ACTOR,
       actions,
@@ -515,7 +533,7 @@ export class CommandsService {
       },
     );
 
-    return this.recordProposal(
+    return this.routeProposedActions(
       workspaceId,
       DM_RECONFIGURATION_ACTOR,
       actions,
@@ -598,6 +616,170 @@ export class CommandsService {
       actions,
       parseError,
       ...(message !== undefined ? { message } : {}),
+    };
+  }
+
+  /**
+   * `executeAutonomousAction` (F3-T5 PR2, ADR-0039): executes a single
+   * action directly, WITHOUT ever going through `decide()`/`ActionsDecided`
+   * — used for the `'act_and_notify'` tier, where the action itself never
+   * even lands in `command_proposals.actions` (`routeProposedActions` below
+   * filters it out of `remaining` before `recordProposal` is called at
+   * all). `causationEventId` is `null` (there is no `ActionsDecided` event
+   * to attribute this execution to). Always followed by a best-effort
+   * notification comment on `sourceObjectId` (if any).
+   */
+  private async executeAutonomousAction(
+    workspaceId: string,
+    action: DecidableAction,
+    sourceObjectId: string | undefined,
+  ): Promise<DecideActionResult> {
+    const result = await this.dispatchExecute(
+      workspaceId,
+      action,
+      AUTONOMY_DIAL_ACTOR,
+      'admin',
+      null,
+    );
+    await this.notifyAutonomousAction(workspaceId, action, sourceObjectId);
+    return result;
+  }
+
+  /**
+   * Best-effort "yap-bildir" notification comment for an `'act_and_notify'`
+   * autonomous execution (F3-T5 PR2, ADR-0039) — mirrors
+   * `MentionActionWorker`'s own never-throw try/catch discipline exactly: a
+   * notification failure must never affect the already-completed action's
+   * own result. Silently skipped (not an error) when there is no
+   * `sourceObjectId` to comment on at all (e.g. a scheduled trigger fire).
+   */
+  private async notifyAutonomousAction(
+    workspaceId: string,
+    action: DecidableAction,
+    sourceObjectId: string | undefined,
+  ): Promise<void> {
+    if (sourceObjectId === undefined) {
+      return;
+    }
+
+    try {
+      await this.commentsService.create(workspaceId, AUTONOMY_DIAL_ACTOR, 'member', {
+        objectId: sourceObjectId,
+        body: `Bu aksiyon otonomi kadranınızda "yap-bildir" olarak ayarlı olduğu için otomatik yürütüldü: ${action.intent}`,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Autonomous-action notification comment failed for workspace ${workspaceId}, action "${action.type}"; the action's own execution/ledger record is unaffected.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * `decideAsSystem` (F3-T5 PR2, ADR-0039): the `'approve_and_act'`-tier
+   * helper — auto-approves an entire remaining proposal batch (every action
+   * in it already confirmed to be `'approve_and_act'`-tier by
+   * `routeProposedActions` below) as the fixed `AUTONOMY_DIAL_ACTOR`,
+   * reusing the REAL `decide()` path (and therefore its REAL
+   * `ActionsDecided` event/ledger/webhook-enqueue mechanics) rather than
+   * duplicating any of it.
+   */
+  private async decideAsSystem(
+    workspaceId: string,
+    proposalId: string,
+    decisions: DecisionInput[],
+  ): Promise<{ results: DecideActionResult[] }> {
+    return this.decide(workspaceId, proposalId, AUTONOMY_DIAL_ACTOR, 'admin', decisions);
+  }
+
+  /**
+   * `routeProposedActions` (F3-T5 PR2, ADR-0039): the autonomy-dial routing
+   * layer sitting in front of `recordProposal` — every `propose*` method
+   * now calls this instead of `recordProposal` directly, with the EXACT
+   * SAME argument list. Resolves each action's own per-`(workspaceId,
+   * actionType)` tier (`AutonomyTierSettingsService.resolveTier`, fail-safe
+   * default `'propose'`) and partitions:
+   *
+   * - `'act_and_notify'` actions are executed immediately
+   *   (`executeAutonomousAction`) and NEVER appear in `remaining` — they
+   *   never reach `recordProposal`'s `actions[]` payload at all.
+   * - every other action (`'propose'` AND `'approve_and_act'`) goes into
+   *   `remaining`, which is ALWAYS passed to `recordProposal` (even when
+   *   empty) so a proposal row is always written, exactly as before this
+   *   PR.
+   * - ONLY if `remaining` is non-empty AND every one of its own tiers is
+   *   `'approve_and_act'` is the resulting proposal immediately
+   *   auto-decided (`decideAsSystem`) — a single `'propose'`-tier action
+   *   anywhere in the batch conservatively keeps the WHOLE remaining batch
+   *   pending (mixed-tier fallback, ADR-0039).
+   *
+   * `autonomousResults` is only ever present (never an empty array) on the
+   * returned `CommandsServiceParseResult` when at least one action was
+   * routed autonomously (either tier).
+   */
+  private async routeProposedActions(
+    workspaceId: string,
+    actor: Actor,
+    actions: ProposedAction[],
+    sourceObjectId: string | undefined,
+    command: string,
+    parseError: boolean,
+    message?: string,
+  ): Promise<CommandsServiceParseResult> {
+    const tiers = await Promise.all(
+      actions.map((action) =>
+        this.autonomyTierSettingsService.resolveTier(workspaceId, action.type),
+      ),
+    );
+
+    const actAndNotify: ProposedAction[] = [];
+    const remaining: ProposedAction[] = [];
+    const remainingTiers: Awaited<ReturnType<AutonomyTierSettingsService['resolveTier']>>[] = [];
+
+    actions.forEach((action, index) => {
+      if (tiers[index] === 'act_and_notify') {
+        actAndNotify.push(action);
+      } else {
+        remaining.push(action);
+        remainingTiers.push(
+          tiers[index] as Awaited<ReturnType<AutonomyTierSettingsService['resolveTier']>>,
+        );
+      }
+    });
+
+    const autonomousResults: DecideActionResult[] = [];
+    for (const action of actAndNotify) {
+      autonomousResults.push(
+        await this.executeAutonomousAction(workspaceId, action, sourceObjectId),
+      );
+    }
+
+    const proposalResult = await this.recordProposal(
+      workspaceId,
+      actor,
+      remaining,
+      sourceObjectId,
+      command,
+      parseError,
+      message,
+    );
+
+    if (remaining.length > 0 && remainingTiers.every((tier) => tier === 'approve_and_act')) {
+      const decisions: DecisionInput[] = remaining.map((action) => ({
+        actionId: action.actionId,
+        decision: 'approved' as const,
+      }));
+      const { results } = await this.decideAsSystem(
+        workspaceId,
+        proposalResult.proposalId,
+        decisions,
+      );
+      autonomousResults.push(...results);
+    }
+
+    return {
+      ...proposalResult,
+      ...(autonomousResults.length > 0 ? { autonomousResults } : {}),
     };
   }
 
@@ -798,6 +980,11 @@ export class CommandsService {
    * contract, and this is called from BOTH a try block's success path and
    * its own catch block, so an unguarded second failure here must not
    * escape and mask the first.
+   *
+   * F3-T5 PR2 (ADR-0039): `provenance` is `'autonomous'` (rather than
+   * `'decided'`) whenever `approverActor` IS (by reference equality) the
+   * fixed `AUTONOMY_DIAL_ACTOR` singleton — every autonomy-dial-driven
+   * execution passes that exact object, never a copy.
    */
   private async recordDecidedLedgerEntry(
     workspaceId: string,
@@ -813,7 +1000,7 @@ export class CommandsService {
   ): Promise<void> {
     try {
       await this.agentActionRecordsService.record(workspaceId, {
-        provenance: 'decided',
+        provenance: approverActor === AUTONOMY_DIAL_ACTOR ? 'autonomous' : 'decided',
         actor: approverActor,
         actionType: action.type,
         intent: action.intent,
@@ -853,36 +1040,43 @@ export class CommandsService {
     callerRole: Role,
     causationEventId: string,
   ): Promise<DecideActionResult> {
+    return this.dispatchExecute(workspaceId, action, approverActor, callerRole, causationEventId);
+  }
+
+  /**
+   * The actual per-`action.type` dispatch switch, extracted out of
+   * `executeDecidedAction` (F3-T5 PR2, ADR-0039) so `executeAutonomousAction`
+   * below can reuse it directly for the `'act_and_notify'` tier — that tier
+   * never goes through `decide()`/`ActionsDecided` at all, so it has no real
+   * `causationEventId` (widened to `string | null` here and on every
+   * `executeXxx` method it calls — `null` is passed straight through to
+   * `recordDecidedLedgerEntry`, which already accepts it).
+   */
+  private async dispatchExecute(
+    workspaceId: string,
+    action: DecidableAction,
+    actor: Actor,
+    callerRole: Role,
+    causationEventId: string | null,
+  ): Promise<DecideActionResult> {
     switch (action.type) {
       case 'createTask':
-        return this.executeCreateTask(
-          workspaceId,
-          action,
-          approverActor,
-          callerRole,
-          causationEventId,
-        );
+        return this.executeCreateTask(workspaceId, action, actor, callerRole, causationEventId);
       case 'generateSubtasks':
         return this.executeGenerateSubtasks(
           workspaceId,
           action,
-          approverActor,
+          actor,
           callerRole,
           causationEventId,
         );
       case 'assignPeople':
-        return this.executeAssignPeople(
-          workspaceId,
-          action,
-          approverActor,
-          callerRole,
-          causationEventId,
-        );
+        return this.executeAssignPeople(workspaceId, action, actor, callerRole, causationEventId);
       case 'createTaskFromMeeting':
         return this.executeCreateTaskFromMeeting(
           workspaceId,
           action,
-          approverActor,
+          actor,
           callerRole,
           causationEventId,
         );
@@ -890,7 +1084,7 @@ export class CommandsService {
         return this.executeCreateTaskFromTrigger(
           workspaceId,
           action,
-          approverActor,
+          actor,
           callerRole,
           causationEventId,
         );
@@ -898,7 +1092,7 @@ export class CommandsService {
         return this.executeReconfigureAgentPermissions(
           workspaceId,
           action,
-          approverActor,
+          actor,
           callerRole,
           causationEventId,
         );
@@ -910,7 +1104,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -919,7 +1113,7 @@ export class CommandsService {
       const created = await this.objectsService.create(
         workspaceId,
         approverActor,
-        { objectType: 'task', title, causationEventId },
+        { objectType: 'task', title, ...(causationEventId !== null ? { causationEventId } : {}) },
         callerRole,
       );
       await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
@@ -958,7 +1152,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -967,7 +1161,7 @@ export class CommandsService {
       const created = await this.objectsService.create(
         workspaceId,
         approverActor,
-        { objectType: 'task', title, causationEventId },
+        { objectType: 'task', title, ...(causationEventId !== null ? { causationEventId } : {}) },
         callerRole,
       );
       await this.recordDecidedLedgerEntry(workspaceId, action, approverActor, causationEventId, {
@@ -1014,7 +1208,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -1092,7 +1286,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -1122,14 +1316,14 @@ export class CommandsService {
         const created = await this.objectsService.create(
           workspaceId,
           approverActor,
-          { objectType: 'task', title, causationEventId },
+          { objectType: 'task', title, ...(causationEventId !== null ? { causationEventId } : {}) },
           callerRole,
         );
         await this.relationsService.create(workspaceId, approverActor, {
           fromId: parentObjectId,
           toId: created.id,
           kind: 'parentChild',
-          causationEventId,
+          ...(causationEventId !== null ? { causationEventId } : {}),
         });
         createdIds.push(created.id);
         createdCount += 1;
@@ -1192,7 +1386,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 
@@ -1201,7 +1395,7 @@ export class CommandsService {
       const created = await this.objectsService.create(
         workspaceId,
         approverActor,
-        { objectType: 'task', title, causationEventId },
+        { objectType: 'task', title, ...(causationEventId !== null ? { causationEventId } : {}) },
         callerRole,
       );
 
@@ -1410,7 +1604,7 @@ export class CommandsService {
     action: DecidableAction,
     approverActor: Actor,
     callerRole: Role,
-    causationEventId: string,
+    causationEventId: string | null,
   ): Promise<DecideActionResult> {
     const { actionId } = action;
 

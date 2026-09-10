@@ -209,10 +209,15 @@ interface CommandsServiceContract {
 }
 
 /** Same 9-arg constructor shape this PR's task description pins
- * (`agentPermissionManifestsService` added at the END, after the existing 8)
- * -- positions 6/7/8 (`objectsService`/`relationsService`/
- * `workspaceMembershipService`) are declared `unknown` and passed `undefined`
- * below, since this file's own action type never reaches them. */
+ * (`agentPermissionManifestsService` added at the END, after the existing 8),
+ * PLUS (F3-T5 PR2, ADR-0039) an 11th `autonomyTierSettingsService` and a 12th
+ * (and final) `commentsService` -- positions 6/7/8/10 (`objectsService`/
+ * `relationsService`/`workspaceMembershipService`/`agentActionRecordsService`)
+ * are declared `unknown` and passed `undefined` below, since this file's own
+ * action type never reaches them. `autonomyTierSettingsService` MUST be a
+ * real (stubbed) object, though: `routeProposedActions` (called from
+ * `proposeFromDirectMessage`, used below) reads it on EVERY call, even though
+ * this file never configures a non-default autonomy tier. */
 type CommandsServiceConstructor = new (
   db: Database,
   eventStore: EventStoreService,
@@ -223,7 +228,23 @@ type CommandsServiceConstructor = new (
   relationsService: unknown,
   workspaceMembershipService: unknown,
   agentPermissionManifestsService: AgentPermissionManifestsServiceContract,
+  agentActionRecordsService: unknown,
+  autonomyTierSettingsService: AutonomyTierSettingsServiceContract,
+  commentsService: unknown,
 ) => CommandsServiceContract;
+
+/**
+ * A minimal, hand-written stub -- NOT the real `AutonomyTierSettingsService`
+ * (this file uses a lightweight, no-Nest-app harness, unlike
+ * `./commands.service.ledger.integration.test.ts`'s full-`AppModule` one).
+ * Always resolves to the fail-safe default `'propose'` tier, mirroring
+ * `AutonomyTierSettingsService.resolveTier`'s own "no row exists" fallback --
+ * this file never configures a non-default autonomy tier, so every
+ * `routeProposedActions` call here behaves exactly as before this PR.
+ */
+interface AutonomyTierSettingsServiceContract {
+  resolveTier(workspaceId: string, actionType: string): Promise<'propose'>;
+}
 
 describe('CommandsService.executeReconfigureAgentPermissions() via decide() (F3-T3 PR4, real Postgres via Testcontainers)', () => {
   let container: StartedPostgreSqlContainer;
@@ -282,6 +303,10 @@ describe('CommandsService.executeReconfigureAgentPermissions() via decide() (F3-
 
     provider = new MockProvider(respond);
 
+    const autonomyTierSettingsService: AutonomyTierSettingsServiceContract = {
+      resolveTier: () => Promise.resolve('propose'),
+    };
+
     const commandsModule: unknown = await import('./commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
       .CommandsService;
@@ -295,6 +320,9 @@ describe('CommandsService.executeReconfigureAgentPermissions() via decide() (F3-
       undefined,
       undefined,
       agentPermissionManifestsService,
+      undefined,
+      autonomyTierSettingsService,
+      undefined,
     );
   }, 60_000);
 

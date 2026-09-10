@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { MockMeetingBotClient } from '@luminaos/integrations';
 import type { MeetingBotClient } from '@luminaos/integrations';
@@ -25,8 +25,19 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * `new MockMeetingBotClient()`. A real adapter (e.g. `RecallMeetingBotClient`)
  * lands as a later, isolated change to this factory only.
  */
+/**
+ * `CommandsModule` is imported via `forwardRef()` (F3-T5 PR2, ADR-0039): once
+ * `CommandsModule` started importing `CommentsModule` (for
+ * `CommandsService.notifyAutonomousAction`'s `CommentsService`), a genuine
+ * 4-module ES-import cycle opened up through this module too --
+ * `CommandsModule -> CommentsModule -> SkillsModule -> NotetakerModule ->
+ * CommandsModule` (`SkillsModule` imports both `NotetakerModule` and
+ * `CommandsModule`) -- verified by actually booting the full `AppModule`,
+ * which threw a `TDZ`/`undefined`-module error at this exact edge without
+ * this `forwardRef()`.
+ */
 @Module({
-  imports: [DbModule, AuthModule, ObjectsModule, CommandsModule],
+  imports: [DbModule, AuthModule, ObjectsModule, forwardRef(() => CommandsModule)],
   controllers: [
     MeetingInviteController,
     NotetakerWebhookController,

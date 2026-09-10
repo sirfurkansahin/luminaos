@@ -118,12 +118,22 @@ export class CommentsService {
 
     await this.requireObjectExists(workspaceId, input.objectId);
 
-    // Anti-recursion guard (F3-T3 PR3): an agent-authored comment's own
-    // mentions are NEVER resolved -- closes the ping-pong loop an agent's
-    // own `@mention`-containing reply could otherwise create via
-    // `MentionActionEnqueueProjection`/`MentionActionWorker`.
+    // Anti-recursion guard (F3-T3 PR3, widened F3-T5 PR2 security review):
+    // an agent- or system-authored comment's own mentions are NEVER
+    // resolved -- closes the ping-pong loop an agent's own
+    // `@mention`-containing reply could otherwise create via
+    // `MentionActionEnqueueProjection`/`MentionActionWorker`. `'system'` is
+    // included because `CommandsService.notifyAutonomousAction` posts
+    // comments embedding unconstrained AI-generated `action.intent` text
+    // under the fixed `AUTONOMY_DIAL_ACTOR` (`type: 'system'`) -- without
+    // this, an `intent` string that happens to contain a real agent's
+    // `@handle` would trigger an unsolicited skill execution purely from
+    // automated audit-note wording, never from human or agent-authored
+    // content.
     const mentionedAgentIds =
-      actor.type === 'agent' ? [] : await this.resolveMentions(workspaceId, input.body);
+      actor.type === 'agent' || actor.type === 'system'
+        ? []
+        : await this.resolveMentions(workspaceId, input.body);
 
     const commentId = ulid();
     const streamId = randomUUID();

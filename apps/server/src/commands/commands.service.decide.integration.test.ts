@@ -12,7 +12,9 @@ import type { Role } from '@luminaos/core-objects';
 import { ConflictError, NotFoundError, ValidationError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
+import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
+import { CommentsService } from '../comments/object-comments.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { runMigrations } from '../db/migrate.js';
 import { memberships } from '../db/schema/memberships.js';
@@ -173,6 +175,10 @@ type CommandsServiceConstructor = new (
   objectsService: ObjectsService,
   relationsService: RelationsService,
   workspaceMembershipService: WorkspaceMembershipService,
+  agentPermissionManifestsService: unknown,
+  agentActionRecordsService: unknown,
+  autonomyTierSettingsService: AutonomyTierSettingsService,
+  commentsService: CommentsService,
 ) => CommandsServiceContract;
 
 interface RawCommandProposalRow {
@@ -314,6 +320,15 @@ describe('CommandsService.decide() (F1-T16 PR5, real Postgres + real Redis via T
       .AIUsageService;
     aiUsageService = app.get<AIUsageService>(AIUsageServiceCtor);
 
+    // F3-T5 PR2 (ADR-0039): `CommandsService.routeProposedActions` (called
+    // from every `propose*` method, including `parse()` used below) reads
+    // both of these on every call -- real instances, pulled straight out of
+    // the real DI container. This file never configures a non-default
+    // autonomy tier, so `resolveTier`'s fail-safe `'propose'` default keeps
+    // every scenario here behaving exactly as before this PR.
+    const autonomyTierSettingsService = app.get(AutonomyTierSettingsService);
+    const commentsService = app.get(CommentsService);
+
     // Deliberately unresolvable until `implementer` extends
     // `./commands.service.ts` with `decide()` (and the 3 new constructor
     // params) -- see this file's header. The eslint-disable below only
@@ -335,6 +350,10 @@ describe('CommandsService.decide() (F1-T16 PR5, real Postgres + real Redis via T
       objectsService,
       relationsService,
       workspaceMembershipService,
+      undefined,
+      undefined,
+      autonomyTierSettingsService,
+      commentsService,
     );
   }, 60_000);
 

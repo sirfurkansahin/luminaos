@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { TriggerSuggestionsController } from './trigger-suggestions.controller.js';
 import { TriggerSuggestionsService } from './trigger-suggestions.service.js';
@@ -20,6 +20,14 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * already-exported `AutomationTriggersService`/`CommandsService` instances
  * with their own full dependency graphs, mirroring `AutomationModule`'s own
  * "import CommandsModule for CommandsService" precedent.
+ *
+ * `CommandsModule`/`AutomationModule` are BOTH imported via `forwardRef()`
+ * (F3-T5 PR2, ADR-0039) -- `CommandsModule`'s new `CommentsModule` import
+ * opened a cycle reaching back here TWICE: directly (`SkillsModule ->
+ * TriggerSuggestionsModule -> CommandsModule`) and via `AutomationModule`
+ * itself (`SkillsModule -> TriggerSuggestionsModule -> AutomationModule ->
+ * CommandsModule -> ... -> TriggerSuggestionsModule -> AutomationModule`,
+ * closing back on itself) -- both edges need deferred resolution.
  */
 @Module({
   imports: [
@@ -28,8 +36,8 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     EventStoreModule,
     AIProviderModule,
     AIUsageModule,
-    AutomationModule,
-    CommandsModule,
+    forwardRef(() => AutomationModule),
+    forwardRef(() => CommandsModule),
   ],
   controllers: [TriggerSuggestionsController],
   providers: [TriggerSuggestionsService, WorkspaceMembershipGuard, WorkspaceMembershipService],

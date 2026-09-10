@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { SkillRegistry } from '@luminaos/skill-sdk';
 
@@ -84,7 +84,7 @@ import { TriggerSuggestionsService } from '../trigger-suggestions/trigger-sugges
     SearchModule,
     CalendarModule,
     QAModule,
-    CommandsModule,
+    forwardRef(() => CommandsModule),
     TriggerSuggestionsModule,
   ],
   providers: [

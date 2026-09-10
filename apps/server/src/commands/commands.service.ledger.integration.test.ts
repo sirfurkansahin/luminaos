@@ -15,7 +15,9 @@ import type { Actor } from '@luminaos/shared';
 
 import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
 import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
+import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
+import { CommentsService } from '../comments/object-comments.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { runMigrations } from '../db/migrate.js';
 import { memberships } from '../db/schema/memberships.js';
@@ -175,12 +177,13 @@ interface CommandsServiceContract {
 }
 
 /** This PR's own pinned constructor shape: the CURRENT 9 args (the last of
- * which, `agentPermissionManifestsService`, F3-T3 PR4) PLUS a 10th and FINAL
- * `agentActionRecordsService` -- exactly the shape the task description
- * pins. See this file's header for why passing a 10th arg to a constructor
- * that doesn't declare it yet is still a safe, non-throwing JS call (the RED
- * signal here comes from runtime ledger assertions, not from this
- * construction step itself). */
+ * which, `agentPermissionManifestsService`, F3-T3 PR4) PLUS a 10th
+ * `agentActionRecordsService`, PLUS (F3-T5 PR2, ADR-0039) an 11th
+ * `autonomyTierSettingsService` and a 12th (and final) `commentsService` --
+ * `CommandsService.routeProposedActions` reads both of these on EVERY
+ * `propose*` call, so this file's own manual `new CommandsServiceCtor(...)`
+ * call must supply real instances (never `undefined`), even though none of
+ * this file's own scenarios configure a non-default autonomy tier. */
 type CommandsServiceConstructor = new (
   db: Database,
   eventStore: EventStoreService,
@@ -192,6 +195,8 @@ type CommandsServiceConstructor = new (
   workspaceMembershipService: WorkspaceMembershipService,
   agentPermissionManifestsService: AgentPermissionManifestsService,
   agentActionRecordsService: AgentActionRecordsService,
+  autonomyTierSettingsService: AutonomyTierSettingsService,
+  commentsService: CommentsService,
 ) => CommandsServiceContract;
 
 /** A field-for-field local copy of `AgentActionRecord`, mirroring
@@ -277,6 +282,8 @@ describe('CommandsService decide()-path ledger wiring (F3-T4 PR2, real Postgres 
   let aiProvider: AIProvider;
   let agentPermissionManifestsService: AgentPermissionManifestsService;
   let agentActionRecordsService: AgentActionRecordsService;
+  let autonomyTierSettingsService: AutonomyTierSettingsService;
+  let commentsService: CommentsService;
   let service: CommandsServiceContract;
 
   beforeAll(async () => {
@@ -336,6 +343,13 @@ describe('CommandsService decide()-path ledger wiring (F3-T4 PR2, real Postgres 
     // file's top (unlike `CommandsService` itself, these are never RED).
     agentPermissionManifestsService = app.get(AgentPermissionManifestsService);
     agentActionRecordsService = app.get(AgentActionRecordsService);
+    // F3-T5 PR2 (ADR-0039): also already-merged real instances, pulled
+    // straight out of the real DI container -- `CommandsService` never
+    // configures a non-default autonomy tier in this file's own scenarios,
+    // so `resolveTier`'s fail-safe `'propose'` default keeps every
+    // `routeProposedActions` call here behaving exactly as before this PR.
+    autonomyTierSettingsService = app.get(AutonomyTierSettingsService);
+    commentsService = app.get(CommentsService);
 
     const commandsModule: unknown = await import('./commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
@@ -351,6 +365,8 @@ describe('CommandsService decide()-path ledger wiring (F3-T4 PR2, real Postgres 
       workspaceMembershipService,
       agentPermissionManifestsService,
       agentActionRecordsService,
+      autonomyTierSettingsService,
+      commentsService,
     );
   }, 60_000);
 
