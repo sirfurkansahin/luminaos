@@ -10,7 +10,9 @@ import { newObjectId } from '@luminaos/core-objects';
 import type { Role } from '@luminaos/core-objects';
 import type { Actor } from '@luminaos/shared';
 
+import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
+import { CommentsService } from '../comments/object-comments.service.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';
 import { runMigrations } from '../db/migrate.js';
 import { memberships } from '../db/schema/memberships.js';
@@ -141,6 +143,10 @@ type CommandsServiceConstructor = new (
   objectsService: ObjectsService,
   relationsService: RelationsService,
   workspaceMembershipService: WorkspaceMembershipService,
+  agentPermissionManifestsService: unknown,
+  agentActionRecordsService: unknown,
+  autonomyTierSettingsService: AutonomyTierSettingsService,
+  commentsService: CommentsService,
 ) => CommandsServiceContract;
 
 interface FieldPermissionsBody {
@@ -255,6 +261,14 @@ describe('CommandsService.executeCreateTaskFromMeeting() via decide() (F2-T14 PR
       .AIUsageService;
     aiUsageService = app.get<AIUsageService>(AIUsageServiceCtor);
 
+    // F3-T5 PR2 (ADR-0039): `routeProposedActions` reads both of these on
+    // every `propose*`/`parse` call -- real instances, pulled straight out
+    // of the real DI container. This file never configures a non-default
+    // autonomy tier, so `resolveTier`'s fail-safe `'propose'` default keeps
+    // every scenario here behaving exactly as before this PR.
+    const autonomyTierSettingsService = app.get(AutonomyTierSettingsService);
+    const commentsService = app.get(CommentsService);
+
     const commandsModule: unknown = await import('./commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
       .CommandsService;
@@ -267,6 +281,10 @@ describe('CommandsService.executeCreateTaskFromMeeting() via decide() (F2-T14 PR
       objectsService,
       relationsService,
       workspaceMembershipService,
+      undefined,
+      undefined,
+      autonomyTierSettingsService,
+      commentsService,
     );
   }, 60_000);
 

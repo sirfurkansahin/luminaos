@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { CommandsController } from './commands.controller.js';
 import { CommandsService } from './commands.service.js';
@@ -6,6 +6,7 @@ import { AgentRuntimeModule } from '../agent-runtime/agent-runtime.module.js';
 import { AIProviderModule } from '../ai/ai-provider.module.js';
 import { AIUsageModule } from '../ai/ai-usage.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { CommentsModule } from '../comments/comments.module.js';
 import { DbModule } from '../db/db.module.js';
 import { EventStoreModule } from '../event-store/event-store.module.js';
 import { ObjectsModule } from '../objects/objects.module.js';
@@ -25,6 +26,13 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * `AgentRuntimeModule` (F3-T3 PR4, ADR-0037 §4) is imported so
  * `AgentPermissionManifestsService` resolves via DI for
  * `CommandsService.executeReconfigureAgentPermissions`.
+ *
+ * `CommentsModule` (F3-T5 PR2, ADR-0039) is imported so `CommentsService`
+ * resolves via DI for `CommandsService.notifyAutonomousAction` — wrapped in
+ * `forwardRef()` because it closes a genuine 3-module ES-import cycle:
+ * `CommandsModule -> CommentsModule -> SkillsModule -> CommandsModule`
+ * (`SkillsModule` already imports `CommandsModule` for `CommandsService`,
+ * wrapped in its own matching `forwardRef()`).
  */
 @Module({
   imports: [
@@ -36,6 +44,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     ObjectsModule,
     RelationsModule,
     AgentRuntimeModule,
+    forwardRef(() => CommentsModule),
   ],
   controllers: [CommandsController],
   providers: [CommandsService, WorkspaceMembershipGuard, WorkspaceMembershipService],
