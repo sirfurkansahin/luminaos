@@ -257,6 +257,23 @@ export class WorkspacesService {
       },
       ARTIFACT_OBJECT_TYPE,
     );
+
+    // F3-T8 PR2 ADDITION (ADR-0042 Karar b): a 5th Custom Field -- a
+    // JSON-serialized `QuerySpec` (`longText`, the same field type
+    // `htmlContent`/`generationPrompt` already use), populated only for
+    // `WidgetsService`-generated widget dashboards. Purely additive: NO
+    // migration, NO change to the 4 fields above.
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'querySpec',
+        label: 'Query Spec',
+        fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
   }
 
   /** Wraps a single `FieldDefinitionsService.define()` seed call with the

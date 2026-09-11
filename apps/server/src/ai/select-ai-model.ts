@@ -31,9 +31,16 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * generating structured artifact content from a free-form prompt is
  * open-ended generation, not a constrained-choice task, so it belongs on the
  * default/stronger model too.
+ *
+ * `'widgetQuery'` (F3-T8 PR2, `compileWidgetQuery`'s output, ADR-0042 Karar c)
+ * routes the same way as `'text'`/`'qa'`/`'command'`/`'triggerSuggestion'`/
+ * `'artifact'`: mapping a free-form natural-language request onto real field
+ * keys/operators is open-ended reasoning, not a constrained-choice task, so
+ * it belongs on the default/stronger model too.
  */
 export interface SelectAIModelInput {
-  outputType: 'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion' | 'artifact';
+  outputType:
+    'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion' | 'artifact' | 'widgetQuery';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {

@@ -147,4 +147,35 @@ describe('selectAIModel', () => {
 
     expect(model).toBe(CLAUDE_SONNET_5);
   });
+
+  // F3-T8 PR2 (RED step, ADR-0042 Karar c) — widen
+  // `SelectAIModelInput['outputType']` to also accept `'widgetQuery'` (the
+  // new `compileWidgetQuery` orchestration's output type,
+  // `../artifacts/compile-widget-query.ts`), routed to the SAME branch as
+  // `'text'`/`'qa'`/`'command'`/`'triggerSuggestion'`/`'artifact'`: mapping a
+  // free-form natural-language request onto real field keys/operators is
+  // open-ended reasoning, not a constrained-choice task, so it belongs on the
+  // default/stronger model (`CLAUDE_SONNET_5`). This requires ZERO
+  // branching-logic change to `selectAIModel` itself --
+  // `outputType !== 'select'` already falls through to `CLAUDE_SONNET_5` --
+  // only the type union needs widening to `'text' | 'select' | 'qa' |
+  // 'command' | 'triggerSuggestion' | 'artifact' | 'widgetQuery'`.
+  it("outputType: 'widgetQuery' routes to CLAUDE_SONNET_5 (compiling a natural-language request into a QuerySpec is open-ended reasoning, like 'text'/'qa'/'command'/'triggerSuggestion'/'artifact' -- not a constrained-choice task)", () => {
+    // NOTE (intentional RED, not a typo): on `main`,
+    // `SelectAIModelInput['outputType']` does not include `'widgetQuery'`
+    // yet, so the object literal below (`{ outputType: 'widgetQuery' }`) is a
+    // TypeScript compile error -- "Argument of type '{ outputType:
+    // "widgetQuery"; }' is not assignable to parameter of type
+    // 'SelectAIModelInput'" -- until `implementer` widens the union. As
+    // established above, this repo's vitest config (`apps/server/vitest.config.ts`)
+    // transforms tests via `unplugin-swc`, which strips types WITHOUT
+    // type-checking them, so `pnpm --filter server test` alone will NOT
+    // surface this failure -- only `pnpm typecheck` (`tsc`) will. Per
+    // CLAUDE.md's Definition of Done, both `pnpm typecheck` and
+    // `pnpm test:changed` must be green before this task is done, so this
+    // compile error is a real, required RED signal, not a false negative.
+    const model = selectAIModel({ outputType: 'widgetQuery' });
+
+    expect(model).toBe(CLAUDE_SONNET_5);
+  });
 });
