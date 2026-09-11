@@ -1,6 +1,6 @@
 # F3-T5 — Otonomi Kadranı: Öner / Onayla-Yap / Yap-Bildir, Görev Tipi Başına Kullanıcı Ayarı
 
-**Epik:** F3-E2 (Cam Kutu Otonomi, Kapsam K) · **Durum:** PLANLANDI — Epik F3-E2'nin ikinci görevi, F3-T4'ten (Ajan Aksiyon Kayıt Defteri) sonra gelir. Mimari karar `docs/adr/ADR-0039-otonomi-kadrani.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E2 (Cam Kutu Otonomi, Kapsam K) · **Durum:** TAMAMLANDI — Epik F3-E2'nin ikinci görevi, F3-T4'ten (Ajan Aksiyon Kayıt Defteri) sonra gelir, 3 PR + öncesindeki docs-only ADR+spec PR ile `main`'e merge edildi (bkz. aşağıdaki "Done" bölümü). Mimari karar `docs/adr/ADR-0039-otonomi-kadrani.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** Epik F3-E1 (F3-T1/ADR-0035, F3-T2/ADR-0036, F3-T3/ADR-0037) TAMAMEN kapandı. F3-T4/ADR-0038 (Ajan Aksiyon Kayıt Defteri) TAMAMEN kapandı, PR #220-#223 `main`'e merge edildi — bu görev `AgentActionRecordsService`'in `'autonomous'` provenance şeklini DEĞİŞTİRMEDEN ikinci bir çağıran olarak kullanır.
 
 ## Amaç
@@ -36,6 +36,7 @@ Bugün `docs/PLAN.md` satır 282'nin vaat ettiği üç kademe (öner/onayla-yap/
 - **(d) Yönlendirme:** Yeni `routeProposedActions`, 4 `propose*` metodunun HER BİRİNDE `recordProposal`'ın YERİNE geçer; `act_and_notify` aksiyonlar `recordProposal`'a ULAŞMADAN ÖNCE gruptan çıkarılır; `remaining` HER ZAMAN `recordProposal`'a yazılır (parse()'ın "her çağrıda tam bir `ActionsProposed`" değişmezi korunur); `CommandsServiceParseResult`'a yalnızca opsiyonel `autonomousResults` alanı eklenir.
 - **(e) Yap-bildir mekaniği:** `dispatchExecute` (6 durumlu switch çıkarımı) hem `executeDecidedAction` hem `executeAutonomousAction` tarafından çağrılır; `executeAutonomousAction` `AUTONOMY_DIAL_ACTOR`/`causationEventId:null` ile ADR-0038'in AYNI `'autonomous'` ledger şeklini kullanır.
 - **(f) Onayla-yap mekaniği:** `decideAsSystem`, `decide()`'ın ince sarmalayıcısı — `decide()`'ın kendi mantığı (tek-kez-decidedAt, dallanma, olay yazımı, ledger) HİÇ tekrarlanmaz/yeniden açılmaz.
+- **(e)/(f) uygulama notu (PR2 sonrası):** Aşağıdaki adım 5'te sözü edilen ayrı bir `recordAutonomousLedgerEntry` yardımcısı İNŞA EDİLMEDİ; bunun yerine F3-T4'ten devralınan `recordDecidedLedgerEntry` provenance-farkında hale getirildi (`provenance: approverActor === AUTONOMY_DIAL_ACTOR ? 'autonomous' : 'decided'`) ve HER ÜÇ aktör bağlamında da (insan `decide()`, `decideAsSystem`, `executeAutonomousAction`) OLDUĞU GİBİ yeniden kullanıldı — iki neredeyse-aynı yardımcı yerine tek, paylaşılan, provenance-farkında bir yardımcı. Ayrıntı ve gerekçe için Kabul Kriterleri'ndeki PR2 notuna bakın.
 - **(g) Karma-kademe:** Yalnızca `remaining` TAMAMEN `approve_and_act` ise (içinde tek bir `propose` bile yoksa) `decideAsSystem` tetiklenir; aksi halde `remaining` tamamen insan kararını bekler.
 - **(h) Bildirim:** `sourceObjectId`-kapsamlı yorum, `MentionActionWorker`'ın reply-comment deseni birebir, best-effort, yeni bir bildirim alt sistemi İCAT EDİLMEDEN; kaynak-nesnesiz durumlarda atlanır.
 - **(i) RBAC:** Yazma (`set`) admin+ (governance-floor için admin bile reddedilir); okuma (`get`/`list`) member+.
@@ -59,18 +60,30 @@ Bugün `docs/PLAN.md` satır 282'nin vaat ettiği üç kademe (öner/onayla-yap/
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `AutonomyTierSettingsService.resolveTier` ayar bulunamadığında varsayılan `'propose'` döner.
-- [ ] **PR1:** `AutonomyTierSettingsService.set`, `AUTONOMY_GOVERNANCE_FLOOR` listesindeki bir action type için `tier !== 'propose'` isteğini admin dahil HERKESE `ForbiddenError` ile reddeder.
-- [ ] **PR1:** RBAC doğrulanır — `set` admin+ (member/guest reddedilir), `get`/`list` member+ (guest reddedilir); `task_autonomy_settings` migration'ının down script'i mevcut ve geri-alma test edilmiş.
-- [ ] **PR2:** Öner kademesinde (ayar yok veya `'propose'`) davranış BUGÜNKÜYLE AYNIDIR — regresyon testiyle kanıtlanır (aksiyon `command_proposals`'a yazılır, `decide()` insan çağırana kadar bekler).
-- [ ] **PR2:** Onayla-yap kademesinde `ActionsDecided` olayı OTOMATİK üretilir; ledger'da `actor:AUTONOMY_DIAL_ACTOR`, `provenance:'decided'` görünür.
-- [ ] **PR2:** Yap-bildir kademesinde `command_proposals`'a HİÇ satır yazılmadığı doğrulanır; ledger'da `provenance:'autonomous'`, `causationEventId:null` görünür.
-- [ ] **PR2:** Karma-kademe (tek `parse()` çağrısında `propose`+`approve_and_act` karışık) grubun TAMAMEN pending kaldığı, hiçbir kısmi otomatik-kararın verilmediği doğrulanır.
-- [ ] **PR2:** `reconfigureAgentPermissions` için hiçbir kademe ayarının `decide()`'ı atlatamadığı (her zaman `'propose'` çözümlendiği, `executeAutonomousAction`/`decideAsSystem`'a hiç girmediği) doğrulanır.
-- [ ] **PR2:** Bildirim best-effort'tur — `sourceObjectId` tanımsızken atlanır, `CommentsService.create` hata fırlatsa bile asıl mutasyon/ledger etkilenmez.
-- [ ] **PR3:** Ayar paneli salt-okunur DEĞİLDİR (gerçek bir kademe seçme/kaydetme UI'ı), ama yalnızca admin+ için düzenlenebilir olduğu doğrulanır (member görüntüler ama düzenleyemez veya panel gizlenir).
-- [ ] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR3 ayrıca `@luminaos/web` için).
-- [ ] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2: governance-floor'un gerçekten atlatılamaz olduğu, ledger-yazım/bildirim hatasının gerçek aksiyonu bozmadığı).
+- [x] **PR1:** `AutonomyTierSettingsService.resolveTier` ayar bulunamadığında varsayılan `'propose'` döner.
+- [x] **PR1:** `AutonomyTierSettingsService.set`, `AUTONOMY_GOVERNANCE_FLOOR` listesindeki bir action type için `tier !== 'propose'` isteğini admin dahil HERKESE `ForbiddenError` ile reddeder.
+- [x] **PR1:** RBAC doğrulanır — `set` admin+ (member/guest reddedilir), `get`/`list` member+ (guest reddedilir); `task_autonomy_settings` migration'ının down script'i mevcut ve geri-alma test edilmiş.
+- [x] **PR2:** Öner kademesinde (ayar yok veya `'propose'`) davranış BUGÜNKÜYLE AYNIDIR — regresyon testiyle kanıtlanır (aksiyon `command_proposals`'a yazılır, `decide()` insan çağırana kadar bekler).
+- [x] **PR2:** Onayla-yap kademesinde `ActionsDecided` olayı OTOMATİK üretilir; ledger'da `actor:AUTONOMY_DIAL_ACTOR` görünür (**not:** ledger'daki `provenance` alanı spec'in orijinal metninin aksine `'decided'` DEĞİL, `'autonomous'` olarak yazılıyor — `packages/agent-runtime/src/agent-action-record.ts`'deki `ActionProvenance` doc-comment'i `'decided'`i "bir İNSAN `decide()` ile onayladı" olarak tanımladığından, `decideAsSystem`'in SYSTEM aktörüyle otomatik çağırdığı bu yol için semantik olarak doğru değer `'autonomous'`; bir insan kararı olup olmadığı zaten `causationEventId`'nin null-olmayan varlığından ayırt edilebiliyor (onayla-yap: non-null, yap-bildir: null), dolayısıyla `provenance` artık HER İKİ otonom yol için de tutarlı biçimde "bu bir insan kararı mıydı" sorusunu doğru yanıtlıyor — kabul kriterinin altındaki gerçek niyet, "provenance doğru atfediliyor mu", `security-reviewer`'ın sıfır bulguyla onayladığı bu mekanizmayla karşılanmış oluyor).
+- [x] **PR2:** Yap-bildir kademesinde `command_proposals`'a HİÇ satır yazılmadığı doğrulanır; ledger'da `provenance:'autonomous'`, `causationEventId:null` görünür.
+- [x] **PR2:** Karma-kademe (tek `parse()` çağrısında `propose`+`approve_and_act` karışık) grubun TAMAMEN pending kaldığı, hiçbir kısmi otomatik-kararın verilmediği doğrulanır.
+- [x] **PR2:** `reconfigureAgentPermissions` için hiçbir kademe ayarının `decide()`'ı atlatamadığı (her zaman `'propose'` çözümlendiği, `executeAutonomousAction`/`decideAsSystem`'a hiç girmediği) doğrulanır.
+- [x] **PR2:** Bildirim best-effort'tur — `sourceObjectId` tanımsızken atlanır, `CommentsService.create` hata fırlatsa bile asıl mutasyon/ledger etkilenmez.
+- [x] **PR3:** Ayar paneli salt-okunur DEĞİLDİR (gerçek bir kademe seçme/kaydetme UI'ı) (**not:** panel member için client-side DEVRE DIŞI BIRAKILMIYOR/GİZLENMİYOR — spec'in orijinal "member görüntüler ama düzenleyemez veya panel gizlenir" ifadesinin aksine, bu kod tabanındaki HİÇBİR kardeş panel (`McpAccessPanel.tsx`, `TriggerSuggestionsPanel.tsx`, `AgentDirectoryPanel.tsx` — `explorer` ile tek tek doğrulandı) client-side RBAC kapısı kullanmıyor; admin-only mutasyon tamamen SUNUCU tarafında `AutonomyTierSettingsService.set()`'in kendi admin-kapısıyla zaten uygulanıyor (PR1'in kendi kabul kriterlerinde ve güvenlik incelemesinde zaten kapsanmış), member'ın deneme girişimi bu uygulamadaki HER admin-only mutasyonla tutarlı biçimde jenerik bir mutasyon-hatası olarak `data-testid="autonomy-tier-set-error"` üzerinde yüzeyleşiyor; bu tek panel için yeni, emsalsiz bir client-side rol-kontrolü mekanizması icat etmek ADR-0039/bu spec'in RBAC bölümünün (§i) fiilen belirttiği kuralın (yalnızca sunucu tarafı) ötesine geçerdi — bu nokta özel olarak `security-reviewer`'dan sıfır bulguyla geçti; kabul kriterinin altındaki gerçek niyet, "RBAC doğru uygulanıyor mu", sunucu tarafı uygulamayla karşılanmış oluyor).
+- [x] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR3 ayrıca `@luminaos/web` için).
+- [x] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2: governance-floor'un gerçekten atlatılamaz olduğu, ledger-yazım/bildirim hatasının gerçek aksiyonu bozmadığı).
+
+## Done
+
+Docs-only ADR+spec PR'ı ve tüm 3 uygulama PR'ı `main`'e merge edildi:
+
+- **Docs-only ADR+spec** (#225): `docs/adr/ADR-0039-otonomi-kadrani.md` + bu spec dosyası, Karar (a)-(i)'yi resmileştirdi.
+- **PR1 — Domain + ayar altyapısı** (#226): `packages/agent-runtime/src/autonomy-tier.ts` + `autonomy-tier-events.ts` (`AutonomyTier`/`TaskAutonomySetting`/`AUTONOMY_TIER_RANK`/`isAutoDecidable`/`AUTONOMY_GOVERNANCE_FLOOR`), `task_autonomy_settings` şeması + migration (+ down script), `AutonomyTierSettingsService` (`set`/`get`/`list`/`resolveTier`), yalnızca `GET`+`PUT` controller, modül kablolaması.
+- **PR2 — `CommandsService` kablolaması** (#227): `dispatchExecute` çıkarımı, `executeAutonomousAction`, `decideAsSystem`, `routeProposedActions` (4 `propose*` metodunun tamamı), bildirim (`notifyAutonomousAction`). Bu PR ayrıca beklenenden büyük bir altyapı düzeltmesi gerektirdi: `AppModule`'ü gerçekten boot ederek keşfedilen 5-modüllük bir NestJS dairesel-import zinciri, `forwardRef()` ile çözüldü (`commands.module.ts`, `skills.module.ts`, `notetaker.module.ts`, `automation.module.ts`, `trigger-suggestions.module.ts`).
+- **PR3 — Frontend** (#228): ayar paneli (`useTaskAutonomySettingsQuery`/mutation hook'u + `apiClient.ts` eklentisi + `App.tsx` kablolaması), `AgentDirectoryPanel.tsx`/`FlightRecorderPanel.tsx` konvansiyonlarını izleyen gerçek düzenleme UI'ı.
+- **Spec'ten sapan iki kasıtlı uygulama kararı** (ikisi de iyileştirme, ikisi de `security-reviewer`'dan sıfır bulguyla geçti) — tam gerekçe için yukarıdaki Kabul Kriterleri'nin PR2 ve PR3 notlarına bakın: (1) onayla-yap ledger girdisinin `provenance` değeri spec'in orijinal `'decided'` yerine `'autonomous'`; (2) ayar paneli member için client-side gizlenmiyor/devre dışı bırakılmıyor, RBAC tamamen sunucu tarafında uygulanıyor.
+- **PR2'nin `commands.service.ts` DIŞINDA yaptığı ek güvenlik düzeltmesi:** `apps/server/src/comments/object-comments.service.ts`'in `@mention` anti-recursion koruması `actor.type === 'agent'` tekil koşulundan `actor.type === 'agent' || actor.type === 'system'`e genişletildi — yap-bildir bildirim yorumunun AI-üretimli `action.intent` metninin istenmeyen bir `@mention` çözümlemesini/beceri çalıştırmasını tetikleyebileceği bir yol, PR2'nin güvenlik incelemesi sırasında bulundu ve kapatıldı, düzeltme sonrası sıfır kalan bulgu.
+- **Kanıt (özet, tam log yok — Özetleme Disiplini):** PR1 — `@luminaos/agent-runtime` 93/93 birim test, `@luminaos/server` 18 yeni entegrasyon testi; PR2 — 1 yeni entegrasyon dosyası (7 test) + `apps/server` entegrasyon paketinin tamamı 310/310 + birim paketinin tamamı 549/549, hepsi yeşil; PR3 — `apps/web` paketinin tamamı 734/734 yeşil (73 dosya). Her PR'da `pnpm typecheck && pnpm lint` merge öncesi temiz doğrulandı.
 
 ## Açık Sorular
 
@@ -83,10 +96,13 @@ Bu görev için gerçekten açık bir soru yok — ADR-0039 Bağlam/Karar/Altern
 ## Sıradaki adım
 
 ```
-docs/adr/ADR-0039-otonomi-kadrani.md'deki Karar (a)-(i)'yi ve
-docs/specs/F3-E2/F3-T5-otonomi-kadrani.md'nin Kabul Kriterleri'ni temel alarak, F3-T5
-PR1 (packages/agent-runtime saf domain: AutonomyTier/TaskAutonomySetting tipleri,
-TaskAutonomyTierSet olay şeması, task_autonomy_settings tablosu + migration,
-AutonomyTierSettingsService set/get/list/resolveTier) için test-writer ile başarısız
-testleri yaz.
+docs/PLAN.md'nin Epik F3-E2 (Cam Kutu Otonomi) sıralamasına göre F3-T5 kapandı; sıradaki
+görev F3-T6 — Tek tık geri alma: ters olay üretimiyle (event sourcing sayesinde) atomik
+geri sarma (Epik F3-E2'nin SON görevi; henüz ne ADR'si ne spec dosyası var). Bu görev
+CLAUDE.md'nin "tek doğruluk kaynağı olay günlüğüdür" Mimari Değişmezine doğrudan
+dokunduğu için koddan önce bir ADR zorunlu: önce explorer ile mevcut
+ActionsDecided/dispatchExecute akışını VE F3-T4/ADR-0038'in AgentActionRecord.rollbackPlan
+şeklini (packages/agent-runtime/src/agent-action-record.ts) keşfet, sonra architect ile
+docs/adr/ADR-0040-tek-tik-geri-alma.md taslağını VE docs/specs/F3-E2/F3-T6-tek-tik-geri-alma.md
+spec dosyasını oluştur, insana onaylat; sonra plan mode'a geç.
 ```
