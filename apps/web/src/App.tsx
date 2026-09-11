@@ -13,6 +13,7 @@ import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
 import { AgentDirectoryPanel } from './views/shared/AgentDirectoryPanel';
 import { AutomationHistoryPanel } from './views/shared/AutomationHistoryPanel';
+import { AutonomyTierPanel } from './views/shared/AutonomyTierPanel';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
@@ -119,6 +120,7 @@ export function App() {
       <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
       <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
+      <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
