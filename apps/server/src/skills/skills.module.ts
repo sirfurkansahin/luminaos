@@ -74,10 +74,19 @@ import { TriggerSuggestionsService } from '../trigger-suggestions/trigger-sugges
  * it is not possible today. A real key-management workflow (the canonical
  * public key's matching private key held securely by a release/CI process)
  * is a follow-up concern, not fixed in this PR.
+ *
+ * `AgentRuntimeModule` is wrapped in `forwardRef()` (F3-T6 PR2, ADR-0040
+ * Karar g): `AgentRuntimeModule` now imports `CommandsModule` (for
+ * `AgentActionRecordsController.undo`), and `CommandsModule` transitively
+ * imports `CommentsModule` -> `SkillsModule` -> back to `AgentRuntimeModule`
+ * here. Since `AgentRuntimeModule` is `app.module.ts`'s very first static
+ * import, its own module body starts this whole cascade before its own class
+ * binding is assigned -- without `forwardRef()` here, this file's `@Module`
+ * decorator would see `AgentRuntimeModule` as `undefined` at that point.
  */
 @Module({
   imports: [
-    AgentRuntimeModule,
+    forwardRef(() => AgentRuntimeModule),
     ObjectsModule,
     NotetakerModule,
     ContextModule,
