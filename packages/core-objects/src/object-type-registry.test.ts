@@ -55,6 +55,17 @@ describe('isKnownObjectType', () => {
   it('accepts "meeting"', () => {
     expect(isKnownObjectType('meeting')).toBe(true);
   });
+
+  /**
+   * F3-T7 PR2 (RED step) — `artifact` object type registration (ADR-0041
+   * Karar b). `'artifact'` is not yet a member of
+   * `ObjectType`/`objectTypeRegistry` in `./object-type-registry.ts`, so this
+   * assertion is expected to fail (not a TS compile error here since
+   * `isKnownObjectType` accepts `string`).
+   */
+  it('accepts "artifact"', () => {
+    expect(isKnownObjectType('artifact')).toBe(true);
+  });
 });
 
 describe('requiresTitle', () => {
@@ -96,6 +107,21 @@ describe('requiresTitle', () => {
    */
   it('requires a title for "meeting"', () => {
     expect(requiresTitle('meeting')).toBe(true);
+  });
+
+  /**
+   * F3-T7 PR2 (RED step, ADR-0041 Karar b) — an artifact's title is a
+   * meaningful, human/AI-supplied identifier (the SAME rule as `task`/
+   * `meeting`, NOT `doc`/`note`/`timeblock`'s `false`) — `ArtifactsService
+   * .generate` derives it from the user's own prompt. `'artifact'` does not
+   * exist as an `ObjectType` member yet, so this line is expected to fail
+   * TypeScript compilation ("Argument of type '"artifact"' is not
+   * assignable to parameter of type 'ObjectType'") until `implementer` adds
+   * it to `./lumina-object.ts`'s `ObjectType` union and to
+   * `./object-type-registry.ts`'s registry.
+   */
+  it('requires a title for "artifact"', () => {
+    expect(requiresTitle('artifact')).toBe(true);
   });
 });
 

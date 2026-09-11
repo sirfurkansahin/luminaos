@@ -25,9 +25,15 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * generating candidate trigger templates from a usage-pattern summary is
  * open-ended reasoning, not a constrained-choice task, so it belongs on the
  * default/stronger model too.
+ *
+ * `'artifact'` (F3-T7 PR2, `generateArtifact`'s output, ADR-0041 Karar c)
+ * routes the same way as `'text'`/`'qa'`/`'command'`/`'triggerSuggestion'`:
+ * generating structured artifact content from a free-form prompt is
+ * open-ended generation, not a constrained-choice task, so it belongs on the
+ * default/stronger model too.
  */
 export interface SelectAIModelInput {
-  outputType: 'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion';
+  outputType: 'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion' | 'artifact';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {

@@ -111,6 +111,9 @@ importers:
       '@luminaos/ai-gateway':
         specifier: workspace:*
         version: link:../../packages/ai-gateway
+      '@luminaos/artifacts':
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       '@luminaos/automation':
         specifier: workspace:*
         version: link:../../packages/automation

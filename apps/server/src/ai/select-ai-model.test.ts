@@ -117,4 +117,34 @@ describe('selectAIModel', () => {
 
     expect(model).toBe(CLAUDE_SONNET_5);
   });
+
+  // F3-T7 PR2 (RED step, ADR-0041 Karar c) — widen
+  // `SelectAIModelInput['outputType']` to also accept `'artifact'` (the new
+  // `generateArtifact` orchestration's output type, `../artifacts/generate-artifact.ts`),
+  // routed to the SAME branch as `'text'`/`'qa'`/`'command'`/
+  // `'triggerSuggestion'`: generating structured artifact content from a
+  // free-form prompt is open-ended generation, not a constrained-choice
+  // task, so it belongs on the default/stronger model (`CLAUDE_SONNET_5`).
+  // This requires ZERO branching-logic change to `selectAIModel` itself --
+  // `outputType !== 'select'` already falls through to `CLAUDE_SONNET_5` --
+  // only the type union needs widening to `'text' | 'select' | 'qa' |
+  // 'command' | 'triggerSuggestion' | 'artifact'`.
+  it("outputType: 'artifact' routes to CLAUDE_SONNET_5 (generating structured artifact content from a free-form prompt is open-ended reasoning, like 'text'/'qa'/'command'/'triggerSuggestion' -- not a constrained-choice task)", () => {
+    // NOTE (intentional RED, not a typo): on `main`,
+    // `SelectAIModelInput['outputType']` does not include `'artifact'` yet,
+    // so the object literal below (`{ outputType: 'artifact' }`) is a
+    // TypeScript compile error -- "Argument of type '{ outputType:
+    // "artifact"; }' is not assignable to parameter of type
+    // 'SelectAIModelInput'" -- until `implementer` widens the union. As
+    // established above, this repo's vitest config (`apps/server/vitest.config.ts`)
+    // transforms tests via `unplugin-swc`, which strips types WITHOUT
+    // type-checking them, so `pnpm --filter server test` alone will NOT
+    // surface this failure -- only `pnpm typecheck` (`tsc`) will. Per
+    // CLAUDE.md's Definition of Done, both `pnpm typecheck` and
+    // `pnpm test:changed` must be green before this task is done, so this
+    // compile error is a real, required RED signal, not a false negative.
+    const model = selectAIModel({ outputType: 'artifact' });
+
+    expect(model).toBe(CLAUDE_SONNET_5);
+  });
 });

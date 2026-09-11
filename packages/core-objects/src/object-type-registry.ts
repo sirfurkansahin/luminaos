@@ -12,6 +12,7 @@ const objectTypeRegistry: Record<ObjectType, { titleRequired: boolean }> = {
   note: { titleRequired: false },
   timeblock: { titleRequired: false },
   meeting: { titleRequired: true },
+  artifact: { titleRequired: true },
 };
 
 /**
