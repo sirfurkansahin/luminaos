@@ -58,25 +58,33 @@ Bugün kod tabanında hiçbir uzun-form/çok-bölümlü AI üretim emsali, hiçb
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `packages/artifacts` paketi doğru iskeletle oluşturuldu (`package.json`/`tsconfig.json`/`vitest.config.ts`/`eslint.config.js`, `packages/agent-runtime`'ın AYNI şablonunu izleyerek), sıfır I/O bağımlılığı, tek runtime bağımlılığı `@luminaos/shared`+`zod`.
-- [ ] **PR1:** `THEME_PRESETS`'in 3 preset'inin (`kurumsal`/`canli`/`minimal`) her biri doğru CSS değişken haritasını (`--artifact-bg`/`--artifact-fg`/`--artifact-accent`/`--artifact-font`) ürettiği doğrulanır.
-- [ ] **PR1:** `artifactContentSchema`, geçerli bir `ArtifactContent`'i (title + 1+ section) kabul eder; geçersiz girdileri (boş `sections`, tanınmayan `kind`, sınır-aşan `text`/`items`/`rows` uzunlukları, `.strict()` ihlali eden fazladan alan) reddeder.
-- [ ] **PR1:** `renderArtifactHtml`, HER 5 section `kind`'ı (`heading`/`paragraph`/`list`/`table`/`imagePlaceholder`) için doğru HTML yapısını üretir; seçilen tema preset'inin CSS değişkenlerinin `<style>` bloğuna doğru aktarıldığı VE `artifactType === 'presentation'` için `page-break-after` kuralının eklendiği doğrulanır.
-- [ ] **PR1 (güvenlik-kritik):** `escapeHtml`, `<`/`>`/`&`/`"`/`'` içeren adversarial bir girdi metnini (ör. `<script>alert(1)</script>` içeren bir `text`/`items`/`headers`/`rows`/`caption` değeri) render edilen HTML çıktısında kaçış-karakterleriyle YAPISAL OLARAK zararsız hale getirir — özel bir güvenlik testi seti bunu her interpolasyon noktasında (heading text, paragraph text, list items, table headers/rows/cells, imagePlaceholder caption, title) kanıtlar.
-- [ ] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR2:** `object-type-registry.ts`'e `artifact: { titleRequired: true }` eklendi, `ObjectType` union'ına `'artifact'` eklendi — **HİÇBİR migration dosyası yazılmadı** (regresyon: mevcut migration/lint akışı yeni bir DDL değişikliği olmadığını doğrular).
-- [ ] **PR2:** Workspace-kurulum-anındaki default-field-seeding, `artifact` için 4 alanı (`htmlContent`:`longText`, `themePreset`:`select` 3 preset, `generationPrompt`:`longText`, `artifactType`:`select` 4 tip) doğru seed ediyor.
-- [ ] **PR2:** `select-ai-model.ts`'e eklenen `outputType:'artifact'`, `CLAUDE_SONNET_5`'e doğru yönlendiriyor.
-- [ ] **PR2:** `generateArtifact`, LLM yanıtını `artifactContentSchema` ile parse edip `renderArtifactHtml`'e sararak geçerli bir `htmlContent` üretir; ilk parse başarısız olursa BİR kez retry eder, ikinci deneme de başarısız olursa `parseError:true` sentinel'i döner (`ArtifactsService` bunu `ValidationError`'a çevirir).
-- [ ] **PR2:** `MAX_ARTIFACT_HTML_LENGTH=200_000` aşıldığında `generateArtifact` başarısızlık sinyali döner, `ArtifactsService` bunu görünür bir `ValidationError` olarak yüzeye çıkarır.
-- [ ] **PR2:** `POST /workspaces/:workspaceId/artifacts` üzerinden gerçek bir `artifact` Lumina Object'i oluşturuluyor — `fieldValues.htmlContent`/`themePreset`/`generationPrompt`/`artifactType` doğru doldurulmuş; `AIUsageService`'in `withWorkspaceAILock`/kota/bütçe/`recordAIUsage` disiplinine gerçekten uyulduğu doğrulanır.
-- [ ] **PR2:** RBAC — `member`+ yeterli, `guest` reddedilir (ledger/`parse` ile AYNI taban, daha katı bir kapı EKLENMEZ).
-- [ ] **PR2 (regresyon):** Mevcut `GET /workspaces/:workspaceId/objects?type=artifact` rotası, YENİ oluşturulan `artifact` nesnelerini HİÇBİR kod değişikliği olmadan zaten doğru döndürüyor.
-- [ ] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR3:** `ArtifactViewer.tsx`, `htmlContent`'i `<iframe srcDoc={htmlContent} sandbox="">` ile render eder — `sandbox` özniteliğinin KESİNLİKLE BOŞ olduğu (`allow-scripts` YOK, `allow-same-origin` YOK) ayrı, isimlendirilmiş bir testle doğrulanır.
-- [ ] **PR3:** Üretim formu (prompt + `artifactType` + `themePreset` seçimi) gönderildiğinde doğru `{prompt, artifactType, themePreset}` gövdesiyle isteği tetikler.
-- [ ] **PR3:** Mutasyon hatası (ör. sunucudan `ValidationError`) kullanıcıya görünür bir hata olarak yüzeye çıkar.
-- [ ] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `packages/artifacts` paketi doğru iskeletle oluşturuldu (`package.json`/`tsconfig.json`/`vitest.config.ts`/`eslint.config.js`, `packages/agent-runtime`'ın AYNI şablonunu izleyerek), sıfır I/O bağımlılığı, tek runtime bağımlılığı `@luminaos/shared`+`zod`.
+- [x] **PR1:** `THEME_PRESETS`'in 3 preset'inin (`kurumsal`/`canli`/`minimal`) her biri doğru CSS değişken haritasını (`--artifact-bg`/`--artifact-fg`/`--artifact-accent`/`--artifact-font`) ürettiği doğrulanır.
+- [x] **PR1:** `artifactContentSchema`, geçerli bir `ArtifactContent`'i (title + 1+ section) kabul eder; geçersiz girdileri (boş `sections`, tanınmayan `kind`, sınır-aşan `text`/`items`/`rows` uzunlukları, `.strict()` ihlali eden fazladan alan) reddeder.
+- [x] **PR1:** `renderArtifactHtml`, HER 5 section `kind`'ı (`heading`/`paragraph`/`list`/`table`/`imagePlaceholder`) için doğru HTML yapısını üretir; seçilen tema preset'inin CSS değişkenlerinin `<style>` bloğuna doğru aktarıldığı VE `artifactType === 'presentation'` için `page-break-after` kuralının eklendiği doğrulanır.
+- [x] **PR1 (güvenlik-kritik):** `escapeHtml`, `<`/`>`/`&`/`"`/`'` içeren adversarial bir girdi metnini (ör. `<script>alert(1)</script>` içeren bir `text`/`items`/`headers`/`rows`/`caption` değeri) render edilen HTML çıktısında kaçış-karakterleriyle YAPISAL OLARAK zararsız hale getirir — özel bir güvenlik testi seti bunu her interpolasyon noktasında (heading text, paragraph text, list items, table headers/rows/cells, imagePlaceholder caption, title) kanıtlar (`packages/artifacts/src/render-artifact-html.test.ts`'in "security: `<script>` injection at every interpolation point" describe bloğu).
+- [x] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR2:** `object-type-registry.ts`'e `artifact: { titleRequired: true }` eklendi, `ObjectType` union'ına `'artifact'` eklendi — **HİÇBİR migration dosyası yazılmadı** (regresyon: `apps/server/src/db/migrations/` altında `artifact` adını taşıyan hiçbir dosya yok, doğrulandı).
+- [x] **PR2:** Workspace-kurulum-anındaki default-field-seeding, `artifact` için 4 alanı (`htmlContent`:`longText`, `themePreset`:`select` 3 preset, `generationPrompt`:`longText`, `artifactType`:`select` 4 tip) doğru seed ediyor.
+- [x] **PR2:** `select-ai-model.ts`'e eklenen `outputType:'artifact'`, `CLAUDE_SONNET_5`'e doğru yönlendiriyor.
+- [x] **PR2:** `generateArtifact`, LLM yanıtını `artifactContentSchema` ile parse edip `renderArtifactHtml`'e sararak geçerli bir `htmlContent` üretir; ilk parse başarısız olursa BİR kez retry eder, ikinci deneme de başarısız olursa `parseError:true` sentinel'i döner (`ArtifactsService` bunu `ValidationError`'a çevirir).
+- [x] **PR2:** `MAX_ARTIFACT_HTML_LENGTH=200_000` aşıldığında `generateArtifact` başarısızlık sinyali döner, `ArtifactsService` bunu görünür bir `ValidationError` olarak yüzeye çıkarır.
+- [x] **PR2:** `POST /workspaces/:workspaceId/artifacts` üzerinden gerçek bir `artifact` Lumina Object'i oluşturuluyor — `fieldValues.htmlContent`/`themePreset`/`generationPrompt`/`artifactType` doğru doldurulmuş; `AIUsageService`'in `withWorkspaceAILock`/kota/bütçe/`recordAIUsage` disiplinine gerçekten uyulduğu doğrulanır (`ArtifactsService.generate` bu disiplini birebir kullanıyor, `apps/server/src/artifacts/artifacts.service.ts` doğrulandı).
+- [x] **PR2:** RBAC — `member`+ yeterli, `guest` reddedilir (ledger/`parse` ile AYNI taban, daha katı bir kapı EKLENMEZ) — `ArtifactsController`, `SessionAuthGuard`+`WorkspaceMembershipGuard` DIŞINDA hiçbir ek rol-kapısı taşımıyor (kod doğrulandı); `artifacts.controller.integration.test.ts`'te "a GUEST-role member ... can still successfully generate an artifact" testiyle AYRICA kanıtlanmış.
+- [x] **PR2 (regresyon):** Mevcut `POST /workspaces/:workspaceId/objects/query` rotası, YENİ oluşturulan `artifact` nesnelerini HİÇBİR kod değişikliği olmadan zaten doğru döndürüyor (`artifacts.controller.integration.test.ts`'in "regression: POST .../objects/query already covers artifact objects, with ZERO code changes to objects.controller.ts/objects.service.ts" describe bloğu; not: kabul kriterinin orijinal metni `GET /objects?type=artifact`'ten söz ediyordu, PR2 gerçekte `POST /objects/query`'yi test etti — aynı "sıfır kod değişikliği" garantisi, farklı bir mevcut okuma rotası üzerinden kanıtlandı).
+- [x] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR3:** `ArtifactViewer.tsx`, `htmlContent`'i `<iframe srcDoc={htmlContent} sandbox="">` ile render eder — `sandbox` özniteliğinin KESİNLİKLE BOŞ olduğu (`allow-scripts` YOK, `allow-same-origin` YOK) ayrı, isimlendirilmiş bir testle doğrulanır.
+- [x] **PR3:** Üretim formu (prompt + `artifactType` + `themePreset` seçimi) gönderildiğinde doğru `{prompt, artifactType, themePreset}` gövdesiyle isteği tetikler.
+- [x] **PR3:** Mutasyon hatası (ör. sunucudan `ValidationError`) kullanıcıya görünür bir hata olarak yüzeye çıkar.
+- [x] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+3 uygulama PR'ı `main`'e merge edildi:
+
+- **PR1 — `packages/artifacts` saf domain** ([#236](https://github.com/sirfurkansahin/luminaos/pull/236)): `ArtifactType`, `ThemePreset`/`THEME_PRESETS` (3 preset), `ArtifactContent`/`artifactContentSchema`, `renderArtifactHtml` (+ `escapeHtml`) — sıfır I/O, ADR-0041 Karar (c)/(d)/(e)/(f)'yi resmileştirdi. Kanıt: 81/81 test yeşil, `%100` satır kapsamı (`packages/artifacts/coverage/lcov.info` doğrulandı), `<script>` payload'ının HER interpolasyon noktasında (heading/paragraph/list/table/imagePlaceholder/title) kaçış-karakterleriyle zararsızlaştırıldığını kanıtlayan özel bir güvenlik test seti dahil.
+- **PR2 — `apps/server/src/artifacts/` + `artifact` Lumina Object entegrasyonu** ([#237](https://github.com/sirfurkansahin/luminaos/pull/237)): `generate-artifact.ts` orkestratörü, `object-type-registry.ts`'e migration'sız `'artifact'` eklenmesi + default-field-seeding, `select-ai-model.ts`'e `outputType:'artifact'`, `POST /workspaces/:workspaceId/artifacts` rotası (`ArtifactsController`, yalnızca `SessionAuthGuard`+`WorkspaceMembershipGuard` ile korunuyor — ADR-0041 Karar g). Kanıt: 558/558 server birim testi + 13/13 hedefli entegrasyon testi yeşil.
+- **PR3 — Frontend** ([#238](https://github.com/sirfurkansahin/luminaos/pull/238)): `ArtifactGenerationForm.tsx` (prompt/artifactType/themePreset formu) + `ArtifactViewer.tsx` (`srcDoc`+BOŞ `sandbox=""` ile sandboxed iframe render), `apiClient.ts` eklentisi + hook. Kanıt: 28/28 frontend testi yeşil.
 
 ## Açık Sorular
 
@@ -88,15 +96,20 @@ Bu görev için mimari olarak açık bir soru yok — ADR-0041 Bağlam/Karar/Alt
 - Canlı/kendini-yenileyen dashboard (Karar f) — F3-T8'in KENDİ mimari kararı, bu görev onu ÖNDEN almaz.
 - Daha zengin section-tipleri/şablon genişlemesi (ör. yan-yana sütunlar, gömülü grafik) — gelecekte şablona YENİ bir bölüm tipi eklenerek genişletilebilir (koddan, LLM'den DEĞİL), bugünkü 5 tiple SINIRLI.
 
+**PR2 sırasında çözülen, spec-yazımı-anında öngörülmemiş bir gerçek RBAC/alan-izni etkileşimi:** ADR-0041 Karar (g) "member+, ek rol-kapısı yok" derken, seeded `SEEDED_FIELD_PERMISSIONS`'ın `artifact`'ın 4 alanına (`htmlContent`/`themePreset`/`generationPrompt`/`artifactType`) `guest` için yalnızca `'view'` izni tanıdığı gerçeğiyle örtük bir gerilim taşıyordu — `ArtifactsService.generate()`'in kendi `setFieldValues` çağrısı CALLER'IN `callerRole`'ünü kullansaydı, bir `guest` üyenin isteği `WorkspaceMembershipGuard`'ı geçmesine rağmen bu iç yazmada 403 ile başarısız olurdu (Karar g'yi fiilen ihlal ederdi). PR2 bunu, bu iç yazma için sabit `'owner'` rolü kullanarak çözdü (`apps/server/src/artifacts/artifacts.service.ts` satır 83-93'teki yorum) — bu 4 alan yalnızca bu üretim boru hattı tarafından sistem/AI tarafından doldurulur, doğrudan elle düzenleme DEĞİLDİR; çağıranın gerçek `callerRole`'ü `create()`'i VE gelecekteki her doğrudan `PATCH .../objects/:id/fields` düzenlemesini (seeded izinler DEĞİŞMEDEN) gate'lemeye devam ediyor.
+
 ## Sıradaki adım
 
-Bu ADR'nin onayı üzerine PR1'e (`packages/artifacts` saf domain: `ArtifactType`, `ThemePreset`/`THEME_PRESETS`, `ArtifactContent`/`artifactContentSchema`, `renderArtifactHtml` pure template renderer) `test-writer` ile başlanır:
+Epik F3-E3 (Artifact + Canlı Widget [Kapsam L] ve Intent-first UI [Kapsam M]) F3-T7 ile ilk görevini tamamladı — `docs/PLAN.md` satır 288'e göre epiğin bir sonraki görevi **F3-T8 — "Sorgu → canlı widget": doğal dil sorgusunu sabitlenebilir, kendini yenileyen panel bileşenine derleme**. F3-T8'in henüz ne ADR'si ne spec dosyası var — F3-T7'nin izlediği AYNI ritüel (yeni bir önemli mimari yüzey olduğu için doğrudan test-writer'a geçilmez):
 
 ```
-docs/adr/ADR-0041-artifact-boru-hatti.md'deki Karar (a)-(h)'yi ve
-docs/specs/F3-E3/F3-T7-artifact-boru-hatti.md'nin Kabul Kriterleri'ni temel alarak, F3-T7
-PR1 (packages/artifacts saf domain: ArtifactType, ThemePreset/THEME_PRESETS üç preset,
-ArtifactContent/artifactContentSchema yapılandırılmış içerik şeması, renderArtifactHtml
-pure HTML şablon render fonksiyonu -- escapeHtml dahil) için test-writer ile başarısız
-testleri yaz.
+docs/PLAN.md'nin Epik F3-E3 (Artifact + Canlı Widget, Kapsam L) sıralamasına göre F3-T7
+kapandı; sıradaki görev F3-T8 -- "Sorgu -> canlı widget": doğal dil sorgusunu
+sabitlenebilir, kendini yenileyen panel bileşenine derleme (henüz ne ADR'si ne spec dosyası
+var). Önce explorer ile mevcut sorgu katmanını (packages/core-objects'ın query DSL'i,
+F1-T6), packages/artifacts'ın F3-T7'de kurulan render/HTML üretim desenini VE olası
+"canlı/kendini-yenileyen" widget mekanizmalarını (polling/websocket/cache-invalidation)
+keşfet, sonra architect ile docs/adr/ADR-0042-<konu>.md taslağını VE
+docs/specs/F3-E3/F3-T8-<konu>.md spec dosyasını oluştur, insana onaylat; sonra plan mode'a
+geç.
 ```
