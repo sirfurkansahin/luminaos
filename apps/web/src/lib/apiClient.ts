@@ -1031,3 +1031,23 @@ export function setAutonomyTier(
     },
   );
 }
+
+/**
+ * F3-T7 PR3 (artifact boru hattı, ADR-0041 Karar d/h) -- mirrors
+ * `setAutonomyTier`'s exact call shape.
+ */
+export type ArtifactType = 'presentation' | 'dashboard' | 'page' | 'report';
+export type ThemePresetName = 'kurumsal' | 'canli' | 'minimal';
+
+export function generateArtifact(
+  workspaceId: string,
+  input: { prompt: string; artifactType: ArtifactType; themePreset: ThemePresetName },
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/artifacts`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
