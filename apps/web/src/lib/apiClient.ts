@@ -978,3 +978,37 @@ export function listAgentActionRecords(
     { method: 'GET' },
   );
 }
+
+export type AutonomyTier = 'propose' | 'approve_and_act' | 'act_and_notify';
+
+export interface TaskAutonomySetting {
+  id: string;
+  workspaceId: string;
+  actionType: string;
+  tier: AutonomyTier;
+  updatedBy: { type: 'user' | 'agent' | 'system'; id: string };
+  updatedAt: string;
+}
+
+export function listAutonomyTierSettings(
+  workspaceId: string,
+): Promise<{ settings: TaskAutonomySetting[] }> {
+  return request<{ settings: TaskAutonomySetting[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/task-autonomy-settings`,
+    { method: 'GET' },
+  );
+}
+
+export function setAutonomyTier(
+  workspaceId: string,
+  actionType: string,
+  tier: AutonomyTier,
+): Promise<{ setting: TaskAutonomySetting }> {
+  return request<{ setting: TaskAutonomySetting }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/task-autonomy-settings/${encodeURIComponent(actionType)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ tier }),
+    },
+  );
+}
