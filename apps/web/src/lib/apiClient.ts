@@ -1051,3 +1051,20 @@ export function generateArtifact(
     },
   );
 }
+
+/**
+ * F3-T8 PR3 (sorgu -> canlı widget, ADR-0042 Karar a) -- mirrors
+ * `generateArtifact`'s exact call shape.
+ */
+export function generateWidget(
+  workspaceId: string,
+  input: { prompt: string; objectType: string; themePreset: ThemePresetName },
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/artifacts/widgets`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
