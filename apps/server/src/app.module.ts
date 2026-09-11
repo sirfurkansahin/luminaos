@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 
 import { AgentRuntimeModule } from './agent-runtime/agent-runtime.module.js';
 import { AppController } from './app.controller.js';
+import { ArtifactsModule } from './artifacts/artifacts.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AutomationModule } from './automation/automation.module.js';
 import { AvailabilityModule } from './availability/availability.module.js';
@@ -63,6 +64,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     CalendarModule,
     AvailabilityModule,
     ObjectsModule,
+    ArtifactsModule,
     ContextModule,
     DesktopSignalConsentsModule,
     DesktopSignalsModule,

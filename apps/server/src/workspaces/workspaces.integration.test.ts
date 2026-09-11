@@ -259,6 +259,14 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     return `/workspaces/${workspaceId}/object-types/task/fields`;
   }
 
+  /** F3-T7 PR2 (ADR-0041 Karar b): the `artifact` object type's own seeded
+   * Custom Fields live under this URL (same generic
+   * `GET .../object-types/:objectType/fields` route, only the path segment
+   * differs from `fieldsUrl` above). */
+  function artifactFieldsUrl(workspaceId: string): string {
+    return `/workspaces/${workspaceId}/object-types/artifact/fields`;
+  }
+
   it('POST /workspaces seeds "status" (3 options, "Bitti" isDone:true, others not) and "priority" (4 options, no isDone) for the "task" object type', async () => {
     const { cookie, workspaceId } = await registerAdminWithWorkspace();
 
@@ -403,5 +411,119 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect((patchResponse.body as FieldDefinitionEnvelope).fieldDefinition.label).toBe(
       'Task Status (renamed by owner)',
     );
+  });
+
+  /**
+   * ===========================================================================
+   * F3-T7 PR2 ADDITION (ADR-0041 Karar b): the SAME `seedTaskFields`-style
+   * seeding mechanism (a new sibling `seedArtifactFields` per this PR's
+   * plan) must ALSO provision 4 Custom Fields for the NEW `artifact` object
+   * type, seeded at workspace-creation time exactly like `status`/`priority`
+   * are for `task` -- no new query-layer/command/event code, just 4 more
+   * `FieldDefinitionsService.define()` calls for `objectType: 'artifact'`.
+   *
+   * RED STATE (expected, today): `'artifact'` is not yet a registered
+   * `ObjectType` at all (`packages/core-objects/src/object-type-registry.ts`
+   * doesn't have an `artifact` entry -- see this PR's other RED test,
+   * `object-type-registry.test.ts`'s "accepts \"artifact\""), and
+   * `seedTaskFields`/`createWorkspace` (`./workspaces.service.ts`) has no
+   * `seedArtifactFields` call at all. So `GET
+   * /workspaces/:id/object-types/artifact/fields` is expected to 200 with an
+   * EMPTY `fieldDefinitions: []` today (the generic fields route itself
+   * already exists and works for ANY object-type string), and every
+   * `.find((fd) => fd.key === ...)` below resolves to `undefined`.
+   *
+   * CONTRACT PINNED BY THIS ADDITION (implementer must match precisely):
+   *
+   *   `htmlContent`      -- fieldType 'longText', config {}
+   *   `themePreset`      -- fieldType 'select', config.options exactly the 3
+   *                         preset names: kurumsal/canli/minimal (Turkish
+   *                         labels: Kurumsal/Canlı/Minimal)
+   *   `generationPrompt` -- fieldType 'longText', config {}
+   *   `artifactType`     -- fieldType 'select', config.options exactly the 4
+   *                         type names: presentation/dashboard/page/report
+   *                         (Turkish labels: Sunum/Dashboard/Sayfa/Rapor)
+   *
+   * All 4 use the SAME `SEEDED_FIELD_PERMISSIONS` shape already used for
+   * `status`/`priority` (owner/admin/member: edit, guest: view) -- this
+   * addition does not pin exact permission values beyond "present and an
+   * object", since the plan does not call out a different permission set for
+   * `artifact`'s fields.
+   * ===========================================================================
+   */
+  it('POST /workspaces also seeds "htmlContent"/"themePreset"/"generationPrompt"/"artifactType" for the NEW "artifact" object type (F3-T7 PR2, ADR-0041 Karar b)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const listResponse = await request(server)
+      .get(artifactFieldsUrl(workspaceId))
+      .set('Cookie', cookie);
+
+    expect(listResponse.status).toBe(200);
+    const { fieldDefinitions } = listResponse.body as FieldDefinitionListEnvelope;
+
+    const htmlContentField = fieldDefinitions.find((fd) => fd.key === 'htmlContent');
+    const themePresetField = fieldDefinitions.find((fd) => fd.key === 'themePreset');
+    const generationPromptField = fieldDefinitions.find((fd) => fd.key === 'generationPrompt');
+    const artifactTypeField = fieldDefinitions.find((fd) => fd.key === 'artifactType');
+
+    expect(htmlContentField).toBeDefined();
+    expect(htmlContentField?.fieldType).toBe('longText');
+    expect(htmlContentField?.objectType).toBe('artifact');
+    expect(htmlContentField?.config).toEqual({});
+
+    expect(generationPromptField).toBeDefined();
+    expect(generationPromptField?.fieldType).toBe('longText');
+    expect(generationPromptField?.objectType).toBe('artifact');
+    expect(generationPromptField?.config).toEqual({});
+
+    expect(themePresetField).toBeDefined();
+    expect(themePresetField?.fieldType).toBe('select');
+    expect(themePresetField?.objectType).toBe('artifact');
+    const themeOptions = themePresetField?.config.options ?? [];
+    expect(themeOptions).toHaveLength(3);
+    expect(themeOptions.map((option) => option.value).sort()).toEqual(
+      ['canli', 'kurumsal', 'minimal'].sort(),
+    );
+    expect(themeOptions.map((option) => option.label).sort()).toEqual(
+      ['Kurumsal', 'Canlı', 'Minimal'].sort(),
+    );
+
+    expect(artifactTypeField).toBeDefined();
+    expect(artifactTypeField?.fieldType).toBe('select');
+    expect(artifactTypeField?.objectType).toBe('artifact');
+    const artifactTypeOptions = artifactTypeField?.config.options ?? [];
+    expect(artifactTypeOptions).toHaveLength(4);
+    expect(artifactTypeOptions.map((option) => option.value).sort()).toEqual(
+      ['dashboard', 'page', 'presentation', 'report'].sort(),
+    );
+    expect(artifactTypeOptions.map((option) => option.label).sort()).toEqual(
+      ['Dashboard', 'Rapor', 'Sayfa', 'Sunum'].sort(),
+    );
+  });
+
+  it('the "artifact" field seed is per-workspace, exactly like "task"\'s: a second, independent workspace gets its own artifact field definitions with distinct ids', async () => {
+    const first = await registerAdminWithWorkspace();
+    const second = await registerAdminWithWorkspace();
+
+    const firstListResponse = await request(server)
+      .get(artifactFieldsUrl(first.workspaceId))
+      .set('Cookie', first.cookie);
+    const secondListResponse = await request(server)
+      .get(artifactFieldsUrl(second.workspaceId))
+      .set('Cookie', second.cookie);
+
+    expect(firstListResponse.status).toBe(200);
+    expect(secondListResponse.status).toBe(200);
+
+    const firstHtmlContentId = (
+      firstListResponse.body as FieldDefinitionListEnvelope
+    ).fieldDefinitions.find((fd) => fd.key === 'htmlContent')?.id;
+    const secondHtmlContentId = (
+      secondListResponse.body as FieldDefinitionListEnvelope
+    ).fieldDefinitions.find((fd) => fd.key === 'htmlContent')?.id;
+
+    expect(firstHtmlContentId).toBeDefined();
+    expect(secondHtmlContentId).toBeDefined();
+    expect(firstHtmlContentId).not.toBe(secondHtmlContentId);
   });
 });

@@ -23,6 +23,14 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
  * pinned option value/label/isDone contract. */
 const TASK_OBJECT_TYPE: ObjectType = 'task';
 
+/** F3-T7 PR2 (ADR-0041 Karar b): the `artifact` object type's own 4 seeded
+ * Custom Fields (`htmlContent`/`themePreset`/`generationPrompt`/
+ * `artifactType`) reuse this SAME seeding mechanism -- see
+ * `seedArtifactFields` below and `workspaces.integration.test.ts`'s "F3-T7
+ * PR2 ADDITION" comment for the exact pinned fieldType/config/options
+ * contract. */
+const ARTIFACT_OBJECT_TYPE: ObjectType = 'artifact';
+
 /** Owner/admin/member can edit the seeded fields, guest is view-only — a
  * reasonable default for a workspace-wide status/priority field, not a
  * business rule pinned by any spec beyond "the fields exist and are
@@ -93,6 +101,7 @@ export class WorkspacesService {
     }
 
     await this.seedTaskFields(workspace.id);
+    await this.seedArtifactFields(workspace.id);
 
     return workspace;
   }
@@ -112,34 +121,42 @@ export class WorkspacesService {
    * race.
    */
   private async seedTaskFields(workspaceId: string): Promise<void> {
-    await this.defineSeedField(workspaceId, {
-      key: 'status',
-      label: 'Status',
-      fieldType: 'select',
-      config: {
-        options: [
-          { value: 'todo', label: 'Yapılacak' },
-          { value: 'doing', label: 'Sürüyor' },
-          { value: 'done', label: 'Bitti', isDone: true },
-        ],
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'status',
+        label: 'Status',
+        fieldType: 'select',
+        config: {
+          options: [
+            { value: 'todo', label: 'Yapılacak' },
+            { value: 'doing', label: 'Sürüyor' },
+            { value: 'done', label: 'Bitti', isDone: true },
+          ],
+        },
+        permissions: SEEDED_FIELD_PERMISSIONS,
       },
-      permissions: SEEDED_FIELD_PERMISSIONS,
-    });
+      TASK_OBJECT_TYPE,
+    );
 
-    await this.defineSeedField(workspaceId, {
-      key: 'priority',
-      label: 'Priority',
-      fieldType: 'select',
-      config: {
-        options: [
-          { value: 'low', label: 'Düşük' },
-          { value: 'medium', label: 'Orta' },
-          { value: 'high', label: 'Yüksek' },
-          { value: 'urgent', label: 'Acil' },
-        ],
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'priority',
+        label: 'Priority',
+        fieldType: 'select',
+        config: {
+          options: [
+            { value: 'low', label: 'Düşük' },
+            { value: 'medium', label: 'Orta' },
+            { value: 'high', label: 'Yüksek' },
+            { value: 'urgent', label: 'Acil' },
+          ],
+        },
+        permissions: SEEDED_FIELD_PERMISSIONS,
       },
-      permissions: SEEDED_FIELD_PERMISSIONS,
-    });
+      TASK_OBJECT_TYPE,
+    );
 
     // F1-T10 PR5 (spec item 5): `remindAt`/`remindAcknowledged` reuse this
     // same Custom Fields seeding mechanism — no new query-layer/command/event
@@ -147,22 +164,99 @@ export class WorkspacesService {
     // `workspaces.integration.test.ts`'s "F1-T10 PR5 ADDITION" comment for
     // the full rationale, including why `remindAcknowledged` needs an
     // explicit `defaultValue: false` (unlike `status`/`priority` above).
-    await this.defineSeedField(workspaceId, {
-      key: 'remindAt',
-      label: 'Remind At',
-      fieldType: 'datetime',
-      config: {},
-      permissions: SEEDED_FIELD_PERMISSIONS,
-    });
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'remindAt',
+        label: 'Remind At',
+        fieldType: 'datetime',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      TASK_OBJECT_TYPE,
+    );
 
-    await this.defineSeedField(workspaceId, {
-      key: 'remindAcknowledged',
-      label: 'Reminder Acknowledged',
-      fieldType: 'checkbox',
-      config: {},
-      defaultValue: false,
-      permissions: SEEDED_FIELD_PERMISSIONS,
-    });
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'remindAcknowledged',
+        label: 'Reminder Acknowledged',
+        fieldType: 'checkbox',
+        config: {},
+        defaultValue: false,
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      TASK_OBJECT_TYPE,
+    );
+  }
+
+  /**
+   * F3-T7 PR2 (ADR-0041 Karar b): seeds `htmlContent`/`themePreset`/
+   * `generationPrompt`/`artifactType` Custom Fields for the `artifact`
+   * object type in a newly created workspace -- same seeding mechanism as
+   * `seedTaskFields`, no new query-layer/command/event code.
+   */
+  private async seedArtifactFields(workspaceId: string): Promise<void> {
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'htmlContent',
+        label: 'HTML Content',
+        fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'themePreset',
+        label: 'Theme Preset',
+        fieldType: 'select',
+        config: {
+          options: [
+            { value: 'kurumsal', label: 'Kurumsal' },
+            { value: 'canli', label: 'Canlı' },
+            { value: 'minimal', label: 'Minimal' },
+          ],
+        },
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'generationPrompt',
+        label: 'Generation Prompt',
+        fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'artifactType',
+        label: 'Artifact Type',
+        fieldType: 'select',
+        config: {
+          options: [
+            { value: 'presentation', label: 'Sunum' },
+            { value: 'dashboard', label: 'Dashboard' },
+            { value: 'page', label: 'Sayfa' },
+            { value: 'report', label: 'Rapor' },
+          ],
+        },
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
   }
 
   /** Wraps a single `FieldDefinitionsService.define()` seed call with the
@@ -170,9 +264,10 @@ export class WorkspacesService {
   private async defineSeedField(
     workspaceId: string,
     input: DefineFieldDefinitionInput,
+    objectType: ObjectType,
   ): Promise<void> {
     try {
-      await this.fieldDefinitionsService.define(workspaceId, TASK_OBJECT_TYPE, SEED_ACTOR, input);
+      await this.fieldDefinitionsService.define(workspaceId, objectType, SEED_ACTOR, input);
     } catch (error) {
       if (!(error instanceof ConflictError)) {
         throw error;
