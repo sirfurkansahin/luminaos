@@ -8,7 +8,7 @@ import {
   objectResource,
 } from './agent-action-record.js';
 
-import type { ActionResourceReference } from './agent-action-record.js';
+import type { ActionResourceReference, AgentActionRecord } from './agent-action-record.js';
 
 /**
  * F3-T4 PR1 (RED step) — `packages/agent-runtime/src/agent-action-record.ts`,
@@ -109,6 +109,58 @@ function describeResourceKind(resource: ActionResourceReference): string {
     }
   }
 }
+
+/**
+ * F3-T6 PR1 (RED step), ADR-0040 Karar (c)/"Somut Şekiller" — pins the new,
+ * REQUIRED `undoesRecordId: string | null` field on `AgentActionRecord`
+ * (null on every normal record; the ORIGINAL record's own `id` on a future
+ * undo-shaped record, PR2's `CommandsService.undoAction`).
+ *
+ * Like the exhaustiveness canary below, `AgentActionRecord` itself is a
+ * plain interface with zero runtime behavior — there is nothing a `vitest
+ * run` alone can fail on for a pure type addition (vitest's default esbuild
+ * transform strips types without checking them). The REAL red gate for this
+ * addition is `pnpm --filter @luminaos/agent-runtime typecheck`, which today
+ * fails on the object literal below with "Object literal may only specify
+ * known properties, and 'undoesRecordId' does not exist in type
+ * 'AgentActionRecord'" (TS's excess-property check on a literal assigned
+ * directly to an interface-typed return position). The runtime assertions
+ * exist so this file is still meaningful under `vitest run` once the field
+ * exists, mirroring `describeResourceKind`'s own compile-time/runtime split.
+ */
+function buildFullAgentActionRecord(overrides: Partial<AgentActionRecord> = {}): AgentActionRecord {
+  return {
+    id: 'record-1',
+    workspaceId: 'workspace-1',
+    provenance: 'decided',
+    actor: { type: 'user', id: 'user-1' },
+    actionType: 'createTask',
+    intent: 'Bir görev oluştur',
+    rationale: 'Kullanıcı toplantıdan bir aksiyon öğesi istedi.',
+    resources: [objectResource('obj-1')],
+    rollbackPlan: { kind: 'delete', description: 'Oluşturulan görevi sil.' },
+    outcome: 'succeeded',
+    resultRef: null,
+    causationEventId: null,
+    occurredAt: new Date('2026-01-01T00:00:00.000Z'),
+    // NEW (F3-T6) -- this key does not typecheck against today's
+    // `AgentActionRecord` interface (RED via `pnpm typecheck`).
+    undoesRecordId: null,
+    ...overrides,
+  };
+}
+
+describe('AgentActionRecord — undoesRecordId (F3-T6, ADR-0040 Karar c)', () => {
+  it('is null on a normal (non-undo) record -- every existing caller today', () => {
+    expect(buildFullAgentActionRecord().undoesRecordId).toBeNull();
+  });
+
+  it("holds the ORIGINAL record's own id on an undo-shaped record", () => {
+    const record = buildFullAgentActionRecord({ undoesRecordId: 'original-record-id-01' });
+
+    expect(record.undoesRecordId).toBe('original-record-id-01');
+  });
+});
 
 describe('ActionResourceReference — discriminated-union narrowing (exhaustiveness canary)', () => {
   it.each([

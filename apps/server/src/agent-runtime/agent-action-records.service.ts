@@ -37,6 +37,7 @@ export interface RecordAgentActionInput {
   outcome: AgentActionOutcome;
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
+  undoesRecordId: string | null;
 }
 
 type AgentActionRecordRow = typeof agentActionRecords.$inferSelect;
@@ -56,6 +57,7 @@ function toAgentActionRecord(row: AgentActionRecordRow): AgentActionRecord {
     resultRef: (row.resultRef ?? null) as ActionResourceReference | null,
     causationEventId: row.causationEventId,
     occurredAt: row.occurredAt,
+    undoesRecordId: row.undoesRecordId ?? null,
   };
 }
 
@@ -108,6 +110,7 @@ export class AgentActionRecordsService {
         outcome: input.outcome,
         resultRef: input.resultRef,
         causationEventId: input.causationEventId,
+        undoesRecordId: input.undoesRecordId,
       });
 
       const event: NewDomainEvent = {
@@ -167,6 +170,33 @@ export class AgentActionRecordsService {
       .from(agentActionRecords)
       .where(
         and(eq(agentActionRecords.id, recordId), eq(agentActionRecords.workspaceId, workspaceId)),
+      )
+      .limit(1);
+
+    return row ? toAgentActionRecord(row) : null;
+  }
+
+  /**
+   * Internal-only (no `callerRole`, never HTTP-exposed directly) -- mirrors
+   * `record()`'s own no-RBAC convention. Finds the (at most one) ledger row
+   * that undoes `originalRecordId`, if any -- used by `CommandsService.
+   * undoAction` (PR2) as a pre-check for a friendly `ConflictError` UX
+   * message on a double-undo attempt; the REAL concurrency guarantee is
+   * inherited from `ObjectsService.softDelete`'s own optimistic-concurrency
+   * (ADR-0040 Karar f), NOT from this lookup.
+   */
+  async findUndoRecord(
+    workspaceId: string,
+    originalRecordId: string,
+  ): Promise<AgentActionRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(agentActionRecords)
+      .where(
+        and(
+          eq(agentActionRecords.workspaceId, workspaceId),
+          eq(agentActionRecords.undoesRecordId, originalRecordId),
+        ),
       )
       .limit(1);
 

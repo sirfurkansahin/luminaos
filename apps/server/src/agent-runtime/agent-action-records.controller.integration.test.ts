@@ -107,6 +107,7 @@ function fixtureInput(actionType: string): RecordAgentActionInput {
     outcome: 'succeeded',
     resultRef: objectResource('obj-1'),
     causationEventId: randomUUID(),
+    undoesRecordId: null,
   };
 }
 

@@ -39,8 +39,13 @@ export const agentActionRecords = pgTable(
     resultRef: jsonb('result_ref'),
     causationEventId: uuid('causation_event_id'),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    // F3-T6 (ADR-0040 Karar c): null on every normal record; on an
+    // undo-shaped record, the ORIGINAL record's own `id` — never the
+    // reverse, the original row is never mutated.
+    undoesRecordId: varchar('undoes_record_id', { length: 26 }),
   },
   (table) => [
     index('agent_action_records_workspace_occurred_at_idx').on(table.workspaceId, table.occurredAt),
+    index('agent_action_records_undoes_record_id_idx').on(table.undoesRecordId),
   ],
 );

@@ -45,6 +45,7 @@ export class AgentActionRecordProjection implements Projection {
 
     const resultRef = event.payload['resultRef'];
     const causationEventId = event.payload['causationEventId'];
+    const undoesRecordId = event.payload['undoesRecordId'];
 
     await dbTx.insert(agentActionRecords).values({
       id: newObjectId(),
@@ -64,6 +65,8 @@ export class AgentActionRecordProjection implements Projection {
           ? causationEventId
           : null,
       occurredAt: event.occurredAt,
+      undoesRecordId:
+        typeof undoesRecordId === 'string' && undoesRecordId.length > 0 ? undoesRecordId : null,
     });
   }
 

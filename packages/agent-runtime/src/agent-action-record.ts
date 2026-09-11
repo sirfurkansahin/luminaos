@@ -64,6 +64,11 @@ export interface AgentActionRecord {
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
   occurredAt: Date;
+  /** F3-T6 (ADR-0040 Karar c): null on every normal record; on an
+   * undo-shaped record (`actionType === 'undoAction'`, PR2's scope), the
+   * ORIGINAL record's own `id` — never the reverse, the original row is
+   * never mutated. */
+  undoesRecordId: string | null;
 }
 
 export function objectResource(objectId: string): ActionResourceReference {
