@@ -5,7 +5,11 @@ import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { agentResource, objectResource } from '@luminaos/agent-runtime';
-import type { ActionResourceReference, AgentActionOutcome } from '@luminaos/agent-runtime';
+import type {
+  ActionResourceReference,
+  AgentActionOutcome,
+  AgentActionRecord,
+} from '@luminaos/agent-runtime';
 import type { AIProvider } from '@luminaos/ai-gateway';
 import { newObjectId } from '@luminaos/core-objects';
 import type { Role } from '@luminaos/core-objects';
@@ -1639,6 +1643,144 @@ export class CommandsService {
         resultRef: null,
       });
       return { actionId, status: 'failed', error: toErrorMessage(error) };
+    }
+  }
+
+  /**
+   * `undoAction` (F3-T6 PR2, ADR-0040 Karar d/e/f): the real execution of a
+   * one-click undo for a ledger record whose `rollbackPlan.kind === 'delete'`
+   * — the only rollback kind that can be undone automatically today (every
+   * other kind is rejected with a `ValidationError`, ADR-0040 Karar d). RBAC
+   * (`member`+) is delegated entirely to `AgentActionRecordsService.get()`'s
+   * own gate (also the source of the "non-existent id OR different
+   * workspace -> indistinguishable NotFoundError" contract, since `get()`
+   * returns `null` for both).
+   *
+   * Reads `original.resources[]` (never `rollbackPlan.targetResource`, which
+   * is optional and may be absent for a multi-object action) to determine
+   * which objects to soft-delete — every `kind:'object'` resource is
+   * soft-deleted, non-object resources (e.g. an `agent` resource from
+   * `reconfigureAgentPermissions`) are skipped since `kind:'delete'` is never
+   * produced for those action types.
+   *
+   * `findUndoRecord` is a pre-check for a friendly `ConflictError` on a
+   * double-undo attempt — the real concurrency guarantee comes from
+   * `ObjectsService.softDelete`'s own optimistic-concurrency (ADR-0040 Karar
+   * f), not from this lookup.
+   *
+   * Security-review finding (F3-T6 PR2): a multi-object record (e.g.
+   * `generateSubtasks`'s `resources[]`) whose objects are soft-deleted
+   * SEQUENTIALLY must never let a mid-loop failure (one target already
+   * deleted by an unrelated, later action) both (a) leave already-completed
+   * soft-deletes with NO ledger trace, and (b) leave the record permanently
+   * un-undoable-and-un-retryable, since a retry would re-throw on the SAME
+   * already-deleted target forever without `findUndoRecord` ever finding a
+   * row to short-circuit on. A ledger entry (`'succeeded'`/
+   * `'partially_succeeded'`/`'failed'`, mirroring `executeGenerateSubtasks`'s
+   * own partial-outcome discipline) is now ALWAYS written before this method
+   * returns OR throws, so a subsequent attempt always finds it via
+   * `findUndoRecord` and fails closed with `ConflictError` instead of
+   * silently re-attempting an already-partially-completed reversal.
+   */
+  async undoAction(
+    workspaceId: string,
+    recordId: string,
+    actor: Actor,
+    callerRole: MembershipRole,
+  ): Promise<{ status: 'undone' }> {
+    const original = await this.agentActionRecordsService.get(workspaceId, recordId, callerRole);
+    if (!original) {
+      throw new NotFoundError('Agent action record not found.');
+    }
+
+    if (original.rollbackPlan.kind !== 'delete') {
+      throw new ValidationError(
+        `This action's rollback plan ("${original.rollbackPlan.kind}") cannot be undone automatically yet.`,
+      );
+    }
+
+    const alreadyUndone = await this.agentActionRecordsService.findUndoRecord(
+      workspaceId,
+      recordId,
+    );
+    if (alreadyUndone) {
+      throw new ConflictError('This action has already been undone.');
+    }
+
+    const objectTargets = original.resources.filter(
+      (resource): resource is ActionResourceReference & { kind: 'object' } =>
+        resource.kind === 'object',
+    );
+
+    let softDeletedCount = 0;
+    let failure: unknown;
+
+    for (const target of objectTargets) {
+      try {
+        await this.objectsService.softDelete(workspaceId, target.objectId, actor);
+        softDeletedCount += 1;
+      } catch (error) {
+        failure = error;
+        break;
+      }
+    }
+
+    if (failure !== undefined) {
+      await this.recordUndoLedgerEntry(
+        workspaceId,
+        original,
+        actor,
+        softDeletedCount === 0 ? 'failed' : 'partially_succeeded',
+      );
+      throw failure instanceof Error
+        ? failure
+        : new Error('This action could not be fully undone.');
+    }
+
+    await this.recordUndoLedgerEntry(workspaceId, original, actor, 'succeeded');
+
+    return { status: 'undone' };
+  }
+
+  /**
+   * `undoAction`'s own ledger-write helper — mirrors `recordDecidedLedgerEntry`'s
+   * best-effort/never-throws discipline (a ledger-write failure must never
+   * mask the already-completed reversal). `provenance:'decided'` and a fixed,
+   * literal `intent`/`rationale` (not copied from the original action) since
+   * this is always a direct human click on the Flight Recorder panel, never
+   * an AI-proposed action. `undoesRecordId` points back at the original
+   * record — this is the field `findUndoRecord` above queries by. `outcome`
+   * reflects what ACTUALLY happened in `undoAction`'s soft-delete loop
+   * (security-review finding, F3-T6 PR2) — never hardcoded to `'succeeded'`.
+   */
+  private async recordUndoLedgerEntry(
+    workspaceId: string,
+    original: AgentActionRecord,
+    actor: Actor,
+    outcome: AgentActionOutcome,
+  ): Promise<void> {
+    try {
+      await this.agentActionRecordsService.record(workspaceId, {
+        provenance: 'decided',
+        actor,
+        actionType: 'undoAction',
+        intent: `"${original.actionType}" aksiyonunu geri al.`,
+        rationale: 'Kullanıcı Uçuş Kayıt Cihazı panelinden bu aksiyonu geri aldı.',
+        resources: original.resources,
+        rollbackPlan: {
+          kind: 'none',
+          description: 'Bir geri alma aksiyonu kendisi geri alınamaz.',
+        },
+        outcome,
+        resultRef: null,
+        causationEventId: null,
+        undoesRecordId: original.id,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Undo ledger record write failed for workspace ${workspaceId}, original record ${original.id}; the already-completed reversal is unaffected.`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 }

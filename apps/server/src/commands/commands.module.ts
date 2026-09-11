@@ -33,6 +33,12 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * `CommandsModule -> CommentsModule -> SkillsModule -> CommandsModule`
  * (`SkillsModule` already imports `CommandsModule` for `CommandsService`,
  * wrapped in its own matching `forwardRef()`).
+ *
+ * `AgentRuntimeModule` itself is wrapped in `forwardRef()` too (F3-T6 PR2,
+ * ADR-0040 Karar g): it now imports `CommandsModule` back (so
+ * `AgentActionRecordsController.undo` can inject `CommandsService`), closing
+ * a genuine 2-module cycle — `forwardRef()` on BOTH edges, mirroring the
+ * `CommentsModule` precedent above.
  */
 @Module({
   imports: [
@@ -43,7 +49,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AIUsageModule,
     ObjectsModule,
     RelationsModule,
-    AgentRuntimeModule,
+    forwardRef(() => AgentRuntimeModule),
     forwardRef(() => CommentsModule),
   ],
   controllers: [CommandsController],

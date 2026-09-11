@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 
 import { MentionActionWorker } from './mention-action-worker.service.js';
 import { ObjectCommentsController } from './object-comments.controller.js';
@@ -21,9 +21,26 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * already-exported `SkillExecutionService` -- `MentionActionWorker`'s FIRST
  * real caller (`SkillsModule` does not import `CommentsModule`, so no
  * circular dependency here).
+ *
+ * `AgentRuntimeModule` is wrapped in `forwardRef()` (F3-T6 PR2, ADR-0040
+ * Karar g): `AgentRuntimeModule` now imports `CommandsModule` (for
+ * `AgentActionRecordsController.undo`), and `CommandsModule` imports
+ * `CommentsModule` back — since `AgentRuntimeModule` is app.module.ts's very
+ * FIRST static import, its own module body starts loading `CommandsModule`
+ * (and transitively THIS file) before `AgentRuntimeModule`'s own class
+ * binding is assigned; without `forwardRef()` here, this file's `@Module`
+ * decorator would see `AgentRuntimeModule` as `undefined` at that point
+ * (real, reproduced failure: "Nest cannot create the CommentsModule
+ * instance ... module at index [3] ... is undefined").
  */
 @Module({
-  imports: [EventStoreModule, DbModule, AuthModule, AgentRuntimeModule, SkillsModule],
+  imports: [
+    EventStoreModule,
+    DbModule,
+    AuthModule,
+    forwardRef(() => AgentRuntimeModule),
+    SkillsModule,
+  ],
   controllers: [ObjectCommentsController],
   providers: [
     CommentsService,

@@ -7,6 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { objectResource } from '@luminaos/agent-runtime';
+import type { RollbackPlan } from '@luminaos/agent-runtime';
 import type { Actor } from '@luminaos/shared';
 
 import { AgentActionRecordsService } from './agent-action-records.service.js';
@@ -16,6 +17,7 @@ import { memberships } from '../db/schema/memberships.js';
 
 import type { RecordAgentActionInput } from './agent-action-records.service.js';
 import type { Database } from '../db/client.js';
+import type { ObjectsService } from '../objects/objects.service.js';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
 
@@ -47,7 +49,12 @@ import type { Server } from 'node:http';
  *        -> 200 { record } (requires `member`+, else 403)
  *        A non-existent id, OR one belonging to a DIFFERENT workspace -> 404.
  *
- *   No POST/PUT/PATCH/DELETE route exists on this controller at all.
+ *   No POST/PUT/PATCH/DELETE route exists on this controller at all -- EXCEPT
+ *   (F3-T6 PR2, ADR-0040 Karar g) the ONE deliberate write-route exception
+ *   below, `POST .../:id/undo` (member+, delegates to `CommandsService.
+ *   undoAction`): 200 `{status:'undone'}` / 400 (`ValidationError`,
+ *   non-`'delete'` rollbackPlan) / 401 (unauthenticated) / 403 (below member)
+ *   / 404 (non-existent id) / 409 (`ConflictError`, already undone).
  * ---------------------------------------------------------------------------
  */
 
@@ -91,7 +98,10 @@ function freshEmail(): string {
   return `agent-action-records-test-user-${String(emailCounter)}@example.com`;
 }
 
-function fixtureInput(actionType: string): RecordAgentActionInput {
+function fixtureInput(
+  actionType: string,
+  overrides: Partial<RecordAgentActionInput> = {},
+): RecordAgentActionInput {
   return {
     provenance: 'decided',
     actor: { type: 'user', id: randomUUID() },
@@ -108,6 +118,7 @@ function fixtureInput(actionType: string): RecordAgentActionInput {
     resultRef: objectResource('obj-1'),
     causationEventId: randomUUID(),
     undoesRecordId: null,
+    ...overrides,
   };
 }
 
@@ -118,6 +129,7 @@ describe('F3-T4 PR1b: HTTP .../agent-action-records -- read-only Flight Recorder
   let server: Server;
   let rawDb: Database;
   let agentActionRecordsService: AgentActionRecordsService;
+  let objectsService: ObjectsService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:16').start();
@@ -140,6 +152,16 @@ describe('F3-T4 PR1b: HTTP .../agent-action-records -- read-only Flight Recorder
     server = app.getHttpServer() as Server;
     rawDb = createDatabaseClient(container.getConnectionUri());
     agentActionRecordsService = app.get(AgentActionRecordsService);
+
+    // `ObjectsService` is imported dynamically (type-only at the top of this
+    // file) -- a plain top-level value import transitively pulls in
+    // `AIUsageService`/`env.ts`, which eagerly reads `process.env.DATABASE_URL`
+    // at MODULE-EVAL time (before this `beforeAll` sets it above), crashing
+    // with `process.exit(1)`. Mirrors `commands.service.ledger.integration.
+    // test.ts`'s identical workaround.
+    const objectsServiceModule = await import('../objects/objects.service.js');
+    const ObjectsServiceCtor = objectsServiceModule.ObjectsService;
+    objectsService = app.get<ObjectsService>(ObjectsServiceCtor);
   }, 60_000);
 
   afterAll(async () => {
@@ -192,8 +214,75 @@ describe('F3-T4 PR1b: HTTP .../agent-action-records -- read-only Flight Recorder
     return `${recordsUrl(workspaceId)}/${id}`;
   }
 
+  function undoUrl(workspaceId: string, id: string): string {
+    return `${recordUrl(workspaceId, id)}/undo`;
+  }
+
+  function objectUrl(workspaceId: string, objectId: string): string {
+    return `/workspaces/${workspaceId}/objects/${objectId}`;
+  }
+
   async function seedRecord(workspaceId: string, actionType: string): Promise<string> {
     await agentActionRecordsService.record(workspaceId, fixtureInput(actionType));
+    const records = await agentActionRecordsService.list(workspaceId, 'admin');
+    const match = records.find((r) => r.actionType === actionType);
+    if (!match) {
+      throw new Error(`Expected a seeded record with actionType "${actionType}"`);
+    }
+    return match.id;
+  }
+
+  /**
+   * F3-T6 PR2 helpers (ADR-0040 Karar d/g) -- create a REAL task object (via
+   * the internal `ObjectsService`, same "internal call, not HTTP" convention
+   * this file already uses for seeding ledger rows) and a matching
+   * `kind:'delete'` ledger record pointing at it, for the new `POST .../:id/
+   * undo` HTTP tests below.
+   */
+  async function seedDeleteableTask(
+    workspaceId: string,
+    actionType: string,
+  ): Promise<{ recordId: string; objectId: string }> {
+    const actor: Actor = { type: 'user', id: randomUUID() };
+    const object = await objectsService.create(
+      workspaceId,
+      actor,
+      { objectType: 'task', title: `Undo HTTP test task (${actionType})` },
+      'owner',
+    );
+
+    await agentActionRecordsService.record(
+      workspaceId,
+      fixtureInput(actionType, {
+        actor,
+        resources: [objectResource(object.id)],
+        rollbackPlan: {
+          kind: 'delete',
+          targetResource: objectResource(object.id),
+          description: 'Oluşturulan görevi sil.',
+        },
+        resultRef: objectResource(object.id),
+      }),
+    );
+    const records = await agentActionRecordsService.list(workspaceId, 'admin');
+    const match = records.find((r) => r.actionType === actionType);
+    if (!match) {
+      throw new Error(`Expected a seeded record with actionType "${actionType}"`);
+    }
+    return { recordId: match.id, objectId: object.id };
+  }
+
+  async function seedNonDeleteableRecord(
+    workspaceId: string,
+    actionType: string,
+    kind: Exclude<RollbackPlan['kind'], 'delete'>,
+  ): Promise<string> {
+    await agentActionRecordsService.record(
+      workspaceId,
+      fixtureInput(actionType, {
+        rollbackPlan: { kind, description: `Non-delete rollback plan (${kind}).` },
+      }),
+    );
     const records = await agentActionRecordsService.list(workspaceId, 'admin');
     const match = records.find((r) => r.actionType === actionType);
     if (!match) {
@@ -318,5 +407,109 @@ describe('F3-T4 PR1b: HTTP .../agent-action-records -- read-only Flight Recorder
       .send({ actionType: 'should-not-be-writable' });
 
     expect(response.status).toBeGreaterThanOrEqual(400);
+  });
+
+  /**
+   * F3-T6 PR2 (RED step), ADR-0040 Karar (d)/(e)/(f)/(g) --
+   * `POST /workspaces/:workspaceId/agent-action-records/:id/undo`, the first
+   * write route this otherwise read-only controller has ever had (a
+   * deliberate, scoped exception per ADR-0040 Karar g -- see this file's own
+   * header comment for the prior "no write route at all" contract, which this
+   * new route knowingly, narrowly breaks).
+   *
+   * EXPECTED RED STATE (today): no `undo`/`:id/undo` route exists on
+   * `AgentActionRecordsController` at all, and `CommandsService` has no
+   * `undoAction` method -- every request below either 404s (unmatched route)
+   * or 500s (this app's `AppErrorFilter` maps a genuinely-unmatched route to
+   * 500, per test 9's own comment above), never the expected 200/400/403/404/
+   * 409/401 this describe block pins. If instead EVERY test in this whole
+   * file (not just this describe block) fails at `beforeAll`'s `app.init()`
+   * step, that signals a `CommandsModule <-> AgentRuntimeModule` circular-
+   * import wiring mistake (ADR-0040 Karar g's `forwardRef()` requirement on
+   * BOTH sides) -- a materially different failure to flag back to
+   * `implementer` than an isolated route/method-missing 404/500 here.
+   */
+  describe('10. POST :id/undo (F3-T6 PR2, ADR-0040) -- the one deliberate write-route exception', () => {
+    it('a "member" request against a real kind:"delete" record -> 200 {status:"undone"}, and the underlying object is actually soft-deleted', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const memberCookie = await addMemberWithRole(workspaceId, 'member');
+      const { recordId, objectId } = await seedDeleteableTask(workspaceId, 'undo-http-success-1');
+
+      const response = await request(server)
+        .post(undoUrl(workspaceId, recordId))
+        .set('Cookie', memberCookie);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ status: 'undone' });
+
+      const followUp = await request(server)
+        .get(objectUrl(workspaceId, objectId))
+        .set('Cookie', cookie);
+      expect(followUp.status).toBe(200);
+      const followUpBody = followUp.body as { object: { lifecycle: string } };
+      expect(followUpBody.object.lifecycle).toBe('deleted');
+    });
+
+    it('an unauthenticated request -> 401', async () => {
+      const { workspaceId } = await registerOwnerWithWorkspace();
+      const { recordId } = await seedDeleteableTask(workspaceId, 'undo-http-unauthenticated-1');
+
+      const response = await request(server).post(undoUrl(workspaceId, recordId));
+
+      expect(response.status).toBe(401);
+    });
+
+    it('a "guest" role request -> 403', async () => {
+      const { workspaceId } = await registerOwnerWithWorkspace();
+      const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+      const { recordId } = await seedDeleteableTask(workspaceId, 'undo-http-guest-1');
+
+      const response = await request(server)
+        .post(undoUrl(workspaceId, recordId))
+        .set('Cookie', guestCookie);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('a request for an already-undone record -> 409', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const { recordId } = await seedDeleteableTask(workspaceId, 'undo-http-conflict-1');
+
+      const firstResponse = await request(server)
+        .post(undoUrl(workspaceId, recordId))
+        .set('Cookie', cookie);
+      expect(firstResponse.status).toBe(200);
+
+      const secondResponse = await request(server)
+        .post(undoUrl(workspaceId, recordId))
+        .set('Cookie', cookie);
+
+      expect(secondResponse.status).toBe(409);
+    });
+
+    it('a request for a rollbackPlan.kind !== "delete" record -> 400', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+      const recordId = await seedNonDeleteableRecord(
+        workspaceId,
+        'undo-http-validation-1',
+        'revertFieldValue',
+      );
+
+      const response = await request(server)
+        .post(undoUrl(workspaceId, recordId))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('a request for a non-existent record id -> 404', async () => {
+      const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+
+      const response = await request(server)
+        .post(undoUrl(workspaceId, randomUUID()))
+        .set('Cookie', cookie);
+
+      expect(response.status).toBe(404);
+    });
   });
 });
