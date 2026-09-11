@@ -526,4 +526,53 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect(secondHtmlContentId).toBeDefined();
     expect(firstHtmlContentId).not.toBe(secondHtmlContentId);
   });
+
+  /**
+   * ===========================================================================
+   * F3-T8 PR2 ADDITION (ADR-0042 Karar b): a 5th Custom Field, `querySpec`,
+   * is added to `seedArtifactFields`'s SAME 4-field seed set for the
+   * `artifact` object type -- a JSON-serialized `QuerySpec`, stored as
+   * `longText` (the SAME field type `htmlContent`/`generationPrompt` already
+   * use, per Bağlam #9's "no `json`/structured `FieldType` exists" finding).
+   * NO migration, NO change to the 4 existing fields (`htmlContent`/
+   * `themePreset`/`generationPrompt`/`artifactType`) -- purely additive.
+   *
+   * RED STATE (expected, today): `seedArtifactFields` (`./workspaces.service.ts`)
+   * has no `querySpec` seed call at all, so `GET
+   * /workspaces/:id/object-types/artifact/fields` never returns a
+   * `querySpec` field -- `.find((fd) => fd.key === 'querySpec')` resolves to
+   * `undefined` below.
+   *
+   * CONTRACT PINNED BY THIS ADDITION (implementer must match precisely):
+   *
+   *   `querySpec` -- fieldType 'longText', config {}, SAME
+   *                  `SEEDED_FIELD_PERMISSIONS` shape as the other 4 fields
+   *                  (owner/admin/member: edit, guest: view).
+   * ===========================================================================
+   */
+  it('POST /workspaces also seeds a 5th "querySpec" (longText) Custom Field for "artifact", alongside the 4 existing ones, with ZERO change to the other 4 (F3-T8 PR2, ADR-0042 Karar b)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const listResponse = await request(server)
+      .get(artifactFieldsUrl(workspaceId))
+      .set('Cookie', cookie);
+
+    expect(listResponse.status).toBe(200);
+    const { fieldDefinitions } = listResponse.body as FieldDefinitionListEnvelope;
+
+    const querySpecField = fieldDefinitions.find((fd) => fd.key === 'querySpec');
+    expect(querySpecField).toBeDefined();
+    expect(querySpecField?.fieldType).toBe('longText');
+    expect(querySpecField?.objectType).toBe('artifact');
+    expect(querySpecField?.config).toEqual({});
+
+    // The 4 pre-existing fields are still present, unchanged.
+    expect(fieldDefinitions.find((fd) => fd.key === 'htmlContent')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'themePreset')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'generationPrompt')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'artifactType')).toBeDefined();
+
+    // Now exactly 5 seeded fields total for "artifact" -- not 4, not 6.
+    expect(fieldDefinitions).toHaveLength(5);
+  });
 });
