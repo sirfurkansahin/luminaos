@@ -1,9 +1,10 @@
 import { render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FlightRecorderPanel as FlightRecorderPanelModuleExport } from './FlightRecorderPanel.js';
 
-import type { UseQueryResult } from '@tanstack/react-query';
+import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
 
 /**
  * F3-T4 PR4 (ADR-0038 §h, spec Kabul Kriterleri) — TDD red step. Contract
@@ -62,6 +63,25 @@ import type { UseQueryResult } from '@tanstack/react-query';
  * itself DOES NOT exist yet either — imported directly (`ModuleExport`
  * cast), so this test file is expected to fail to even resolve that import
  * until the component exists — the documented TDD red state.
+ *
+ * F3-T6 PR3 (ADR-0040 §d/e/f/g) — TDD red step addendum. This panel gains a
+ * real "Geri al" (undo) button, mirroring `TriggerSuggestionsPanel.tsx`'s
+ * action-button/isPending-disable/isError-message convention:
+ * - `AgentActionRecord` gains `undoesRecordId: string | null` -- null on
+ *   normal records; on an "undo record", it points at the id of the record
+ *   it undid. "already undone" means SOME record in the full list has
+ *   `undoesRecordId === thisRecord.id`.
+ * - a `data-testid=\`flight-recorder-undo-${record.id}\`` button renders for
+ *   a row ONLY when `record.rollbackPlan.kind === 'delete'` AND no other
+ *   record in the list has `undoesRecordId === record.id`.
+ * - clicking it calls the undo mutation's `mutate` with EXACTLY `record.id`
+ *   (bare string).
+ * - disabled while the mutation `isPending`.
+ * - `isError` -> a visible `data-testid="flight-recorder-undo-error"`
+ *   message, rest of the panel keeps rendering.
+ * - `useUndoAgentActionMutation(workspaceId)` is called exactly once at the
+ *   top of the panel (not per-row), mocked the same `vi.hoisted` way as
+ *   `useAgentActionRecordsQuery` above.
  */
 
 type ActionProvenance = 'decided' | 'autonomous';
@@ -94,14 +114,19 @@ interface AgentActionRecord {
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
   occurredAt: string;
+  undoesRecordId: string | null;
 }
 
-const { mockedUseAgentActionRecordsQuery } = vi.hoisted(() => {
-  return { mockedUseAgentActionRecordsQuery: vi.fn() };
+const { mockedUseAgentActionRecordsQuery, mockedUseUndoAgentActionMutation } = vi.hoisted(() => {
+  return {
+    mockedUseAgentActionRecordsQuery: vi.fn(),
+    mockedUseUndoAgentActionMutation: vi.fn(),
+  };
 });
 
 vi.mock('../../hooks/useAgentActionRecordsQuery.js', () => ({
   useAgentActionRecordsQuery: mockedUseAgentActionRecordsQuery,
+  useUndoAgentActionMutation: mockedUseUndoAgentActionMutation,
 }));
 
 const FlightRecorderPanel = FlightRecorderPanelModuleExport;
@@ -127,6 +152,7 @@ function makeRecordFixture(overrides: Partial<AgentActionRecord> = {}): AgentAct
     resultRef: { kind: 'object', objectId: 'obj-1' },
     causationEventId: 'event-1',
     occurredAt: '2026-08-01T00:00:00.000Z',
+    undoesRecordId: null,
     ...overrides,
   };
 }
@@ -197,11 +223,34 @@ function mockQuery(
   });
 }
 
+function mockUndoMutation(
+  overrides: Partial<UseMutationResult<{ status: 'undone' }, Error, string>> = {},
+): { undoMutate: ReturnType<typeof vi.fn> } {
+  const undoMutate = vi.fn();
+  mockedUseUndoAgentActionMutation.mockReturnValue({
+    mutate: undoMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    error: null,
+    data: undefined,
+    reset: vi.fn(),
+    status: 'idle',
+    ...overrides,
+  });
+  return { undoMutate };
+}
+
 afterEach(() => {
   vi.clearAllMocks();
 });
 
 describe('FlightRecorderPanel', () => {
+  beforeEach(() => {
+    mockUndoMutation();
+  });
+
   it('renders a loading state (data-testid="flight-recorder-loading") while the query is loading', () => {
     mockQuery(undefined, { isLoading: true });
 
@@ -346,8 +395,15 @@ describe('FlightRecorderPanel', () => {
     expect(screen.getByTestId('flight-recorder-item-record-2')).toBeInTheDocument();
   });
 
-  it('renders NO buttons or other actionable elements anywhere in the panel -- purely read-only', () => {
-    const decided = makeRecordFixture();
+  it('renders NO buttons or other actionable elements for records with no undo-eligible rollback plan (F3-T6 PR3: the ONLY exception is a "Geri al" button on delete-rollback-plan, not-yet-undone records, covered separately below)', () => {
+    // deliberately non-'delete' rollback plans here: F3-T6 PR3 adds a real
+    // "Geri al" button for delete-rollback-plan records, so this fixture is
+    // overridden to keep asserting the true read-only case for these two
+    // records specifically (see the dedicated undo-button tests below for
+    // the delete-rollback-plan case).
+    const decided = makeRecordFixture({
+      rollbackPlan: { kind: 'manual', description: 'Elle geri alınmalı.' },
+    });
     const autonomous = makeAutonomousFailedFixture();
     mockQuery({ records: [decided, autonomous] });
 
@@ -365,6 +421,140 @@ describe('FlightRecorderPanel', () => {
 
     expect(mockedUseAgentActionRecordsQuery).toHaveBeenCalledWith(workspaceId);
     for (const call of mockedUseAgentActionRecordsQuery.mock.calls as unknown[][]) {
+      expect(call).toEqual([workspaceId]);
+    }
+  });
+
+  // -- F3-T6 PR3 (ADR-0040 §d/e/f/g): "Geri al" (undo) button -----------------
+
+  it('renders an undo button (flight-recorder-undo-${id}) for a delete-rollback-plan record that has not been undone', () => {
+    const record = makeRecordFixture({
+      id: 'record-1',
+      rollbackPlan: {
+        kind: 'delete',
+        targetResource: { kind: 'object', objectId: 'obj-1' },
+        description: 'Oluşturulan görevi sil.',
+      },
+      undoesRecordId: null,
+    });
+    mockQuery({ records: [record] });
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+    expect(screen.getByTestId('flight-recorder-undo-record-1')).toBeInTheDocument();
+  });
+
+  it.each(['revertFieldValue', 'revokePermission', 'manual', 'none'] as const)(
+    'does NOT render an undo button for a record whose rollbackPlan.kind is "%s"',
+    (kind) => {
+      const record = makeRecordFixture({
+        id: 'record-1',
+        rollbackPlan: { kind, description: 'Elle geri alınmalı.' },
+        undoesRecordId: null,
+      });
+      mockQuery({ records: [record] });
+
+      render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+      expect(screen.queryByTestId('flight-recorder-undo-record-1')).not.toBeInTheDocument();
+    },
+  );
+
+  it("does NOT render an undo button for a delete-rollback-plan record that has already been undone (another record's undoesRecordId points at it)", () => {
+    const original = makeRecordFixture({
+      id: 'record-1',
+      rollbackPlan: {
+        kind: 'delete',
+        targetResource: { kind: 'object', objectId: 'obj-1' },
+        description: 'Oluşturulan görevi sil.',
+      },
+      undoesRecordId: null,
+    });
+    const undoRecord = makeRecordFixture({
+      id: 'record-1-undo',
+      actionType: 'undoAgentAction',
+      intent: "'record-1' aksiyonunu geri al",
+      rollbackPlan: { kind: 'none', description: 'Hiçbir mutasyon oluşmadı.' },
+      outcome: 'succeeded',
+      resultRef: null,
+      undoesRecordId: 'record-1',
+      occurredAt: '2026-08-05T00:00:00.000Z',
+    });
+    mockQuery({ records: [original, undoRecord] });
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+    expect(screen.queryByTestId('flight-recorder-undo-record-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('flight-recorder-undo-record-1-undo')).not.toBeInTheDocument();
+  });
+
+  it("clicking the undo button calls the undo mutation's mutate with EXACTLY the record's own id (bare string)", async () => {
+    const record = makeRecordFixture({
+      id: 'record-1',
+      rollbackPlan: {
+        kind: 'delete',
+        targetResource: { kind: 'object', objectId: 'obj-1' },
+        description: 'Oluşturulan görevi sil.',
+      },
+      undoesRecordId: null,
+    });
+    mockQuery({ records: [record] });
+    const { undoMutate } = mockUndoMutation();
+    const user = userEvent.setup();
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+    await user.click(screen.getByTestId('flight-recorder-undo-record-1'));
+
+    expect(undoMutate).toHaveBeenCalledTimes(1);
+    expect(undoMutate).toHaveBeenCalledWith('record-1');
+  });
+
+  it('disables the undo button while the undo mutation isPending', () => {
+    const record = makeRecordFixture({
+      id: 'record-1',
+      rollbackPlan: {
+        kind: 'delete',
+        targetResource: { kind: 'object', objectId: 'obj-1' },
+        description: 'Oluşturulan görevi sil.',
+      },
+      undoesRecordId: null,
+    });
+    mockQuery({ records: [record] });
+    mockUndoMutation({ isPending: true });
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+    expect(screen.getByTestId('flight-recorder-undo-record-1')).toBeDisabled();
+  });
+
+  it('renders a visible undo-error message (flight-recorder-undo-error) when the undo mutation isError, without hiding the rest of the list', () => {
+    const record = makeRecordFixture({
+      id: 'record-1',
+      rollbackPlan: {
+        kind: 'delete',
+        targetResource: { kind: 'object', objectId: 'obj-1' },
+        description: 'Oluşturulan görevi sil.',
+      },
+      undoesRecordId: null,
+    });
+    const other = makeAutonomousFailedFixture();
+    mockQuery({ records: [record, other] });
+    mockUndoMutation({ isError: true, error: new Error('undo failed') });
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+    expect(screen.getByTestId('flight-recorder-undo-error')).toBeInTheDocument();
+    expect(screen.getByTestId('flight-recorder-item-record-1')).toBeInTheDocument();
+    expect(screen.getByTestId('flight-recorder-item-record-2')).toBeInTheDocument();
+  });
+
+  it('calls useUndoAgentActionMutation exactly once, sourced only from the workspaceId prop', () => {
+    mockQuery({ records: [] });
+
+    render(<FlightRecorderPanel workspaceId={workspaceId} />);
+
+    expect(mockedUseUndoAgentActionMutation).toHaveBeenCalledWith(workspaceId);
+    for (const call of mockedUseUndoAgentActionMutation.mock.calls as unknown[][]) {
       expect(call).toEqual([workspaceId]);
     }
   });

@@ -1,10 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useAgentActionRecordsQuery } from './useAgentActionRecordsQuery.js';
-import { listAgentActionRecords } from '../lib/apiClient.js';
+import {
+  useAgentActionRecordsQuery,
+  useUndoAgentActionMutation,
+} from './useAgentActionRecordsQuery.js';
+import { listAgentActionRecords, undoAgentAction } from '../lib/apiClient.js';
 
 /**
  * F3-T4 PR4 (ADR-0038 §h, spec Kabul Kriterleri) — TDD red step. Contract
@@ -56,6 +59,27 @@ import { listAgentActionRecords } from '../lib/apiClient.js';
  * existing convention of being exercised only through its consumers' tests
  * (see useMcpGrantsQuery.test.ts's identical rationale; there is no separate
  * apiClient.test.ts coverage for listAgentActionRecords).
+ *
+ * F3-T6 PR3 (ADR-0040 §d/e/f/g) — TDD red step addendum. Contract under test
+ * (not yet implemented — implementer must add the following new exports to
+ * apiClient.ts AND add `useUndoAgentActionMutation` to
+ * useAgentActionRecordsQuery.ts), mirroring `useSetAutonomyTierMutation`'s
+ * mutation shape but with a bare-string mutation variable (mirrors this
+ * codebase's simplest single-argument mutation shapes):
+ *
+ *   // apps/web/src/lib/apiClient.ts
+ *   export interface AgentActionRecord { ...; undoesRecordId: string | null; }
+ *   export function undoAgentAction(
+ *     workspaceId: string, recordId: string,
+ *   ): Promise<{ status: 'undone' }>;
+ *       // POST /workspaces/:workspaceId/agent-action-records/:id/undo
+ *
+ *   // apps/web/src/hooks/useAgentActionRecordsQuery.ts
+ *   export function useUndoAgentActionMutation(
+ *     workspaceId: string,
+ *   ): UseMutationResult<{ status: 'undone' }, Error, string>;
+ *       // mutationFn delegates to undoAgentAction(workspaceId, recordId).
+ *       // onSuccess invalidates ['agentActionRecords', workspaceId] (exact key).
  */
 
 type FixtureResourceReference = { kind: 'object'; objectId: string };
@@ -77,13 +101,16 @@ interface FixtureRecord {
   resultRef: FixtureResourceReference | null;
   causationEventId: string | null;
   occurredAt: string;
+  undoesRecordId: string | null;
 }
 
 vi.mock('../lib/apiClient.js', () => ({
   listAgentActionRecords: vi.fn(),
+  undoAgentAction: vi.fn(),
 }));
 
 const mockedListAgentActionRecords = vi.mocked(listAgentActionRecords);
+const mockedUndoAgentAction = vi.mocked(undoAgentAction);
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -114,6 +141,7 @@ function makeRecordFixture(overrides: Partial<FixtureRecord> = {}): FixtureRecor
     resultRef: { kind: 'object', objectId: 'obj-1' },
     causationEventId: 'event-1',
     occurredAt: '2026-08-01T00:00:00.000Z',
+    undoesRecordId: null,
     ...overrides,
   };
 }
@@ -201,5 +229,91 @@ describe('useAgentActionRecordsQuery', () => {
     });
 
     expect(result.current.isLoading).toBe(true);
+  });
+});
+
+describe('useUndoAgentActionMutation', () => {
+  const workspaceId = 'ws-1';
+  const recordId = 'record-1';
+
+  it('calls apiClient.undoAgentAction with the workspace id and the bare record id string on mutate', async () => {
+    mockedUndoAgentAction.mockResolvedValueOnce({ status: 'undone' });
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useUndoAgentActionMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate(recordId);
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockedUndoAgentAction).toHaveBeenCalledWith(workspaceId, recordId);
+    expect(mockedUndoAgentAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the exact ["agentActionRecords", workspaceId] query once the mutation succeeds', async () => {
+    mockedUndoAgentAction.mockResolvedValueOnce({ status: 'undone' });
+    const { queryClient, Wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useUndoAgentActionMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate(recordId);
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['agentActionRecords', workspaceId],
+    });
+  });
+
+  it('resolves with the { status: "undone" } shape returned by apiClient.undoAgentAction', async () => {
+    mockedUndoAgentAction.mockResolvedValueOnce({ status: 'undone' });
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useUndoAgentActionMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate(recordId);
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data).toEqual({ status: 'undone' });
+  });
+
+  it('transitions to isError with the thrown error when apiClient.undoAgentAction rejects', async () => {
+    const error = new Error('boom');
+    mockedUndoAgentAction.mockRejectedValueOnce(error);
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useUndoAgentActionMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate(recordId);
+    });
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    expect(result.current.error).toBe(error);
   });
 });

@@ -1,17 +1,22 @@
-import { Badge, EmptyState, Skeleton } from '@luminaos/ui';
+import { Badge, Button, EmptyState, Skeleton } from '@luminaos/ui';
 import type { BadgeVariant } from '@luminaos/ui';
 
-import { useAgentActionRecordsQuery } from '../../hooks/useAgentActionRecordsQuery.js';
+import {
+  useAgentActionRecordsQuery,
+  useUndoAgentActionMutation,
+} from '../../hooks/useAgentActionRecordsQuery.js';
 
 import type { AgentActionRecord, ActionResourceReference } from '../../lib/apiClient.js';
 
 /**
  * F3-T4 PR4 (ADR-0038 §h) -- "Uçuş Kayıt Cihazı" paneli: her ajan
  * aksiyonunun niyet/gerekçe/kaynaklar/geri-alma-planı/actor/occurredAt/
- * outcome bilgisini gösteren, tamamen SALT-OKUNUR bir liste.
+ * outcome bilgisini gösteren, büyük ölçüde SALT-OKUNUR bir liste.
  * `AutomationHistoryPanel.tsx`'in düz-liste-diyalogsuz konvansiyonunu
- * izler -- ama bekleyen/karara-bağlanan ayrımı ve onayla/reddet gibi hiçbir
- * aksiyon butonu YOK (F3-T6'nın kapsamı, bu görev yalnızca kaydeder).
+ * izler -- bekleyen/karara-bağlanan ayrımı yok. F3-T6 PR3 (ADR-0040
+ * §d/e/f/g) `rollbackPlan.kind === 'delete'` ve henüz geri alınmamış
+ * kayıtlar için tek bir "Geri al" butonu ekler; `TriggerSuggestionsPanel.tsx`'in
+ * aksiyon-butonu/isPending-disable/isError-mesajı konvansiyonunu izler.
  */
 export interface FlightRecorderPanelProps {
   workspaceId: string;
@@ -52,7 +57,17 @@ function describeResource(resource: ActionResourceReference): string {
   }
 }
 
-function FlightRecorderRow({ record }: { record: AgentActionRecord }) {
+function FlightRecorderRow({
+  record,
+  canUndo,
+  isUndoPending,
+  onUndo,
+}: {
+  record: AgentActionRecord;
+  canUndo: boolean;
+  isUndoPending: boolean;
+  onUndo: (recordId: string) => void;
+}) {
   return (
     <li data-testid={`flight-recorder-item-${record.id}`}>
       <p>{record.intent}</p>
@@ -76,12 +91,25 @@ function FlightRecorderRow({ record }: { record: AgentActionRecord }) {
       >
         {OUTCOME_LABEL[record.outcome]}
       </Badge>
+      {canUndo ? (
+        <Button
+          type="button"
+          data-testid={`flight-recorder-undo-${record.id}`}
+          disabled={isUndoPending}
+          onClick={() => {
+            onUndo(record.id);
+          }}
+        >
+          Geri al
+        </Button>
+      ) : null}
     </li>
   );
 }
 
 export function FlightRecorderPanel({ workspaceId }: FlightRecorderPanelProps) {
   const { data, isLoading, isError } = useAgentActionRecordsQuery(workspaceId);
+  const undoMutation = useUndoAgentActionMutation(workspaceId);
 
   if (isLoading) {
     return (
@@ -113,11 +141,37 @@ export function FlightRecorderPanel({ workspaceId }: FlightRecorderPanelProps) {
     );
   }
 
+  const undoneRecordIds = new Set(
+    records
+      .map((record) => record.undoesRecordId)
+      .filter((undoneId): undoneId is string => typeof undoneId === 'string'),
+  );
+
+  function handleUndo(recordId: string): void {
+    undoMutation.mutate(recordId);
+  }
+
   return (
-    <ul aria-label="Ajan aksiyon kayıtları" data-testid="flight-recorder-list">
-      {records.map((record) => (
-        <FlightRecorderRow key={record.id} record={record} />
-      ))}
-    </ul>
+    <>
+      {undoMutation.isError ? (
+        <EmptyState
+          data-testid="flight-recorder-undo-error"
+          title="Geri alma işlemi başarısız oldu"
+          description="Kısa bir süre sonra tekrar deneyin."
+        />
+      ) : null}
+
+      <ul aria-label="Ajan aksiyon kayıtları" data-testid="flight-recorder-list">
+        {records.map((record) => (
+          <FlightRecorderRow
+            key={record.id}
+            record={record}
+            canUndo={record.rollbackPlan.kind === 'delete' && !undoneRecordIds.has(record.id)}
+            isUndoPending={undoMutation.isPending}
+            onUndo={handleUndo}
+          />
+        ))}
+      </ul>
+    </>
   );
 }

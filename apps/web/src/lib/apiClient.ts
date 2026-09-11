@@ -968,6 +968,11 @@ export interface AgentActionRecord {
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
   occurredAt: string;
+  /**
+   * F3-T6 PR3 (ADR-0040 §d/e/f/g) -- null on normal records; on an "undo
+   * record", points at the id of the record it undid.
+   */
+  undoesRecordId: string | null;
 }
 
 export function listAgentActionRecords(
@@ -976,6 +981,20 @@ export function listAgentActionRecords(
   return request<{ records: AgentActionRecord[] }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/agent-action-records`,
     { method: 'GET' },
+  );
+}
+
+/**
+ * F3-T6 PR3 (ADR-0040 §d/e/f/g) -- undo a delete-rollback-plan agent action
+ * record, feeding `FlightRecorderPanel`'s "Geri al" button.
+ */
+export function undoAgentAction(
+  workspaceId: string,
+  recordId: string,
+): Promise<{ status: 'undone' }> {
+  return request<{ status: 'undone' }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/agent-action-records/${encodeURIComponent(recordId)}/undo`,
+    { method: 'POST' },
   );
 }
 
