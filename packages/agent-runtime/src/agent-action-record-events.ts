@@ -51,6 +51,10 @@ export const agentActionRecordedPayloadSchema = z
     outcome: z.enum(['succeeded', 'partially_succeeded', 'failed', 'rejected']),
     resultRef: actionResourceReferenceSchema.nullable(),
     causationEventId: z.uuid().nullable(),
+    // The referenced id is another AgentActionRecord's row id (a ULID,
+    // newObjectId(), max 26 chars per the projection's own `id` column
+    // width) -- NOT a UUID like causationEventId above.
+    undoesRecordId: z.string().min(1).max(26).nullable(),
   })
   .strict();
 

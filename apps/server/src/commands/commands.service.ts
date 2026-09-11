@@ -1012,6 +1012,7 @@ export class CommandsService {
         outcome: fields.outcome,
         resultRef: fields.resultRef,
         causationEventId,
+        undoesRecordId: null,
       });
     } catch (error) {
       this.logger.error(

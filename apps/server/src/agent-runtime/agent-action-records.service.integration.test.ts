@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { commentResource, objectResource } from '@luminaos/agent-runtime';
 import type { ActionResourceReference, RollbackPlan } from '@luminaos/agent-runtime';
+import { newObjectId } from '@luminaos/core-objects';
 import { ForbiddenError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
@@ -95,6 +96,42 @@ import type { MembershipRole } from '../workspaces/membership.util.js';
  *     an id belonging to a DIFFERENT workspace -- the controller layer is
  *     responsible for turning `null` into a 404.
  * ============================================================================
+ *
+ * F3-T6 PR1 (RED step) ADDITION, ADR-0040 Karar (c)/(f)/"Somut Şekiller":
+ * `AgentActionRecord`/`RecordAgentActionInput` both gain a new REQUIRED
+ * `undoesRecordId: string | null` field -- `null` on every normal record
+ * (every existing caller today), the ORIGINAL record's own `id` (a ULID) on
+ * a future undo-shaped record (PR2's `CommandsService.undoAction`, not this
+ * PR's scope). The service also gains a new method:
+ *
+ *   findUndoRecord(workspaceId: string, originalRecordId: string):
+ *     Promise<AgentActionRecordContract | null>
+ *
+ * -- internal-only (no `callerRole`, mirrors `record()`'s own no-RBAC
+ * convention), looks up the (at most one) row with
+ * `undoesRecordId === originalRecordId` scoped to `workspaceId`. This PR
+ * does NOT add any real undo execution (`CommandsService.undoAction`,
+ * PR2) -- only the field/plumbing/lookup.
+ *
+ * EXPECTED RED STATE (today, F3-T6 PR1): `record()`'s payload mapping does
+ * not yet forward `input.undoesRecordId` to
+ * `agentActionRecordedPayloadSchema.parse(...)`, the `agent_action_records`
+ * table/schema has no `undoes_record_id` column, and
+ * `AgentActionRecordsService` has no `findUndoRecord` method at all --
+ * calling `service.findUndoRecord(...)` throws
+ * `TypeError: service.findUndoRecord is not a function`; reading back
+ * `undoesRecordId` off a persisted row resolves to `undefined`, not `null`
+ * (`toBeNull()` fails), because the column/mapping do not exist yet. Both
+ * are acceptable RED failure modes for this PR's new tests below, NOT a bug
+ * in this test file. Every PRE-EXISTING test above ALSO now passes
+ * `undoesRecordId: null` (via the updated `decidedInput`/`autonomousInput`
+ * factories below) -- this is the REGRESSION guard required by this PR
+ * (every existing call site must keep working once the field lands); it
+ * does not newly fail those tests today because the field is simply an
+ * extra property ignored by `record()`'s current field-by-field mapping to
+ * `agentActionRecordedPayloadSchema.parse(...)` (unlike the package-level
+ * `.strict()` schema tests in `agent-action-record-events.test.ts`, which DO
+ * go red today for the same reason).
  */
 
 /**
@@ -121,6 +158,8 @@ interface AgentActionRecordContract {
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
   occurredAt: Date;
+  /** NEW (F3-T6, ADR-0040 Karar c) -- see the file-header addendum above. */
+  undoesRecordId: string | null;
 }
 
 interface RecordAgentActionInput {
@@ -134,6 +173,8 @@ interface RecordAgentActionInput {
   outcome: 'succeeded' | 'partially_succeeded' | 'failed' | 'rejected';
   resultRef: ActionResourceReference | null;
   causationEventId: string | null;
+  /** NEW (F3-T6, ADR-0040 Karar c) -- see the file-header addendum above. */
+  undoesRecordId: string | null;
 }
 
 interface AgentActionRecordsServiceLike {
@@ -143,6 +184,11 @@ interface AgentActionRecordsServiceLike {
     workspaceId: string,
     recordId: string,
     callerRole: MembershipRole,
+  ): Promise<AgentActionRecordContract | null>;
+  /** NEW (F3-T6, ADR-0040 Karar f) -- see the file-header addendum above. */
+  findUndoRecord(
+    workspaceId: string,
+    originalRecordId: string,
   ): Promise<AgentActionRecordContract | null>;
 }
 
@@ -229,6 +275,10 @@ describe('F3-T4 PR1b (RED step): AgentActionRecordsService — unified agent-act
       outcome: 'succeeded',
       resultRef: objectResource('obj-newly-created-task-456'),
       causationEventId: randomUUID(),
+      // F3-T6 (ADR-0040 Karar c): `null` is the normal-record shape every
+      // existing caller passes today -- this is the REGRESSION-guard
+      // default this PR's own tests below prove keeps round-tripping.
+      undoesRecordId: null,
       ...overrides,
     };
   }
@@ -253,6 +303,9 @@ describe('F3-T4 PR1b (RED step): AgentActionRecordsService — unified agent-act
       outcome: 'succeeded',
       resultRef: commentResource('comment-reply-xyz'),
       causationEventId: null,
+      // F3-T6 (ADR-0040 Karar c): see the matching comment in
+      // `decidedInput` above.
+      undoesRecordId: null,
       ...overrides,
     };
   }
@@ -437,5 +490,101 @@ describe('F3-T4 PR1b (RED step): AgentActionRecordsService — unified agent-act
     expect(rejected?.resultRef).toBeNull();
     expect(failed?.outcome).toBe('failed');
     expect(failed?.resultRef).toBeNull();
+  });
+
+  /**
+   * F3-T6 PR1 (RED step), ADR-0040 Karar (c)/(f) -- `undoesRecordId` field
+   * plumbing + `findUndoRecord()`. See this file's header addendum above for
+   * the expected RED failure modes. Nested under the same outer `describe`
+   * so these tests share the same Testcontainers `beforeAll`/`afterAll` and
+   * `service`/`db` instances as tests 1-12 above, per this file's own
+   * established single-container-per-file convention.
+   */
+  describe('F3-T6 PR1 (RED step), ADR-0040 Karar (c)/(f): undoesRecordId + findUndoRecord()', () => {
+    it('13. record() with undoesRecordId: null (the normal case, every existing caller today) still round-trips correctly via list()/get() -- REGRESSION guard for the new field', async () => {
+      const workspaceId = await createWorkspace();
+      const created = await recordAndFetch(
+        workspaceId,
+        decidedInput({ actionType: 'undoes-record-id-null-regression-1' }),
+      );
+
+      expect(created.undoesRecordId).toBeNull();
+
+      const fetched = await service.get(workspaceId, created.id, 'member');
+      expect(fetched?.undoesRecordId).toBeNull();
+    });
+
+    it('14. record() with a non-null undoesRecordId round-trips correctly via get()', async () => {
+      const workspaceId = await createWorkspace();
+      const fakeOriginalRecordId = newObjectId();
+
+      const created = await recordAndFetch(
+        workspaceId,
+        decidedInput({
+          actionType: 'undoes-record-id-roundtrip-1',
+          undoesRecordId: fakeOriginalRecordId,
+        }),
+      );
+      expect(created.undoesRecordId).toBe(fakeOriginalRecordId);
+
+      const fetched = await service.get(workspaceId, created.id, 'member');
+      expect(fetched?.undoesRecordId).toBe(fakeOriginalRecordId);
+    });
+
+    it('15. findUndoRecord(workspaceId, originalRecordId) finds the (second, undo-shaped) record whose undoesRecordId points back at the original', async () => {
+      const workspaceId = await createWorkspace();
+      const original = await recordAndFetch(
+        workspaceId,
+        decidedInput({ actionType: 'original-create-task-1' }),
+      );
+      const undoRecord = await recordAndFetch(
+        workspaceId,
+        decidedInput({
+          actionType: 'undoAction',
+          undoesRecordId: original.id,
+          rollbackPlan: {
+            kind: 'none',
+            description: 'A geri alma aksiyonu kendisi geri alınamaz.',
+          },
+        }),
+      );
+
+      const found = await service.findUndoRecord(workspaceId, original.id);
+
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe(undoRecord.id);
+      expect(found?.undoesRecordId).toBe(original.id);
+    });
+
+    it('16. findUndoRecord() returns null when no record undoes the given original record id', async () => {
+      const workspaceId = await createWorkspace();
+      const original = await recordAndFetch(
+        workspaceId,
+        decidedInput({ actionType: 'never-undone-1' }),
+      );
+
+      const found = await service.findUndoRecord(workspaceId, original.id);
+
+      expect(found).toBeNull();
+    });
+
+    it('17. findUndoRecord() is workspace-scoped: an undo record in workspace A is not found via a DIFFERENT (real) workspace B, even though the original id it targets is a real id from workspace A', async () => {
+      const workspaceIdA = await createWorkspace();
+      const workspaceIdB = await createWorkspace();
+      const original = await recordAndFetch(
+        workspaceIdA,
+        decidedInput({ actionType: 'cross-workspace-original-1' }),
+      );
+      await service.record(
+        workspaceIdA,
+        decidedInput({ actionType: 'undoAction', undoesRecordId: original.id }),
+      );
+
+      const foundInOwnWorkspace = await service.findUndoRecord(workspaceIdA, original.id);
+      const foundInOtherWorkspace = await service.findUndoRecord(workspaceIdB, original.id);
+
+      expect(foundInOwnWorkspace).not.toBeNull();
+      expect(foundInOtherWorkspace).toBeNull();
+    });
   });
 });

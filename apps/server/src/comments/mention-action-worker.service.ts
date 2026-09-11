@@ -366,6 +366,7 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
         outcome: 'succeeded',
         resultRef: commentResource(replyCommentId),
         causationEventId: null,
+        undoesRecordId: null,
       });
     } catch (error) {
       this.logger.error(
@@ -401,6 +402,7 @@ export class MentionActionWorker implements OnModuleInit, OnModuleDestroy {
         outcome: 'failed',
         resultRef: null,
         causationEventId: null,
+        undoesRecordId: null,
       });
     } catch (error) {
       this.logger.error(

@@ -60,6 +60,10 @@ function buildValidDecidedPayload(
     outcome: 'succeeded',
     resultRef: { kind: 'object', objectId: 'obj-123' },
     causationEventId: '11111111-1111-4111-8111-111111111111',
+    // F3-T6 (ADR-0040 Karar c): required (non-optional) field, so every
+    // baseline builder must supply it -- `null` is the normal-record shape
+    // every existing caller writes today.
+    undoesRecordId: null,
     ...overrides,
   };
 }
@@ -85,6 +89,9 @@ function buildValidAutonomousPayload(
     outcome: 'succeeded',
     resultRef: { kind: 'comment', commentId: 'reply-1' },
     causationEventId: null,
+    // F3-T6 (ADR-0040 Karar c): see the matching comment in
+    // `buildValidDecidedPayload` above.
+    undoesRecordId: null,
     ...overrides,
   };
 }
@@ -204,5 +211,66 @@ describe('agentActionRecordedPayloadSchema — .strict()', () => {
     );
 
     expect(result.success).toBe(false);
+  });
+});
+
+/**
+ * F3-T6 PR1 (RED step), ADR-0040 Karar (c)/"Somut Şekiller" --
+ * `undoesRecordId: z.string().min(1).max(26).nullable()`, a REQUIRED
+ * (non-optional) new field: `null` on every normal record, a ULID (up to 26
+ * chars, `newObjectId()`'s own format -- NOT a UUID like `causationEventId`)
+ * pointing at the original record's own row id on an undo-shaped record.
+ *
+ * Every `it` in `— valid payloads`/`— causationEventId`/`— resultRef` above
+ * ALSO now exercises this field indirectly (via the updated
+ * `buildValidDecidedPayload`/`buildValidAutonomousPayload` baselines, which
+ * now always include `undoesRecordId: null`) -- today they fail because
+ * `.strict()` rejects `undoesRecordId` as an unrecognized key; this is the
+ * intended regression-guard RED state for this PR (every existing caller
+ * passes `undoesRecordId: null` now), not a bug in this test file.
+ */
+describe('agentActionRecordedPayloadSchema — undoesRecordId (F3-T6, ADR-0040 Karar c)', () => {
+  it('accepts undoesRecordId: null (the normal-record shape, every existing caller today)', () => {
+    const result = agentActionRecordedPayloadSchema.safeParse(
+      buildValidDecidedPayload({ undoesRecordId: null }),
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a 26-character ULID-shaped string for undoesRecordId (the undo-record shape)', () => {
+    const result = agentActionRecordedPayloadSchema.safeParse(
+      buildValidDecidedPayload({ undoesRecordId: 'A'.repeat(26) }),
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects undoesRecordId longer than 26 characters, specifically because of ITS OWN length constraint (not merely because the key is unrecognized)', () => {
+    const result = agentActionRecordedPayloadSchema.safeParse(
+      buildValidDecidedPayload({ undoesRecordId: 'A'.repeat(27) }),
+    );
+
+    expect(result.success).toBe(false);
+    const hasUndoesRecordIdLengthIssue =
+      !result.success &&
+      result.error.issues.some(
+        (issue) => issue.path.join('.') === 'undoesRecordId' && issue.code !== 'unrecognized_keys',
+      );
+    expect(hasUndoesRecordIdLengthIssue).toBe(true);
+  });
+
+  it('rejects an empty-string undoesRecordId, specifically because of ITS OWN length constraint (not merely because the key is unrecognized)', () => {
+    const result = agentActionRecordedPayloadSchema.safeParse(
+      buildValidDecidedPayload({ undoesRecordId: '' }),
+    );
+
+    expect(result.success).toBe(false);
+    const hasUndoesRecordIdLengthIssue =
+      !result.success &&
+      result.error.issues.some(
+        (issue) => issue.path.join('.') === 'undoesRecordId' && issue.code !== 'unrecognized_keys',
+      );
+    expect(hasUndoesRecordIdLengthIssue).toBe(true);
   });
 });
