@@ -1,6 +1,6 @@
 # F3-T6 — Tek Tık Geri Alma: Ters Olay Üretimiyle Atomik Geri Sarma
 
-**Epik:** F3-E2 (Cam Kutu Otonomi, Kapsam K) · **Durum:** PLANLANDI — Epik F3-E2'nin SON görevi, F3-T5'ten (Otonomi Kadranı) sonra gelir. Mimari karar `docs/adr/ADR-0040-tek-tik-geri-alma.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E2 (Cam Kutu Otonomi, Kapsam K) · **Durum:** TAMAMLANDI — Epik F3-E2'nin (ve dolayısıyla FAZ 3'ün bu epiği kapsayan bölümünün) SON görevi, F3-T5'ten (Otonomi Kadranı) sonra gelir, 3 PR + öncesindeki docs-only ADR+spec PR ile `main`'e merge edildi (bkz. aşağıdaki "Done" bölümü). Mimari karar `docs/adr/ADR-0040-tek-tik-geri-alma.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** F3-T4/ADR-0038 (Ajan Aksiyon Kayıt Defteri) TAMAMEN kapandı — bu görev, o ADR'nin `AgentActionRecord.rollbackPlan` şeklini (bugüne kadar salt açıklayıcı, hiçbir yerde YÜRÜTÜLMEYEN) ilk kez gerçekten yürütülebilir hale getirir. F3-T5/ADR-0039 (Otonomi Kadranı) TAMAMEN kapandı, PR #225-#228 `main`'e merge edildi — bu görev onun `AgentActionRecordsService`/ledger disiplinini DEĞİŞTİRMEDEN üçüncü bir çağıran ekler.
 
 ## Amaç
@@ -51,22 +51,34 @@ Bugün `RollbackPlan` (ADR-0038, F3-T4) salt açıklayıcıdır — kod tabanın
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `AgentActionRecord`/`agentActionRecordedPayloadSchema`'ya eklenen `undoesRecordId: string | null` alanı normal kayıtlarda `null`, geri-alma kaydında orijinalin `id`'sine doğru yazılıyor/okunuyor.
-- [ ] **PR1:** `agent_action_records` tablosuna `undoes_record_id` kolonu + salt sorgu-performansı için (UNIQUE OLMAYAN) index eklendi; migration'ın down script'i mevcut ve geri-alma test edilmiş.
-- [ ] **PR1:** `AgentActionRecordsService.findUndoRecord(workspaceId, originalRecordId)` var olan bir geri-alma kaydını doğru buluyor, yokken `null` dönüyor; internal-only (RBAC/`callerRole` parametresi YOK).
-- [ ] **PR1:** `pnpm --filter @luminaos/agent-runtime typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR2:** `undoAction`, `rollbackPlan.kind === 'delete'` olan bir kaydı başarıyla geri alır — tek-nesne (`createTask`/`createTaskFromTrigger`/`createTaskFromMeeting`) VE çoklu-nesne (`generateSubtasks`, `resources[]` üzerinden) durumları AYRI AYRI kanıtlanır.
-- [ ] **PR2:** `undoAction`, `resources[]`'İ okur — `rollbackPlan.targetResource`'İ DEĞİL (bu alan `generateSubtasks` kayıtlarında YOK); her `kind:'object'` kaynak için `ObjectsService.softDelete` çağrıldığı doğrulanır.
-- [ ] **PR2:** `rollbackPlan.kind !== 'delete'` olan bir kayıt üzerinde `undoAction` çağrısı `ValidationError` fırlatır (yeni tersine-çevirme kodu YAZILMAZ).
-- [ ] **PR2:** Zaten geri alınmış bir kayıt üzerinde ikinci `undoAction` çağrısı `ConflictError` fırlatır (`findUndoRecord` ön-kontrolü üzerinden).
-- [ ] **PR2:** Geri alma başarılı olduğunda YENİ, BAĞIMSIZ bir ikinci ledger satırı yazılır — `actionType:'undoAction'`, `provenance:'decided'`, `causationEventId:null`, `rollbackPlan:{kind:'none', ...}`, `undoesRecordId: original.id` — ve **orijinal satır HİÇ değişmeden kalır** (satırın tüm alanları geri alma öncesi/sonrası birebir aynı).
-- [ ] **PR2:** Yeni `POST /workspaces/:workspaceId/agent-action-records/:id/undo` rotası RBAC doğrulanır — `member`+ yeterli, `guest` reddedilir (ledger okumasıyla AYNI taban, daha katı bir kapı EKLENMEZ).
-- [ ] **PR2:** `AgentRuntimeModule ↔ CommandsModule` döngüsü `forwardRef()` ile her iki kenarda da çözülür; uygulama gerçekten boot olur (regresyon: mevcut hiçbir modül-kablolaması bozulmaz).
-- [ ] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz (özellikle: RBAC'ın gerçekten `member`+ ile sınırlı olduğu, çifte-geri-almanın ledger'da iki satır üretmediği).
-- [ ] **PR3:** "Geri al" butonu YALNIZCA `record.rollbackPlan.kind === 'delete'` VE kayıt henüz geri alınmamışken görünür/etkin; diğer her `kind` için buton yok ya da "bu aksiyon otomatik geri alınamaz" mesajıyla devre dışı.
-- [ ] **PR3:** Butona tıklama, `useUndoActionMutation` üzerinden doğru `recordId` ile mutasyonu tetikler.
-- [ ] **PR3:** Mutasyon hatası (ör. sunucudan 409 `ConflictError` — zaten geri alınmış) kullanıcıya görünür bir hata olarak yüzeye çıkar.
-- [ ] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `AgentActionRecord`/`agentActionRecordedPayloadSchema`'ya eklenen `undoesRecordId: string | null` alanı normal kayıtlarda `null`, geri-alma kaydında orijinalin `id`'sine doğru yazılıyor/okunuyor.
+- [x] **PR1:** `agent_action_records` tablosuna `undoes_record_id` kolonu + salt sorgu-performansı için (UNIQUE OLMAYAN) index eklendi; migration'ın down script'i mevcut ve geri-alma test edilmiş.
+- [x] **PR1:** `AgentActionRecordsService.findUndoRecord(workspaceId, originalRecordId)` var olan bir geri-alma kaydını doğru buluyor, yokken `null` dönüyor; internal-only (RBAC/`callerRole` parametresi YOK).
+- [x] **PR1:** `pnpm --filter @luminaos/agent-runtime typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR2:** `undoAction`, `rollbackPlan.kind === 'delete'` olan bir kaydı başarıyla geri alır — tek-nesne (`createTask`/`createTaskFromTrigger`/`createTaskFromMeeting`) VE çoklu-nesne (`generateSubtasks`, `resources[]` üzerinden) durumları AYRI AYRI kanıtlanır.
+- [x] **PR2:** `undoAction`, `resources[]`'İ okur — `rollbackPlan.targetResource`'İ DEĞİL (bu alan `generateSubtasks` kayıtlarında YOK); her `kind:'object'` kaynak için `ObjectsService.softDelete` çağrıldığı doğrulanır.
+- [x] **PR2:** `rollbackPlan.kind !== 'delete'` olan bir kayıt üzerinde `undoAction` çağrısı `ValidationError` fırlatır (yeni tersine-çevirme kodu YAZILMAZ).
+- [x] **PR2:** Zaten geri alınmış bir kayıt üzerinde ikinci `undoAction` çağrısı `ConflictError` fırlatır (`findUndoRecord` ön-kontrolü üzerinden).
+- [x] **PR2:** Geri alma başarılı olduğunda YENİ, BAĞIMSIZ bir ikinci ledger satırı yazılır — `actionType:'undoAction'`, `provenance:'decided'`, `causationEventId:null`, `rollbackPlan:{kind:'none', ...}`, `undoesRecordId: original.id` — ve **orijinal satır HİÇ değişmeden kalır** (satırın tüm alanları geri alma öncesi/sonrası birebir aynı) (**not:** bu kritere PR2 sırasında `security-reviewer`'ın bulduğu bir gerçek boşluğu kapatan bir ek davranış garantisi eklendi — çoklu-nesne bir geri alma (`generateSubtasks` şeklinde, 2+ kaynak) döngü ortasında başarısız olursa (ör. hedeflerden biri ilgisiz, sonraki bir aksiyon tarafından zaten soft-delete edilmiş), artık dönmeden/fırlatmadan ÖNCE HER ZAMAN sonuç-farkında bir ledger satırı (`'succeeded'`/`'partially_succeeded'`/`'failed'`) yazılıyor — bu olmadan kısmi başarısızlık hem zaten tamamlanmış soft-delete'leri ledger'da İZSİZ bırakır hem de kaydı KALICI OLARAK yeniden-denenemez hale getirirdi (bir retry, `findUndoRecord`'un ön-kontrolünün asla bulamayacağı, zaten silinmiş AYNI hedefte sonsuza dek yeniden fırlardı). Artık düzeltilmiş, `commands.service.undo-action.integration.test.ts`'teki "security-review finding" ifadesini taşıyan, "2. undoing a multi-object..." describe bloğu altındaki özel entegrasyon testiyle kanıtlanıyor).
+- [x] **PR2:** Yeni `POST /workspaces/:workspaceId/agent-action-records/:id/undo` rotası RBAC doğrulanır — `member`+ yeterli, `guest` reddedilir (ledger okumasıyla AYNI taban, daha katı bir kapı EKLENMEZ).
+- [x] **PR2:** `AgentRuntimeModule ↔ CommandsModule` döngüsü `forwardRef()` ile her iki kenarda da çözülür; uygulama gerçekten boot olur (regresyon: mevcut hiçbir modül-kablolaması bozulmaz).
+- [x] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz (özellikle: RBAC'ın gerçekten `member`+ ile sınırlı olduğu, çifte-geri-almanın ledger'da iki satır üretmediği).
+- [x] **PR3:** "Geri al" butonu YALNIZCA `record.rollbackPlan.kind === 'delete'` VE kayıt henüz geri alınmamışken görünür/etkin; diğer her `kind` için buton yok ya da "bu aksiyon otomatik geri alınamaz" mesajıyla devre dışı.
+- [x] **PR3:** Butona tıklama, `useUndoActionMutation` üzerinden doğru `recordId` ile mutasyonu tetikler.
+- [x] **PR3:** Mutasyon hatası (ör. sunucudan 409 `ConflictError` — zaten geri alınmış) kullanıcıya görünür bir hata olarak yüzeye çıkar.
+- [x] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+Docs-only ADR+spec PR'ı ve tüm 3 uygulama PR'ı `main`'e merge edildi:
+
+- **Docs-only ADR+spec** (#230): `docs/adr/ADR-0040-tek-tik-geri-alma.md` + bu spec dosyası, Karar (a)-(g)'yi resmileştirdi.
+- **PR1 — Domain + ledger altyapısı** (#231): `AgentActionRecord.undoesRecordId: string | null` alanı + `agentActionRecordedPayloadSchema` güncellemesi (`packages/agent-runtime/src/agent-action-record.ts` + `agent-action-record-events.ts`), `agent_action_records` tablosuna `undoes_record_id` kolonu + (unique olmayan) sorgu-performansı index'i + migration (+ down script), projeksiyon güncellemesi, `AgentActionRecordsService.findUndoRecord(workspaceId, originalRecordId)`.
+- **PR2 — `CommandsService.undoAction` + HTTP yüzeyi** (#232): `undoAction`/`recordUndoLedgerEntry`, `AgentActionRecordsController`'ın yeni `POST :id/undo` rotası (bu controller'ın ilk yazma rotası, ADR-0040 Karar g'nin bilinçli istisnası). Bu PR ayrıca beklenenden büyük bir altyapı düzeltmesi gerektirdi: `AppModule`'ü gerçekten boot ederek keşfedilen, F3-T5 PR2'nin kendi `forwardRef()` kademesiyle AYNI türden gerçek bir 4-modüllük NestJS dairesel-import zinciri, `forwardRef()` ile çözüldü (`agent-runtime.module.ts`, `commands.module.ts`, `comments.module.ts`, `skills.module.ts`).
+- **PR3 — Frontend** (#233): `FlightRecorderPanel.tsx`'e gerçek bir "Geri al" butonu, yeni `useUndoActionMutation` hook'u + `apiClient.ts` eklentisi, F3-T5 PR3'ün konvansiyonlarını izleyerek.
+- **PR2'nin security-review-driven ek düzeltmesi** (tam gerekçe için yukarıdaki Kabul Kriterleri'nin ilgili PR2 notuna bakın): çoklu-nesne bir geri almanın döngü ortasında başarısız olması artık HER ZAMAN dönmeden/fırlatmadan önce sonuç-farkında (`'succeeded'`/`'partially_succeeded'`/`'failed'`) bir ledger satırı yazıyor — böylece hem izsiz kalan kısmi soft-delete'ler hem de kalıcı olarak yeniden-denenemez hale gelen kayıt riski kapatıldı.
+- **Frontend `undoesRecordId` tipleme notu (küçük, uygulama-kalitesi düzeyinde, bağlayıcı bir karardan sapma DEĞİL):** `apps/web` tarafında da `AgentActionRecord.undoesRecordId` alanı, backend'in her zaman-mevcut sözleşimini yansıtacak şekilde ZORUNLU (`string | null`, asla opsiyonel) tutuldu — F3-T4 PR4'ten kalma, bu görevden ÖNCE var olan bir test fixture'ı (`useAgentActionRecordsQuery.test.ts`) tipin gevşetilmesi yerine bu alanı içerecek şekilde güncellendi.
+- **Kanıt (özet, tam log yok — Özetleme Disiplini):** PR1 — `apps/server` birim paketinin tamamı 549/549, hedefli entegrasyon (`agent-action-records.service.integration.test.ts`) 17/17 yeşil; PR2 — `commands.service.undo-action.integration.test.ts` 14 test + `agent-action-records.controller.integration.test.ts` 15 test (29 toplam) + `apps/server` birim paketinin tamamı 549/549, hepsi yeşil; PR3 — `apps/web` paketinin tamamı 748/748 yeşil (73 dosya). Her PR'da `pnpm typecheck && pnpm lint` merge öncesi temiz doğrulandı; `security-reviewer` her PR'da çağrıldı — PR2'de gerçek bir Orta (Medium) bulgu (yukarıdaki partial-failure-ledger notu) bulundu, düzeltildi ve yeniden doğrulandı, PR1 ve PR3'te sıfır bulgu.
 
 ## Açık Sorular
 
@@ -78,11 +90,14 @@ Bu görev için mimari olarak açık bir soru yok — ADR-0040 Bağlam/Karar/Alt
 
 ## Sıradaki adım
 
+Epik F3-E2 (Cam Kutu Otonomi) F3-T6 ile TAMAMEN kapandı — bu, F3-E2'nin son görevi olmakla birlikte FAZ 3'ün SONU DEĞİL: `docs/PLAN.md` satır 285'e göre bir sonraki epik, **Epik F3-E3 (Artifact + Canlı Widget [Kapsam L] ve Intent-first UI [Kapsam M])**, ilk görevi **F3-T7 — Artifact boru hattı: sunum/dashboard/sayfa üretimi, marka temaları, tek prompt akışı**. F3-T7'nin henüz ne ADR'si ne spec dosyası var (`docs/adr/`'de en yüksek numara ADR-0040, `docs/specs/F3-E3/` dizini yok) — F3-T5/F3-T6'nın izlediği AYNI ritüel (yeni bir epik/önemli mimari yüzey olduğu için doğrudan test-writer'a geçilmez):
+
 ```
-docs/adr/ADR-0040-tek-tik-geri-alma.md'deki Karar (a)-(g)'yi ve
-docs/specs/F3-E2/F3-T6-tek-tik-geri-alma.md'nin Kabul Kriterleri'ni temel alarak, F3-T6
-PR1 (packages/agent-runtime: AgentActionRecord.undoesRecordId alanı,
-agentActionRecordedPayloadSchema güncellemesi, agent_action_records tablosuna
-undoes_record_id kolonu + migration, AgentActionRecordProjection güncellemesi,
-AgentActionRecordsService.findUndoRecord) için test-writer ile başarısız testleri yaz.
+docs/PLAN.md'nin Epik F3-E3 (Artifact + Canlı Widget, Kapsam L) sıralamasına göre F3-T6/Epik
+F3-E2 kapandı; sıradaki görev F3-T7 — Artifact boru hattı: sunum/dashboard/sayfa üretimi,
+marka temaları, tek prompt akışı (Epik F3-E3'ün İLK görevi; henüz ne ADR'si ne spec dosyası
+var). Önce explorer ile mevcut ai-gateway/skill-sdk/command katmanını VE olası artifact
+üretim yüzeylerini (ör. mevcut doküman/sayfa render mekanizmaları, packages/core-objects'ın
+nesne tipleri) keşfet, sonra architect ile docs/adr/ADR-0041-<konu>.md taslağını VE
+docs/specs/F3-E3/F3-T7-<konu>.md spec dosyasını oluştur, insana onaylat; sonra plan mode'a geç.
 ```
