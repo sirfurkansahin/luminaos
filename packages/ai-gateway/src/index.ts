@@ -8,6 +8,9 @@ export * from './anthropic-provider.js';
 export * from './retry.js';
 export * from './embedding-provider.js';
 export * from './mock-embedding-provider.js';
+export * from './sensitivity-tier.js';
+export * from './routing-policy.js';
+export * from './local-provider.js';
 // `DEFAULT_ANTHROPIC_MODEL` is intentionally omitted here — it is already
 // re-exported via `./anthropic-provider.js` above, and a second `export *`
 // for the same binding would be an `import-x/export` duplicate-export error.
