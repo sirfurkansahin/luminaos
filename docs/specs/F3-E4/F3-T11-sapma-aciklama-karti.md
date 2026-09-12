@@ -1,6 +1,6 @@
 # F3-T11 — Sapma Anında Ajan Destekli Kök Neden Analizi Kartı
 
-**Epik:** F3-E4 (Plan-Gerçek Motoru [Kapsam N]) · **Durum:** Planlandı — Epiğin İKİNCİ ve SON görevi, F3-T10 (ADR-0044, `main`'e merge edildi) sonrası. Bu görev tamamlandığında Epik F3-E4 KAPANIR. Mimari karar `docs/adr/ADR-0045-sapma-aciklama-karti.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E4 (Plan-Gerçek Motoru [Kapsam N]) · **Durum:** TAMAMLANDI — Epiğin İKİNCİ ve SON görevi, F3-T10 (ADR-0044, `main`'e merge edildi) sonrası. Bu görevin tamamlanmasıyla Epik F3-E4 KAPANDI. Mimari karar `docs/adr/ADR-0045-sapma-aciklama-karti.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** F3-T10 (ADR-0044) — `computeQueryAggregate`/`computeDeviation`, `BaselinesService`/`BaselinesController`, `BaselineViewer.tsx`, `artifact`'ın `capturedValue`/`aggregateFn`/`targetFieldKey`/`querySpec` alanları (bu görev bunları OKUR, DEĞİŞTİRMEZ). F3-T8 (ADR-0042) — `compileWidgetQuery`'nin JSON+zod+1-retry deseni, `WidgetsService`'in dar-Pick+`useFactory` deseni. F1-T15 (`answerQuestion`/`QAService`, ADR-0014) — `AIUsageService`'in kota/kilit/kayıt disiplini, "boş girdiden hallüsinasyon üretme" maliyet-koruması deseni. ADR-0029 — dört-kademeli hassas-veri sınıflandırması (bu görev Kademe 3'e resmi bir ek getirir, ADR-0045 Karar i).
 
 ## Amaç
@@ -57,23 +57,33 @@
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `explainDeviation`, geçerli bir JSON yanıtını doğru `DeviationExplanationContent`'e (`{summary, possibleCauses}`) parse ediyor; geçersiz ilk yanıtta TAM OLARAK 1 retry deniyor; iki deneme de başarısızsa `{content: undefined, parseError: true, message}` dönüyor.
-- [ ] **PR1:** `renderExplainDeviationPrompt`'un ürettiği metin hiçbir nesne başlığı/`fieldValues` anahtarı İÇERMİYOR — yalnızca `objectType`/`aggregateFn`/`targetFieldKey`/sayısal agregat alanları (İnsan kararı 2'nin regresyon kanıtı).
-- [ ] **PR1:** `percentChange: null` girdisinde prompt "hesaplanamaz" metnini üretiyor, asla `Infinity`/`NaN` yazmıyor.
-- [ ] **PR1:** `selectAIModel({outputType:'deviationExplanation'})` `CLAUDE_SONNET_5` döndürüyor.
-- [ ] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR2:** `POST .../baselines/:id/explain`, gerçek bir baseline `artifact`'inde `explanationSummary`/`explanationCauses`/`explanationGeneratedAt` alanlarını doğru dolduruyor.
-- [ ] **PR2:** `artifactType !== 'baseline'` olan bir nesne için `ValidationError`; bozuk/parse-edilemeyen saklı `querySpec` için `ValidationError`.
-- [ ] **PR2:** `computeQueryAggregate` `null` dönerse `ValidationError` fırlatılıyor VE mock AI sağlayıcının `complete` metodu SIFIR kez çağrılıyor (Karar h'nin doğrudan kanıtı).
-- [ ] **PR2:** İkinci bir `explain()` çağrısı önceki açıklamanın ÜZERİNE YAZIYOR (geçmiş tutulmuyor).
-- [ ] **PR2:** RBAC — `member`+ yeterli; iç `setFieldValues` yazımı sabit `'owner'` rolüyle çalışıyor.
-- [ ] **PR2 (regresyon):** `BaselinesService`'in import-graph'ı hâlâ hiçbir `AIProvider`/`AIUsageService` bağımlılığı içermiyor; **hiçbir migration dosyası yazılmadı**.
-- [ ] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR3:** `explanationSummary` YOKSA "Açıklama iste", VARSA "Yeniden oluştur" etiketi doğru render ediliyor.
-- [ ] **PR3:** Buton tıklaması doğru `POST .../baselines/:id/explain` isteğini (body YOK) tetikliyor; mutasyon başarılı olduğunda `object` sorgusu geçersiz kılınıp güncel açıklama render ediliyor.
-- [ ] **PR3:** Bozuk/parse-edilemeyen `explanationCauses` karşısında ÇÖKMEDEN boş bir liste render ediliyor.
-- [ ] **PR3:** Mutasyon hatası kullanıcıya görünür bir hata olarak yüzeye çıkıyor.
-- [ ] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `explainDeviation`, geçerli bir JSON yanıtını doğru `DeviationExplanationContent`'e (`{summary, possibleCauses}`) parse ediyor; geçersiz ilk yanıtta TAM OLARAK 1 retry deniyor; iki deneme de başarısızsa `{content: undefined, parseError: true, message}` dönüyor.
+- [x] **PR1:** `renderExplainDeviationPrompt`'un ürettiği metin hiçbir nesne başlığı/`fieldValues` anahtarı İÇERMİYOR — yalnızca `objectType`/`aggregateFn`/`targetFieldKey`/sayısal agregat alanları (İnsan kararı 2'nin regresyon kanıtı).
+- [x] **PR1:** `percentChange: null` girdisinde prompt "hesaplanamaz" metnini üretiyor, asla `Infinity`/`NaN` yazmıyor.
+- [x] **PR1:** `selectAIModel({outputType:'deviationExplanation'})` `CLAUDE_SONNET_5` döndürüyor.
+- [x] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR2:** `POST .../baselines/:id/explain`, gerçek bir baseline `artifact`'inde `explanationSummary`/`explanationCauses`/`explanationGeneratedAt` alanlarını doğru dolduruyor.
+- [x] **PR2:** `artifactType !== 'baseline'` olan bir nesne için `ValidationError`; bozuk/parse-edilemeyen saklı `querySpec` için `ValidationError`.
+- [x] **PR2:** `computeQueryAggregate` `null` dönerse `ValidationError` fırlatılıyor VE mock AI sağlayıcının `complete` metodu SIFIR kez çağrılıyor (Karar h'nin doğrudan kanıtı).
+- [x] **PR2:** İkinci bir `explain()` çağrısı önceki açıklamanın ÜZERİNE YAZIYOR (geçmiş tutulmuyor).
+- [x] **PR2:** RBAC — `member`+ yeterli; iç `setFieldValues` yazımı sabit `'owner'` rolüyle çalışıyor.
+- [x] **PR2 (regresyon):** `BaselinesService`'in import-graph'ı hâlâ hiçbir `AIProvider`/`AIUsageService` bağımlılığı içermiyor; **hiçbir migration dosyası yazılmadı**.
+- [x] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR3:** `explanationSummary` YOKSA "Açıklama iste", VARSA "Yeniden oluştur" etiketi doğru render ediliyor.
+- [x] **PR3:** Buton tıklaması doğru `POST .../baselines/:id/explain` isteğini (body YOK) tetikliyor; mutasyon başarılı olduğunda `object` sorgusu geçersiz kılınıp güncel açıklama render ediliyor.
+- [x] **PR3:** Bozuk/parse-edilemeyen `explanationCauses` karşısında ÇÖKMEDEN boş bir liste render ediliyor.
+- [x] **PR3:** Mutasyon hatası kullanıcıya görünür bir hata olarak yüzeye çıkıyor.
+- [x] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+3 PR `main`'e merge edildi:
+
+- **PR1 — `packages/artifacts` + saf AI orkestratörü** ([#255](https://github.com/sirfurkansahin/luminaos/pull/255)): `deviationExplanationSchema`/`DeviationExplanationContent` (`packages/artifacts`), `apps/server/src/artifacts/explain-deviation.ts` (`explainDeviation()`/`renderExplainDeviationPrompt`, JSON+zod+1-retry), `select-ai-model.ts`'e `'deviationExplanation'` outputType → `CLAUDE_SONNET_5`. Kanıt: `apps/server/src/artifacts/explain-deviation.test.ts` — geçerli JSON'un doğru parse edildiği, geçersiz ilk yanıtta TAM 1 retry denendiği, iki başarısız denemede `{content: undefined, parseError: true, message}` döndüğü, `renderExplainDeviationPrompt`'un çıktısının nesne başlığı/`fieldValues` anahtarı İÇERMEDİĞİ (İnsan kararı 2'nin regresyon kanıtı), `percentChange: null` girdisinde "not computable (baseline value was zero)" metninin üretildiği (asla `Infinity`/`NaN` değil) — kaynak kodda doğrulandı (`apps/server/src/artifacts/explain-deviation.ts` satır 41-48).
+- **PR2 — `BaselineExplanationService`/rota + alan seed'leri** ([#256](https://github.com/sirfurkansahin/luminaos/pull/256)): `baseline-explanation.service.ts` (YENİ, `BaselinesService`'ten AYRI — ADR-0044 Karar c'nin sıfır-AI-bağımlılığı korunuyor), `baselines.controller.ts`'e `POST :id/explain` rotası (`SessionAuthGuard`+`WorkspaceMembershipGuard`, `member`+, daha katı taban YOK — kaynakta doğrulandı), `workspaces.service.ts`'in `seedArtifactFields`'ına `explanationSummary`/`explanationCauses`/`explanationGeneratedAt` (migration YOK). Kanıt: `apps/server/src/artifacts/baseline-explanation.service.test.ts` + `apps/server/src/artifacts/baselines.controller.integration.test.ts` + `apps/server/src/workspaces/workspaces.integration.test.ts` — gerçek bir baseline `artifact`'inde 3 alanın doğru dolduğu, `artifactType !== 'baseline'`/bozuk `querySpec` için `ValidationError`, `computeQueryAggregate` `null` dönünce `ValidationError` fırlatılıp mock AI sağlayıcının `complete`'inin SIFIR kez çağrıldığı (Karar h'nin doğrudan kanıtı — kaynakta `baseline-explanation.service.ts` satır 106-110'da fail-closed guard doğrulandı), ikinci `explain()` çağrısının önceki açıklamanın ÜZERİNE YAZDIĞI, RBAC + `'owner'`-bypass iç yazımı, `BaselinesService`'in import-graph regresyonu, hiçbir migration dosyası yazılmadığı.
+- **PR3 — Frontend** ([#257](https://github.com/sirfurkansahin/luminaos/pull/257)): `apiClient.ts`'e `explainDeviation`, `useExplainDeviationMutation.ts`, `BaselineViewer.tsx`'e buton ("Açıklama iste"/"Yeniden oluştur" — kaynakta `BaselineViewer.tsx` satır 153'te doğrulandı) + kart render'ı (`explanationCauses`'ın güvenli JSON-parse'ı). Kanıt: `apps/web/src/lib/apiClient.explainDeviation.test.ts`, `apps/web/src/hooks/useExplainDeviationMutation.test.ts`, `apps/web/src/views/shared/BaselineViewer.test.tsx` — etiket geçişi, body'siz `POST .../baselines/:id/explain` isteği, başarı sonrası `object` sorgusunun geçersiz kılınıp yeni açıklamanın render edildiği, bozuk `explanationCauses`'ta çökmeden boş liste, görünür mutasyon hatası.
+
+**Epik F3-E4 (Plan-Gerçek Motoru, Kapsam N) durumu:** Bu görevle (F3-T11, epiğin İKİNCİ ve SON görevi, F3-T10'dan sonra) Epik F3-E4 TAMAMEN KAPANDI. `docs/PLAN.md` epik başlıkları için ayrı bir durum işareti/checkbox konvansiyonu KULLANMIYOR (yalnızca düz görev listesi) — bu nedenle PLAN.md'ye yeni bir işaret icat edilmedi; kapanış yalnızca bu Done bölümünde not düşülüyor. Sıradaki epik: F3-E5 (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]), ilk görevi F3-T12.
 
 ## Açık Sorular
 
@@ -83,13 +93,19 @@
 
 ## Sıradaki adım
 
-ADR-0045 ve bu spec insan onayına sunulur. Onaylanırsa PR1'e (`packages/artifacts`'a `deviationExplanationSchema`/`DeviationExplanationContent` eklenmesi + `apps/server/src/artifacts/explain-deviation.ts`'in saf JSON+zod+1-retry orkestratörü + `select-ai-model.ts`'e `'deviationExplanation'` eklenmesi — sıfır DB/Nest bağımlılığı) `test-writer` ile başlanır:
+F3-T11'in tamamlanmasıyla Epik F3-E4 (Plan-Gerçek Motoru, Kapsam N) TAMAMEN KAPANDI — `docs/PLAN.md` satır 296'ya göre sıradaki Epik F3-E5 (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]), ilk görevi F3-T12: **Cihaz üstü model köprüsü; hassas veri sınıflandırıcısı → yerel/bulut yönlendirme politikası**. Bu görevin ne ADR'si ne spec dosyası henüz var — ayrıca bu görev bu spec'in ADR-0045 Karar (i)'sinin ADR-0029'a getirdiği ekten (Kademe 3 sınıflandırması) doğrudan girdi alacak ilk görev:
 
 ```
-docs/adr/ADR-0045-sapma-aciklama-karti.md'deki Karar (a)-(i)'yi ve
-docs/specs/F3-E4/F3-T11-sapma-aciklama-karti.md'nin Kabul Kriterleri'ni temel alarak, F3-T11
-PR1 (packages/artifacts'a deviationExplanationSchema/DeviationExplanationContent eklenmesi +
-apps/server/src/artifacts/explain-deviation.ts'in saf JSON+zod+1-retry orkestratörü +
-select-ai-model.ts'e 'deviationExplanation' outputType eklenmesi -- sıfır DB/Nest bağımlılığı,
-provider mock'lanarak birim test edilebilir) için test-writer ile başarısız testleri yaz.
+docs/PLAN.md'nin Epik F3-E4'ü (Plan-Gerçek Motoru, Kapsam N) F3-T10+F3-T11 ile TAMAMEN
+tamamladığını doğrula; sıradaki Epik F3-E5'in (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P])
+ilk görevi F3-T12 -- Cihaz üstü model köprüsü; hassas veri sınıflandırıcısı → yerel/bulut
+yönlendirme politikası (henüz ne ADR'si ne spec dosyası var). Önce explorer ile şunları keşfet:
+(1) kod tabanında mevcut bir cihaz-üstü/yerel model altyapısı var mı (varsa nerede, yoksa bunu
+doğrula); (2) docs/adr/ADR-0029-hibrit-ai-veri-siniflandirmasi.md'deki dört-kademeli hassas-veri
+sınıflandırmasını VE docs/adr/ADR-0045-sapma-aciklama-karti.md Karar (i)'nin ADR-0029'a getirdiği
+resmi eki (ham sayısal agregat + sorgu alan anahtarlarının Kademe 3'e sınıflandırılması) --
+F3-T12'nin kendi sınıflandırıcı tasarımına doğrudan emsal/girdi olarak; (3) mevcut herhangi bir
+hibrit-AI (yerel/bulut) yönlendirme mantığı (ai-gateway içinde veya başka yerde) var mı. Sonra
+architect ile docs/adr/ADR-0046-<konu>.md taslağını VE docs/specs/F3-E5/F3-T12-<konu>.md spec
+dosyasını oluştur, insana onaylat; sonra plan mode'a geç.
 ```
