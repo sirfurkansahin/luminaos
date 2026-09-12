@@ -286,6 +286,9 @@ importers:
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@luminaos/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@luminaos/artifacts':
         specifier: workspace:*
         version: link:../../packages/artifacts

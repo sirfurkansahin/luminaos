@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { findActionRegistryEntry } from '@luminaos/agent-runtime';
 import type { ObjectType } from '@luminaos/core-objects';
 import { Button, DialogContent, DialogRoot, DialogTitle, Input, toast } from '@luminaos/ui';
 
@@ -8,6 +9,7 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue.js';
 import { useExternalSearchQuery } from '../../hooks/useExternalSearchQuery.js';
 import { useInviteMeetingBotMutation } from '../../hooks/useInviteMeetingBotMutation.js';
 import { useObjectIdParam } from '../../hooks/useObjectIdParam.js';
+import { useParseCommandMutation } from '../../hooks/useProposalsQuery.js';
 import { useSearchQuery } from '../../hooks/useSearchQuery.js';
 
 import type { SearchResult } from '../../lib/apiClient.js';
@@ -162,6 +164,14 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { openObject } = useObjectIdParam();
+  // Widened to `| undefined` (the real hook's return type never is) purely
+  // as defense-in-depth against a hook value that isn't there yet at the
+  // exact instant of a very first render — mirrors this file's existing
+  // optional-chained hook reads (`data?.results`, `externalData?.results`)
+  // rather than assuming every consumer of a mutation hook is guaranteed a
+  // populated object on every possible render pass.
+  const parseCommandMutation: ReturnType<typeof useParseCommandMutation> | undefined =
+    useParseCommandMutation(workspaceId);
 
   function handleInviteBotActionClick(): void {
     if (hasNotetakerConsent(workspaceId)) {
@@ -169,6 +179,14 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
     } else {
       setConsentDialogOpen(true);
     }
+  }
+
+  function handleRunCommand(): void {
+    const trimmed = rawQuery.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    parseCommandMutation?.mutate({ command: trimmed });
   }
 
   function handleConsentAcknowledge(): void {
@@ -222,6 +240,15 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
   })).filter((group) => group.items.length > 0);
   const flatResults = groups.flatMap((group) => group.items);
   const externalResults = externalData?.results ?? [];
+
+  const parseResult = (
+    parseCommandMutation as ReturnType<typeof useParseCommandMutation> | undefined
+  )?.data;
+  const executedActionIds = new Set(
+    parseResult?.autonomousResults?.map((result) => result.actionId) ?? [],
+  );
+  const pendingActions =
+    parseResult?.actions.filter((action) => !executedActionIds.has(action.actionId)) ?? [];
 
   function reset(): void {
     setRawQuery('');
@@ -332,6 +359,54 @@ export function CommandPalette({ workspaceId }: { workspaceId: string }) {
               // which has the same gap.
 
               <ExternalSearchResultChip key={index} result={result} />
+            ))}
+          </div>
+        )}
+        {rawQuery.trim().length > 0 && (
+          <div
+            data-testid="command-palette-run-command-action"
+            role="button"
+            tabIndex={0}
+            onClick={handleRunCommand}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                handleRunCommand();
+              }
+            }}
+          >
+            &quot;{rawQuery.trim()}&quot; komutunu çalıştır
+          </div>
+        )}
+        {parseResult !== undefined && (
+          <div data-testid="command-palette-parse-result">
+            {parseResult.parseError && (
+              <p data-testid="command-palette-parse-error">
+                {parseResult.message ?? 'Komut anlaşılamadı.'}
+              </p>
+            )}
+            {parseResult.autonomousResults?.map((result) => {
+              const executedAction = parseResult.actions.find(
+                (action) => action.actionId === result.actionId,
+              );
+              return (
+                <div
+                  key={result.actionId}
+                  data-testid={`command-palette-executed-action-${result.actionId}`}
+                >
+                  {(executedAction !== undefined
+                    ? (findActionRegistryEntry(executedAction.type)?.label ?? executedAction.type)
+                    : result.actionId) + ' — otomatik yürütüldü'}
+                </div>
+              );
+            })}
+            {pendingActions.map((action) => (
+              <div
+                key={action.actionId}
+                data-testid={`command-palette-pending-action-${action.actionId}`}
+              >
+                {(findActionRegistryEntry(action.type)?.label ?? action.type) + ' — bekliyor'}
+                <a href="#automation-history-panel">Otomasyon Geçmişi panelinde görüntüle</a>
+              </div>
             ))}
           </div>
         )}

@@ -3,10 +3,18 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useDecideProposalMutation, useProposalsQuery } from './useProposalsQuery.js';
-import { decideProposal, listProposals } from '../lib/apiClient.js';
+import {
+  useDecideProposalMutation,
+  useParseCommandMutation,
+  useProposalsQuery,
+} from './useProposalsQuery.js';
+import { decideProposal, listProposals, parseCommand } from '../lib/apiClient.js';
 
-import type { CommandProposalSummary, DecideActionResult } from '../lib/apiClient.js';
+import type {
+  CommandProposalSummary,
+  DecideActionResult,
+  ParseCommandResponse,
+} from '../lib/apiClient.js';
 
 /**
  * F2-T16 PR4 (ADR-0033 §g/§h, spec Kabul Kriterleri) — TDD red step. Contract
@@ -66,10 +74,12 @@ import type { CommandProposalSummary, DecideActionResult } from '../lib/apiClien
 vi.mock('../lib/apiClient.js', () => ({
   listProposals: vi.fn(),
   decideProposal: vi.fn(),
+  parseCommand: vi.fn(),
 }));
 
 const mockedListProposals = vi.mocked(listProposals);
 const mockedDecideProposal = vi.mocked(decideProposal);
+const mockedParseCommand = vi.mocked(parseCommand);
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -243,5 +253,174 @@ describe('useDecideProposalMutation', () => {
     });
 
     expect(result.current.data).toEqual(decideResult);
+  });
+});
+
+/**
+ * F3-T9 PR2 (ADR-0043 Karar c, spec `docs/specs/F3-E3/F3-T9-komut-duzlemi-v2.md`
+ * Kabul Kriterleri) — TDD red step. Contract under test (NEITHER export
+ * exists yet — implementer must add both to satisfy these tests):
+ *
+ *   // apps/web/src/lib/apiClient.ts
+ *   export interface ParseCommandResponse {
+ *     proposalId: string;
+ *     actions: ProposedActionSummary[]; // ALREADY defined above
+ *     parseError: boolean;
+ *     message?: string;
+ *     autonomousResults?: DecideActionResult[]; // ALREADY defined above
+ *   }
+ *   export function parseCommand(
+ *     workspaceId: string, command: string, sourceObjectId?: string,
+ *   ): Promise<ParseCommandResponse>;
+ *       // POSTs to `/workspaces/${workspaceId}/commands/parse` with body
+ *       // `{ command, ...(sourceObjectId !== undefined ? { sourceObjectId } : {}) }`
+ *       // (ADR-0043 Karar c's own code sketch) -- SERVER SIDE ALREADY EXISTS,
+ *       // this is purely the missing client wrapper.
+ *
+ *   // apps/web/src/hooks/useProposalsQuery.ts
+ *   export function useParseCommandMutation(workspaceId: string):
+ *     UseMutationResult<
+ *       ParseCommandResponse, Error, { command: string; sourceObjectId?: string }
+ *     >;
+ *       // mutationFn delegates to
+ *       // parseCommand(workspaceId, variables.command, variables.sourceObjectId).
+ *       // onSuccess invalidates BY PREFIX ['proposals', workspaceId] queries --
+ *       // the EXACT SAME invalidation call as useDecideProposalMutation above
+ *       // (so AutomationHistoryPanel/the ambient badge pick up the freshly
+ *       // parsed proposal without any extra plumbing).
+ */
+describe('useParseCommandMutation', () => {
+  const workspaceId = 'ws-1';
+
+  function makeParseCommandResponseFixture(
+    overrides: Partial<ParseCommandResponse> = {},
+  ): ParseCommandResponse {
+    return {
+      proposalId: 'proposal-1',
+      actions: [
+        {
+          actionId: 'action-1',
+          type: 'createTask',
+          intent: "Ayşe için 'Rapor gönder' görevi oluştur",
+          rationale: 'Komutta belirtildi',
+          resources: [],
+          rollbackNote: 'Görev silinebilir',
+          params: {},
+        },
+      ],
+      parseError: false,
+      ...overrides,
+    };
+  }
+
+  it('calls apiClient.parseCommand with the workspace id, command and sourceObjectId on mutate', async () => {
+    mockedParseCommand.mockResolvedValueOnce(makeParseCommandResponseFixture());
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useParseCommandMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ command: 'Ayşe için görev oluştur', sourceObjectId: 'meeting-1' });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockedParseCommand).toHaveBeenCalledWith(
+      workspaceId,
+      'Ayşe için görev oluştur',
+      'meeting-1',
+    );
+  });
+
+  it('calls apiClient.parseCommand with sourceObjectId undefined when omitted from the mutation variables', async () => {
+    mockedParseCommand.mockResolvedValueOnce(makeParseCommandResponseFixture());
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useParseCommandMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ command: '"Rapor gönder" görevi oluştur' });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(mockedParseCommand).toHaveBeenCalledWith(
+      workspaceId,
+      '"Rapor gönder" görevi oluştur',
+      undefined,
+    );
+  });
+
+  it('resolves with the full ParseCommandResponse shape returned by apiClient.parseCommand', async () => {
+    const parseResult = makeParseCommandResponseFixture({
+      autonomousResults: [{ actionId: 'action-1', status: 'executed', createdCount: 1 }],
+    });
+    mockedParseCommand.mockResolvedValueOnce(parseResult);
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useParseCommandMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ command: 'Ayşe için görev oluştur' });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(result.current.data).toEqual(parseResult);
+  });
+
+  it('invalidates cached ["proposals", workspaceId, ...] queries BY PREFIX once the mutation succeeds (mirrors useDecideProposalMutation)', async () => {
+    mockedParseCommand.mockResolvedValueOnce(makeParseCommandResponseFixture());
+    const { queryClient, Wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    const { result } = renderHook(() => useParseCommandMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ command: 'Ayşe için görev oluştur' });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(invalidateSpy).toHaveBeenCalled();
+    const [filters] = invalidateSpy.mock.calls[0] as [{ queryKey?: unknown[] } | undefined];
+    const invalidatedKey = filters?.queryKey ?? [];
+    expect(invalidatedKey.slice(0, 2)).toEqual(['proposals', workspaceId]);
+  });
+
+  it('transitions to isError with the thrown error when apiClient.parseCommand rejects', async () => {
+    const error = new Error('boom');
+    mockedParseCommand.mockRejectedValueOnce(error);
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useParseCommandMutation(workspaceId), {
+      wrapper: Wrapper,
+    });
+
+    act(() => {
+      result.current.mutate({ command: 'Ayşe için görev oluştur' });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    expect(result.current.error).toBe(error);
   });
 });

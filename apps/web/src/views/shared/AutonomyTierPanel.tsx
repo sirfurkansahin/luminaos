@@ -1,3 +1,4 @@
+import { ACTION_REGISTRY } from '@luminaos/agent-runtime';
 import {
   EmptyState,
   SelectContent,
@@ -27,14 +28,13 @@ export interface AutonomyTierPanelProps {
   workspaceId: string;
 }
 
-const KNOWN_ACTION_TYPES: { actionType: string; label: string }[] = [
-  { actionType: 'createTask', label: 'Görev oluştur' },
-  { actionType: 'generateSubtasks', label: 'Alt görevler oluştur' },
-  { actionType: 'assignPeople', label: 'Kişi ata' },
-  { actionType: 'createTaskFromMeeting', label: 'Toplantıdan görev oluştur' },
-  { actionType: 'createTaskFromTrigger', label: 'Tetikleyiciden görev oluştur' },
-  { actionType: 'reconfigureAgentPermissions', label: 'Ajan izinlerini yeniden yapılandır' },
-];
+// F3-T9 PR2 (ADR-0043 Karar f) -- derived from `@luminaos/agent-runtime`'s
+// `ACTION_REGISTRY` (single source of truth, PLAN.md §5's "ikilik oluşmaz"
+// principle) instead of a hand-maintained duplicate list. Rendered output
+// stays byte-identical to the previous hardcoded array.
+const KNOWN_ACTION_TYPES: { actionType: string; label: string }[] = ACTION_REGISTRY.map(
+  ({ actionType, label }) => ({ actionType, label }),
+);
 
 // Mirrors packages/agent-runtime/src/autonomy-tier.ts's AUTONOMY_GOVERNANCE_FLOOR
 // (ADR-0039 Karar c) -- server-enforced; disabling here is UX only, not a

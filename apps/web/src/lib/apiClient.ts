@@ -750,6 +750,37 @@ export function decideProposal(
 }
 
 /**
+ * F3-T9 PR2 (ADR-0043 Karar c) -- command-palette-to-`parse()` client wrapper.
+ * Server side already exists (`POST .../commands/parse`, F1-T16); this is
+ * purely the missing client wrapper, mirroring `decideProposal`'s exact
+ * `request<T>()` usage style.
+ */
+export interface ParseCommandResponse {
+  proposalId: string;
+  actions: ProposedActionSummary[];
+  parseError: boolean;
+  message?: string;
+  autonomousResults?: DecideActionResult[];
+}
+
+export function parseCommand(
+  workspaceId: string,
+  command: string,
+  sourceObjectId?: string,
+): Promise<ParseCommandResponse> {
+  return request<ParseCommandResponse>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/commands/parse`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        command,
+        ...(sourceObjectId !== undefined ? { sourceObjectId } : {}),
+      }),
+    },
+  );
+}
+
+/**
  * F2-T17 PR3 (ADR-0034) -- trigger-template-suggestion read/analyze/decide
  * client, feeding `TriggerSuggestionsPanel`. Mirrors the already-merged
  * server-side `TriggerTemplateSuggestionSummary` shape exactly
