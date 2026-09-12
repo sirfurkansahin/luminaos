@@ -28,6 +28,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@luminaos/core-objects": "workspace:*",
     "@luminaos/shared": "workspace:*",
     "zod": "^4.4.3"
   }

@@ -1,1 +1,1 @@
-export type ArtifactType = 'presentation' | 'dashboard' | 'page' | 'report';
+export type ArtifactType = 'presentation' | 'dashboard' | 'page' | 'report' | 'baseline';
