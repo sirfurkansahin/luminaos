@@ -1117,3 +1117,22 @@ export function captureBaseline(
     },
   );
 }
+
+/**
+ * F3-T11 PR3 (sapma açıklama kartı, ADR-0045 Karar e) -- mirrors
+ * `captureBaseline`/`generateWidget`'s exact call shape, except NO request
+ * body: the id URL parameter plus the baseline's own already-stored
+ * querySpec/aggregateFn/capturedValue/targetFieldKey are entirely sufficient
+ * server-side.
+ */
+export function explainDeviation(
+  workspaceId: string,
+  baselineObjectId: string,
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/artifacts/baselines/${encodeURIComponent(baselineObjectId)}/explain`,
+    {
+      method: 'POST',
+    },
+  );
+}
