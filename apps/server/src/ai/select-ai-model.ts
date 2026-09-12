@@ -37,10 +37,23 @@ import { CLAUDE_HAIKU_4_5, CLAUDE_SONNET_5 } from '@luminaos/ai-gateway';
  * `'artifact'`: mapping a free-form natural-language request onto real field
  * keys/operators is open-ended reasoning, not a constrained-choice task, so
  * it belongs on the default/stronger model too.
+ *
+ * `'deviationExplanation'` (F3-T11 PR1, `explainDeviation`'s output, ADR-0045
+ * Karar b) routes the same way as `'text'`/`'qa'`/`'command'`/
+ * `'triggerSuggestion'`/`'artifact'`/`'widgetQuery'`: inferring a deviation's
+ * possible causes from aggregate numbers is open-ended reasoning, not a
+ * constrained-choice task, so it belongs on the default/stronger model too.
  */
 export interface SelectAIModelInput {
   outputType:
-    'text' | 'select' | 'qa' | 'command' | 'triggerSuggestion' | 'artifact' | 'widgetQuery';
+    | 'text'
+    | 'select'
+    | 'qa'
+    | 'command'
+    | 'triggerSuggestion'
+    | 'artifact'
+    | 'widgetQuery'
+    | 'deviationExplanation';
 }
 
 export function selectAIModel(input: SelectAIModelInput): string {
