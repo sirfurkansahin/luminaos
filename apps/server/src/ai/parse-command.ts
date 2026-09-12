@@ -93,6 +93,8 @@ export const proposedActionSchema = z
   })
   .array();
 
+export const PROPOSED_ACTION_TYPES = proposedActionSchema.element.shape.type.options;
+
 function renderCommandPrompt(command: string, sourceObjectId?: string): string {
   return [
     'Parse the natural-language command below into a JSON array of proposed actions.',

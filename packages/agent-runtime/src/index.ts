@@ -7,3 +7,4 @@ export * from './autonomy-tier-events.js';
 export * from './permission-manifest-commands.js';
 export * from './evaluate-manifest-grant.js';
 export * from './run-in-agent-sandbox.js';
+export * from './action-registry.js';
