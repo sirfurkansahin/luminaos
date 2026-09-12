@@ -251,6 +251,7 @@ export class WorkspacesService {
             { value: 'dashboard', label: 'Dashboard' },
             { value: 'page', label: 'Sayfa' },
             { value: 'report', label: 'Rapor' },
+            { value: 'baseline', label: 'Taban Çizgisi' },
           ],
         },
         permissions: SEEDED_FIELD_PERMISSIONS,
@@ -269,6 +270,57 @@ export class WorkspacesService {
         key: 'querySpec',
         label: 'Query Spec',
         fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    // F3-T10 PR2 ADDITION (ADR-0044 Karar b): 3 new Custom Fields for
+    // `BaselinesService`-captured baseline artifacts. Purely additive: NO
+    // migration, NO change to the 5 fields above (`artifactType`'s options
+    // list above is WIDENED with a 5th "baseline" value, its 4 original
+    // entries untouched).
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'capturedValue',
+        label: 'Captured Value',
+        fieldType: 'number',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'aggregateFn',
+        label: 'Aggregate Function',
+        fieldType: 'select',
+        config: {
+          options: [
+            { value: 'sum', label: 'Toplam' },
+            { value: 'avg', label: 'Ortalama' },
+            { value: 'min', label: 'Minimum' },
+            { value: 'max', label: 'Maksimum' },
+            { value: 'count', label: 'Sayım' },
+            { value: 'countUnique', label: 'Benzersiz Sayım' },
+            { value: 'countEmpty', label: 'Boş Sayım' },
+          ],
+        },
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'targetFieldKey',
+        label: 'Target Field Key',
+        fieldType: 'text',
         config: {},
         permissions: SEEDED_FIELD_PERMISSIONS,
       },

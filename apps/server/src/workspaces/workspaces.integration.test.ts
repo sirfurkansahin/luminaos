@@ -492,12 +492,16 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect(artifactTypeField?.fieldType).toBe('select');
     expect(artifactTypeField?.objectType).toBe('artifact');
     const artifactTypeOptions = artifactTypeField?.config.options ?? [];
-    expect(artifactTypeOptions).toHaveLength(4);
+    // F3-T10 PR2 (ADR-0044 Karar b) widened this list with a 5th "baseline"
+    // option -- this test's own assertion is updated alongside that change,
+    // not a regression: the ORIGINAL 4 values below are untouched, only the
+    // total count and the "baseline" member are new.
+    expect(artifactTypeOptions).toHaveLength(5);
     expect(artifactTypeOptions.map((option) => option.value).sort()).toEqual(
-      ['dashboard', 'page', 'presentation', 'report'].sort(),
+      ['baseline', 'dashboard', 'page', 'presentation', 'report'].sort(),
     );
     expect(artifactTypeOptions.map((option) => option.label).sort()).toEqual(
-      ['Dashboard', 'Rapor', 'Sayfa', 'Sunum'].sort(),
+      ['Dashboard', 'Rapor', 'Sayfa', 'Sunum', 'Taban Çizgisi'].sort(),
     );
   });
 
@@ -572,7 +576,108 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect(fieldDefinitions.find((fd) => fd.key === 'generationPrompt')).toBeDefined();
     expect(fieldDefinitions.find((fd) => fd.key === 'artifactType')).toBeDefined();
 
-    // Now exactly 5 seeded fields total for "artifact" -- not 4, not 6.
-    expect(fieldDefinitions).toHaveLength(5);
+    // F3-T10 PR2 (ADR-0044 Karar b) added 3 MORE seeded fields
+    // (capturedValue/aggregateFn/targetFieldKey) on top of these 5 -- this
+    // assertion is updated alongside that change, not a regression: the
+    // ORIGINAL 5 fields checked above remain untouched, only the total count
+    // grew to 8.
+    expect(fieldDefinitions).toHaveLength(8);
+  });
+
+  /**
+   * ===========================================================================
+   * F3-T10 PR2 ADDITION (ADR-0044 Karar b): THREE new Custom Fields
+   * (`capturedValue`/`aggregateFn`/`targetFieldKey`) are added to
+   * `seedArtifactFields`'s existing 5-field seed set for the `artifact`
+   * object type, AND the existing `artifactType` field's `select` options
+   * list gains a 5th value (`baseline`) -- purely additive, NO migration, NO
+   * change to any of the other 4 pre-existing fields (`htmlContent`/
+   * `themePreset`/`generationPrompt`/`querySpec`).
+   *
+   * RED STATE (expected, today): `seedArtifactFields` (`./workspaces.service.ts`)
+   * has no `capturedValue`/`aggregateFn`/`targetFieldKey` seed calls at all,
+   * and `artifactType`'s `options` array only has the 4 original entries
+   * (presentation/dashboard/page/report) -- so `.find((fd) => fd.key ===
+   * 'capturedValue')` etc. resolve to `undefined` below, and the
+   * `artifactType` options-length/values assertions fail (4 !== 5, no
+   * "baseline" entry present).
+   *
+   * CONTRACT PINNED BY THIS ADDITION (implementer must match precisely):
+   *
+   *   `capturedValue`  -- fieldType 'number', config {}
+   *   `aggregateFn`    -- fieldType 'select', config.options exactly the 7
+   *                       `AggregateFn` values: sum/avg/min/max/count/
+   *                       countUnique/countEmpty (Turkish labels:
+   *                       Toplam/Ortalama/Minimum/Maksimum/Sayım/Benzersiz
+   *                       Sayım/Boş Sayım)
+   *   `targetFieldKey` -- fieldType 'text', config {}
+   *   `artifactType`   -- (EXISTING field, options list WIDENED) now has a
+   *                       5th option: { value: 'baseline', label: 'Taban
+   *                       Çizgisi' }, alongside the original 4.
+   *
+   * All 3 new fields use the SAME `SEEDED_FIELD_PERMISSIONS` shape already
+   * used for the other `artifact` fields (owner/admin/member: edit, guest:
+   * view) -- this addition does not pin exact permission values beyond
+   * "present and an object", consistent with the other additions in this
+   * file.
+   * ===========================================================================
+   */
+  it('POST /workspaces also seeds "capturedValue"(number)/"aggregateFn"(select, 7 values)/"targetFieldKey"(text) for "artifact", AND widens "artifactType"\'s options with a 5th "baseline" value, with ZERO change to the 4 other pre-existing fields (F3-T10 PR2, ADR-0044 Karar b)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const listResponse = await request(server)
+      .get(artifactFieldsUrl(workspaceId))
+      .set('Cookie', cookie);
+
+    expect(listResponse.status).toBe(200);
+    const { fieldDefinitions } = listResponse.body as FieldDefinitionListEnvelope;
+
+    const capturedValueField = fieldDefinitions.find((fd) => fd.key === 'capturedValue');
+    expect(capturedValueField).toBeDefined();
+    expect(capturedValueField?.fieldType).toBe('number');
+    expect(capturedValueField?.objectType).toBe('artifact');
+    expect(capturedValueField?.config).toEqual({});
+
+    const aggregateFnField = fieldDefinitions.find((fd) => fd.key === 'aggregateFn');
+    expect(aggregateFnField).toBeDefined();
+    expect(aggregateFnField?.fieldType).toBe('select');
+    expect(aggregateFnField?.objectType).toBe('artifact');
+    const aggregateFnOptions = aggregateFnField?.config.options ?? [];
+    expect(aggregateFnOptions).toHaveLength(7);
+    expect(aggregateFnOptions.map((option) => option.value).sort()).toEqual(
+      ['avg', 'count', 'countEmpty', 'countUnique', 'max', 'min', 'sum'].sort(),
+    );
+    expect(aggregateFnOptions.map((option) => option.label).sort()).toEqual(
+      ['Benzersiz Sayım', 'Boş Sayım', 'Maksimum', 'Minimum', 'Ortalama', 'Sayım', 'Toplam'].sort(),
+    );
+
+    const targetFieldKeyField = fieldDefinitions.find((fd) => fd.key === 'targetFieldKey');
+    expect(targetFieldKeyField).toBeDefined();
+    expect(targetFieldKeyField?.fieldType).toBe('text');
+    expect(targetFieldKeyField?.objectType).toBe('artifact');
+    expect(targetFieldKeyField?.config).toEqual({});
+
+    // The existing "artifactType" field's options are WIDENED with a 5th
+    // "baseline" value, the original 4 untouched.
+    const artifactTypeField = fieldDefinitions.find((fd) => fd.key === 'artifactType');
+    expect(artifactTypeField).toBeDefined();
+    const artifactTypeOptions = artifactTypeField?.config.options ?? [];
+    expect(artifactTypeOptions).toHaveLength(5);
+    expect(artifactTypeOptions.map((option) => option.value).sort()).toEqual(
+      ['baseline', 'dashboard', 'page', 'presentation', 'report'].sort(),
+    );
+    const baselineOption = artifactTypeOptions.find((option) => option.value === 'baseline');
+    expect(baselineOption?.label).toBe('Taban Çizgisi');
+
+    // The 4 fields untouched by this PR (htmlContent/themePreset/
+    // generationPrompt/querySpec) are still present, unchanged.
+    expect(fieldDefinitions.find((fd) => fd.key === 'htmlContent')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'themePreset')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'generationPrompt')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'querySpec')).toBeDefined();
+
+    // Now exactly 8 seeded fields total for "artifact" -- the original 5
+    // plus this PR's 3 new ones.
+    expect(fieldDefinitions).toHaveLength(8);
   });
 });
