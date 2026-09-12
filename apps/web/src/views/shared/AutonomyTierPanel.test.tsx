@@ -2,6 +2,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ACTION_REGISTRY } from '@luminaos/agent-runtime';
+
 import { AutonomyTierPanel as AutonomyTierPanelModuleExport } from './AutonomyTierPanel.js';
 
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
@@ -328,6 +330,38 @@ describe('AutonomyTierPanel', () => {
       for (const call of mockedHook.mock.calls as unknown[][]) {
         expect(call).toEqual([workspaceId]);
       }
+    }
+  });
+});
+
+/**
+ * F3-T9 PR2 (ADR-0043 Karar f, spec `docs/specs/F3-E3/F3-T9-komut-duzlemi-v2.md`
+ * Kabul Kriterleri). `KNOWN_ACTION_TYPES` used to be a hand-maintained,
+ * 6-entry array with zero structural link to `@luminaos/agent-runtime`'s
+ * `ACTION_REGISTRY` (`packages/agent-runtime/src/action-registry.ts`,
+ * already merged in PR1). This suite asserts the panel's rendered rows are
+ * DERIVED FROM `ACTION_REGISTRY` (single source of truth, PLAN.md §5's
+ * "ikilik oluşmaz" principle) rather than just happening to structurally
+ * agree with an independently-maintained duplicate list -- `ACTION_REGISTRY`
+ * is imported for real (top of file, now that `@luminaos/agent-runtime` is a
+ * declared `apps/web` runtime dependency) and iterated to derive the
+ * expected assertions, instead of hardcoding a second copy of the 6 entries
+ * in this test file.
+ */
+describe('AutonomyTierPanel <- ACTION_REGISTRY (ADR-0043 Karar f, single source of truth)', () => {
+  it('renders exactly one row per @luminaos/agent-runtime ACTION_REGISTRY entry, with matching data-testid and visible label -- not just a coincidentally-identical hardcoded list', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} />);
+
+    expect(screen.getAllByTestId(/^autonomy-tier-item-/)).toHaveLength(ACTION_REGISTRY.length);
+    for (const entry of ACTION_REGISTRY) {
+      const row = screen.getByTestId(`autonomy-tier-item-${entry.actionType}`);
+      expect(row).toHaveTextContent(entry.label);
+      expect(
+        within(row).getByTestId(`autonomy-tier-select-${entry.actionType}`),
+      ).toBeInTheDocument();
     }
   });
 });

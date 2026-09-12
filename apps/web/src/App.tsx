@@ -12,6 +12,7 @@ import { ListView } from './views/ListView';
 import { SavedViewsList } from './views/SavedViewsList';
 import { SaveViewButton } from './views/SaveViewButton';
 import { AgentDirectoryPanel } from './views/shared/AgentDirectoryPanel';
+import { AmbientProposalsBadge } from './views/shared/AmbientProposalsBadge';
 import { AutomationHistoryPanel } from './views/shared/AutomationHistoryPanel';
 import { AutonomyTierPanel } from './views/shared/AutonomyTierPanel';
 import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
@@ -115,7 +116,10 @@ export function App() {
       <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
       <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
       <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
-      <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
+      <AmbientProposalsBadge workspaceId={DEV_WORKSPACE_ID} />
+      <div id="automation-history-panel">
+        <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
+      </div>
       <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
       <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />

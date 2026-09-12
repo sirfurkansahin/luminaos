@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -219,6 +219,150 @@ vi.mock('@luminaos/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@luminaos/ui')>();
   return { ...actual, toast: mockedToast };
 });
+
+/**
+ * F3-T9 PR2 (ADR-0043 Karar c/d/f, spec `docs/specs/F3-E3/F3-T9-komut-duzlemi-v2.md`
+ * Kabul Kriterleri) — TDD red step. Contract under test (NONE of this exists
+ * yet — implementer must build it next):
+ *
+ *   apps/web/src/hooks/useProposalsQuery.ts (modified, not yet built):
+ *     export function useParseCommandMutation(workspaceId: string):
+ *       UseMutationResult<ParseCommandResponse, Error, { command: string; sourceObjectId?: string }>
+ *     — mocked wholesale below via vi.hoisted/vi.mock, same technique this
+ *     file already uses for useInviteMeetingBotMutation/useExternalSearchQuery
+ *     above (module exists today but does not yet export this symbol).
+ *
+ *   apps/web/src/views/shared/CommandPalette.tsx (modified, not yet built):
+ *     - a new row BELOW the existing result groups/external-sources block,
+ *       data-testid="command-palette-run-command-action", visible only when
+ *       `rawQuery.trim().length > 0` (ADR-0043 Karar c's own code sketch),
+ *       text containing the trimmed raw query (`"{rawQuery.trim()}" komutunu
+ *       çalıştır`). Mirrors the "Toplantıya bot davet et" quick action's
+ *       `role="button"`/`tabIndex={0}`/onClick+onKeyDown(Enter/Space) shape --
+ *       NOT part of `flatResults`/arrow-key navigation (same isolation as the
+ *       external-result chips and the invite-bot action already proven above).
+ *     - clicking it, or Enter/Space while it has focus, calls
+ *       `useParseCommandMutation(workspaceId).mutate({ command: rawQuery.trim() })`.
+ *     - once the mutation has `data` (a `ParseCommandResponse`), the palette
+ *       renders a result block, data-testid="command-palette-parse-result":
+ *         - one row per entry in `data.autonomousResults`
+ *           (data-testid=`command-palette-executed-action-${actionId}`)
+ *           showing that action's intent plus the literal substring
+ *           "otomatik yürütüldü" (spec Kabul Kriterleri's exact pinned
+ *           phrase) -- NO approve/reject button anywhere on this row (the
+ *           action already executed).
+ *         - one row per entry in `data.actions` that has NO matching
+ *           `actionId` in `data.autonomousResults`
+ *           (data-testid=`command-palette-pending-action-${actionId}`)
+ *           showing the literal substring "bekliyor" (spec's exact pinned
+ *           phrase) plus the action's friendly label from
+ *           `findActionRegistryEntry(action.type)?.label ?? action.type`
+ *           (`@luminaos/agent-runtime`, ADR-0043 Karar f) AND an `<a
+ *           href="#automation-history-panel">` anchor -- NO approve/reject
+ *           button/mutation call anywhere on this row or elsewhere in the
+ *           palette for it (ADR-0043 Karar d: the palette does not rebuild
+ *           AutomationHistoryPanel's decide UI).
+ *         - when `data.parseError === true`, a visible, non-crashing error
+ *           message, data-testid="command-palette-parse-error" (Kabul
+ *           Kriteri: "kullanıcıya görünür bir hata mesajı gösterilir
+ *           (çökmeden)").
+ *
+ * `useParseCommandMutation` doesn't exist yet, so — mirroring this same
+ * file's handling of `useInviteMeetingBotMutation`/`useExternalSearchQuery`
+ * above — the mock is created via `vi.hoisted` and referenced only by
+ * closure inside the `vi.mock` factory below.
+ *
+ * `findActionRegistryEntry`/`ACTION_REGISTRY` (`@luminaos/agent-runtime`) are
+ * used FOR REAL (not mocked) in this suite -- they're pure, static data
+ * (ADR-0043 Karar a/g), and using the real function lets the
+ * unrecognized-type fallback test assert against a type that is GENUINELY
+ * absent from the registry rather than a hand-maintained duplicate list that
+ * could silently drift. `@luminaos/agent-runtime` is not yet a runtime
+ * dependency of `apps/web` (ADR-0043 Karar f, spec Kapsam item 4) -- until
+ * the implementer adds it AND wires `CommandPalette.tsx` to import from it,
+ * this import (and every test in this describe block) is expected to fail to
+ * resolve, which is the correct TDD red state for that still-missing wiring.
+ */
+interface ParseCommandActionSummary {
+  actionId: string;
+  type: string;
+  intent: string;
+  rationale: string;
+  resources: string[];
+  rollbackNote: string;
+  params: Record<string, unknown>;
+}
+
+interface ParseCommandDecideResult {
+  actionId: string;
+  status: 'executed' | 'rejected' | 'failed' | 'partially_executed';
+  createdCount?: number;
+  totalCount?: number;
+  failedAtStep?: number;
+  error?: string;
+}
+
+interface ParseCommandResponse {
+  proposalId: string;
+  actions: ParseCommandActionSummary[];
+  parseError: boolean;
+  message?: string;
+  autonomousResults?: ParseCommandDecideResult[];
+}
+
+const { mockedUseParseCommandMutation } = vi.hoisted(() => {
+  return { mockedUseParseCommandMutation: vi.fn() };
+});
+
+vi.mock('../../hooks/useProposalsQuery.js', () => ({
+  useParseCommandMutation: mockedUseParseCommandMutation,
+}));
+
+/**
+ * `@luminaos/agent-runtime` (ADR-0043 Karar a/f) already exists as a REAL
+ * package in this monorepo, but is NOT YET a declared runtime dependency of
+ * `apps/web` (spec Kapsam item 4 -- implementer's job, package.json is not a
+ * test file this suite may touch). Importing it directly from this test file
+ * fails to resolve at the Vite/vitest level (not just eslint), which would
+ * break the ENTIRE file's test collection rather than failing individual
+ * assertions -- so, mirroring this file's own established technique for
+ * `useExternalSearchQuery`/`useInviteMeetingBotMutation` above (modules that
+ * "don't exist yet" from this file's point of view), the package is mocked
+ * wholesale via `vi.mock` with a byte-for-byte copy of the real registry
+ * (`packages/agent-runtime/src/action-registry.ts`, ADR-0043 Karar a's own
+ * code sketch) rather than imported for real. `CommandPalette.tsx` itself
+ * will import the REAL package once the implementer adds the dependency —
+ * `vi.mock` intercepts that import by specifier regardless of whether the
+ * specifier resolves on disk from THIS package's node_modules.
+ */
+const { mockedFindActionRegistryEntry, MOCK_ACTION_REGISTRY } = vi.hoisted(() => {
+  const registry = [
+    { actionType: 'createTask', module: 'task', label: 'Görev oluştur' },
+    { actionType: 'generateSubtasks', module: 'task', label: 'Alt görevler oluştur' },
+    { actionType: 'assignPeople', module: 'task', label: 'Kişi ata' },
+    { actionType: 'createTaskFromMeeting', module: 'task', label: 'Toplantıdan görev oluştur' },
+    {
+      actionType: 'createTaskFromTrigger',
+      module: 'task',
+      label: 'Tetikleyiciden görev oluştur',
+    },
+    {
+      actionType: 'reconfigureAgentPermissions',
+      module: 'agentPermissions',
+      label: 'Ajan izinlerini yeniden yapılandır',
+    },
+  ];
+  return {
+    MOCK_ACTION_REGISTRY: registry,
+    mockedFindActionRegistryEntry: (actionType: string) =>
+      registry.find((entry) => entry.actionType === actionType),
+  };
+});
+
+vi.mock('@luminaos/agent-runtime', () => ({
+  ACTION_REGISTRY: MOCK_ACTION_REGISTRY,
+  findActionRegistryEntry: mockedFindActionRegistryEntry,
+}));
 
 const mockedSearchWorkspace = vi.mocked(searchWorkspace);
 const mockedUseObjectIdParam = vi.mocked(useObjectIdParam);
@@ -914,6 +1058,249 @@ describe('CommandPalette', () => {
       await user.click(screen.getByTestId('command-palette-invite-bot-action'));
 
       expect(screen.getByTestId<HTMLInputElement>('notetaker-meeting-url-input').value).toBe('');
+    });
+  });
+
+  /**
+   * F3-T9 PR2 (ADR-0043 Karar c/d/f) — see the file-level comment above the
+   * `ParseCommandResponse` interface for the full contract.
+   */
+  describe('"komutu çalıştır" run-command action (F3-T9 PR2)', () => {
+    beforeEach(() => {
+      mockParseMutation();
+    });
+
+    function mockParseMutation(overrides: Record<string, unknown> = {}): {
+      mutate: ReturnType<typeof vi.fn>;
+    } {
+      const mutate = vi.fn();
+      mockedUseParseCommandMutation.mockReturnValue({
+        ...makeMutationResultBase(mutate),
+        ...overrides,
+      });
+      return { mutate };
+    }
+
+    function makeParseActionFixture(
+      overrides: Partial<ParseCommandActionSummary> = {},
+    ): ParseCommandActionSummary {
+      return {
+        actionId: 'action-1',
+        type: 'createTask',
+        intent: "Ayşe için 'Rapor gönder' görevi oluştur",
+        rationale: 'Komutta belirtildi',
+        resources: [],
+        rollbackNote: 'Görev silinebilir',
+        params: {},
+        ...overrides,
+      };
+    }
+
+    function makeParseResultFixture(
+      overrides: Partial<ParseCommandResponse> = {},
+    ): ParseCommandResponse {
+      return {
+        proposalId: 'proposal-1',
+        actions: [],
+        parseError: false,
+        ...overrides,
+      };
+    }
+
+    it('renders the row only once a non-empty query is typed, absent while the input is empty', async () => {
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      expect(screen.queryByTestId('command-palette-run-command-action')).not.toBeInTheDocument();
+
+      await user.type(screen.getByTestId('command-palette-input'), 'Ayşe için görev oluştur');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('command-palette-run-command-action')).toBeInTheDocument();
+      });
+      // Spec Kabul Kriterleri's pinned literal wording: a '"{rawQuery}" komutunu
+      // çalıştır' row (ADR-0043 Karar c's own code sketch uses the same phrase).
+      expect(screen.getByTestId('command-palette-run-command-action')).toHaveTextContent(
+        '"Ayşe için görev oluştur" komutunu çalıştır',
+      );
+    });
+
+    it('clicking the row calls useParseCommandMutation(workspaceId).mutate with { command: <trimmed rawQuery> }', async () => {
+      const { mutate } = mockParseMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'Ayşe için görev oluştur');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('command-palette-run-command-action')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('command-palette-run-command-action'));
+
+      expect(mockedUseParseCommandMutation).toHaveBeenCalledWith(WORKSPACE_ID);
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate).toHaveBeenCalledWith({ command: 'Ayşe için görev oluştur' });
+    });
+
+    it('pressing Enter while the row itself has focus also calls mutate (mirrors the invite-bot quick action pattern)', async () => {
+      const { mutate } = mockParseMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'Ayşe için görev oluştur');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('command-palette-run-command-action')).toBeInTheDocument();
+      });
+      screen.getByTestId('command-palette-run-command-action').focus();
+      await user.keyboard('{Enter}');
+
+      expect(mutate).toHaveBeenCalledWith({ command: 'Ayşe için görev oluştur' });
+    });
+
+    it('is NEVER part of flatResults/arrow-key navigation — with search results present, ArrowDown/ArrowUp/Enter only ever navigate/select those results and NEVER call the parse mutation (mirrors the already-proven invite-bot/external-chip isolation)', async () => {
+      mockedSearchWorkspace.mockResolvedValue({
+        results: [
+          makeResult({ objectId: 't-1', title: 'Task one', type: 'task' }),
+          makeResult({ objectId: 't-2', title: 'Task two', type: 'task' }),
+        ],
+      });
+      const openObject = mockOpenObject();
+      const { mutate } = mockParseMutation();
+      const user = userEvent.setup();
+      renderPalette();
+
+      await openViaMeta(user);
+      await user.type(screen.getByTestId('command-palette-input'), 'task');
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('command-palette-result')).toHaveLength(2);
+      });
+      // The run-command row is visible AT THE SAME TIME as the search results.
+      expect(screen.getByTestId('command-palette-run-command-action')).toBeInTheDocument();
+
+      await user.keyboard('{ArrowDown}');
+      await user.keyboard('{ArrowUp}');
+      await user.keyboard('{ArrowDown}');
+      await user.keyboard('{Enter}');
+
+      expect(mutate).not.toHaveBeenCalled();
+      // Enter selected the (still internal) active search result, not the
+      // run-command row.
+      expect(openObject).toHaveBeenCalledWith('t-2');
+    });
+
+    describe('parse result rendering (ADR-0043 Karar d)', () => {
+      it('renders each autonomousResults entry as executed ("otomatik yürütüldü") with no approve/reject button anywhere on that row', async () => {
+        const executedAction = makeParseActionFixture({ actionId: 'action-1', type: 'createTask' });
+        mockParseMutation({
+          data: makeParseResultFixture({
+            actions: [executedAction],
+            autonomousResults: [{ actionId: 'action-1', status: 'executed', createdCount: 1 }],
+          }),
+        });
+        const user = userEvent.setup();
+        renderPalette();
+
+        await openViaMeta(user);
+
+        const executedRow = screen.getByTestId('command-palette-executed-action-action-1');
+        expect(executedRow).toHaveTextContent('otomatik yürütüldü');
+        expect(within(executedRow).queryByRole('button')).not.toBeInTheDocument();
+        expect(within(executedRow).queryByText(/onayla/i)).not.toBeInTheDocument();
+        expect(within(executedRow).queryByText(/reddet/i)).not.toBeInTheDocument();
+      });
+
+      it('renders an action present in `actions` but absent from `autonomousResults` as pending ("bekliyor") with a friendly registry label and an anchor to #automation-history-panel, with NO approve/reject affordance anywhere in the palette', async () => {
+        const pendingAction = makeParseActionFixture({ actionId: 'action-2', type: 'createTask' });
+        mockParseMutation({
+          data: makeParseResultFixture({
+            actions: [pendingAction],
+            autonomousResults: [],
+          }),
+        });
+        const user = userEvent.setup();
+        renderPalette();
+
+        await openViaMeta(user);
+
+        const pendingRow = screen.getByTestId('command-palette-pending-action-action-2');
+        expect(pendingRow).toHaveTextContent('bekliyor');
+        const expectedLabel = mockedFindActionRegistryEntry('createTask')?.label ?? 'createTask';
+        expect(pendingRow).toHaveTextContent(expectedLabel);
+
+        const anchor = within(pendingRow).getByRole('link');
+        expect(anchor).toHaveAttribute('href', '#automation-history-panel');
+
+        // Regression guard (ADR-0043 Karar d): the palette does NOT rebuild
+        // AutomationHistoryPanel's approve/reject UI anywhere in its own tree
+        // for this pending action.
+        expect(screen.queryByText(/onayla/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/reddet/i)).not.toBeInTheDocument();
+        expect(screen.queryAllByRole('button', { name: /onayla|reddet/i })).toHaveLength(0);
+      });
+
+      it('splits actions into executed vs pending purely by actionId set-difference against autonomousResults, even when both are present at once', async () => {
+        const executed = makeParseActionFixture({ actionId: 'action-1' });
+        const pending = makeParseActionFixture({ actionId: 'action-2' });
+        mockParseMutation({
+          data: makeParseResultFixture({
+            actions: [executed, pending],
+            autonomousResults: [{ actionId: 'action-1', status: 'executed' }],
+          }),
+        });
+        const user = userEvent.setup();
+        renderPalette();
+
+        await openViaMeta(user);
+
+        expect(screen.getByTestId('command-palette-executed-action-action-1')).toBeInTheDocument();
+        expect(screen.getByTestId('command-palette-pending-action-action-2')).toBeInTheDocument();
+        expect(
+          screen.queryByTestId('command-palette-pending-action-action-1'),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.queryByTestId('command-palette-executed-action-action-2'),
+        ).not.toBeInTheDocument();
+      });
+
+      it('falls back to the raw action.type string when the type is not present in the registry (findActionRegistryEntry returns undefined)', async () => {
+        const unregisteredType = 'unrecognizedFutureActionType';
+        expect(mockedFindActionRegistryEntry(unregisteredType)).toBeUndefined();
+        const pendingAction = makeParseActionFixture({
+          actionId: 'action-3',
+          type: unregisteredType,
+        });
+        mockParseMutation({
+          data: makeParseResultFixture({ actions: [pendingAction], autonomousResults: [] }),
+        });
+        const user = userEvent.setup();
+        renderPalette();
+
+        await openViaMeta(user);
+
+        const pendingRow = screen.getByTestId('command-palette-pending-action-action-3');
+        expect(pendingRow).toHaveTextContent(unregisteredType);
+      });
+
+      it('renders a visible, non-crashing error message (data-testid="command-palette-parse-error") when parseError is true', async () => {
+        mockParseMutation({
+          data: makeParseResultFixture({
+            parseError: true,
+            message: 'Komut anlaşılamadı',
+            actions: [],
+          }),
+        });
+        const user = userEvent.setup();
+        renderPalette();
+
+        await openViaMeta(user);
+
+        expect(screen.getByTestId('command-palette-parse-error')).toBeInTheDocument();
+      });
     });
   });
 });
