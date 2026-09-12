@@ -1,6 +1,6 @@
 # F3-T10 — Evrensel Baseline: Herhangi Bir Sorgu/Metrik Anlık Görüntüsü + Sapma Hesaplayıcı
 
-**Epik:** F3-E4 (Plan-Gerçek Motoru [Kapsam N]) · **Durum:** PLANLANDI — Epik F3-E4'ün İLK görevi, F3-E3 (F3-T7/T8/T9, hepsi `main`'e birleşti) sonrası yeni bir epik. Mimari karar `docs/adr/ADR-0044-evrensel-baseline-sapma.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E4 (Plan-Gerçek Motoru [Kapsam N]) · **Durum:** TAMAMLANDI — Epik F3-E4'ün İLK görevi, F3-E3 (F3-T7/T8/T9, hepsi `main`'e birleşti) sonrası yeni bir epik. Epiğin İKİNCİ ve SON görevi (F3-T11) henüz TAMAMLANMADI. Mimari karar `docs/adr/ADR-0044-evrensel-baseline-sapma.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** F3-T7 (ADR-0041) — `artifact` `ObjectType`'ı, `ArtifactsService`'in `'owner'`-bypass yazım deseni. F3-T8 (ADR-0042) — `packages/artifacts`'ın yapısı, `WidgetsService`'in dar-Pick+`useFactory` deseni, `querySpec` seed alanı (yeniden kullanılır, değiştirilmez). F1-T6 (`QuerySpec`, `POST /objects/query`, ADR-0009) — sorgu katmanının kendisi DEĞİŞTİRİLMEZ. F1-T9 (`SavedView`) — baseline'ın `QuerySpec` kaynağı. F1-T4 (`computeAggregate`, `packages/core-objects/src/fields/formula/field-aggregations.ts`) — yeni bir bağlamda (bir `QuerySpec` sonucunun TÜM satırları) yeniden kullanılır, değiştirilmez.
 
 ## Amaç
@@ -48,37 +48,53 @@
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `computeQueryAggregate('count', rows, undefined)` `rows.length` döner; `sum`/`avg`/`min`/`max`/`countUnique`/`countEmpty` `targetFieldKey` OLMADAN çağrıldığında `ValidationError` fırlatır.
-- [ ] **PR1:** `computeQueryAggregate`, `targetFieldKey==='title'` iken nesnenin `.title`'ını (fieldValues değil) doğru okur; diğer her `targetFieldKey` için `row.fieldValues[targetFieldKey]`'i `computeAggregate`'e doğru delege eder (her `AggregateFn` için en az bir test).
-- [ ] **PR1:** `computeDeviation`, `delta`/`direction` (`up`/`down`/`unchanged`) doğru hesaplar; `capturedValue===0` iken `percentChange:null` döner (asla `Infinity`/`NaN` sızdırmaz).
-- [ ] **PR1:** `ArtifactType`'a `'baseline'` eklendi, `artifact-type.test.ts`'in exhaustiveness kanaryası güncellendi.
-- [ ] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR2:** `workspaces.service.ts`'in `seedArtifactFields`'ı `artifact` için `capturedValue`(`number`)/`aggregateFn`(`select`)/`targetFieldKey`(`text`) alanlarını doğru seed ediyor VE `artifactType`'ın seçenek listesi `baseline`'ı içeriyor — **HİÇBİR migration dosyası yazılmadı** (regresyon doğrulandı).
-- [ ] **PR2:** `POST /workspaces/:workspaceId/artifacts/baselines` üzerinden gerçek bir `artifact` Lumina Object'i oluşturuluyor — `fieldValues.capturedValue`/`aggregateFn`/`querySpec`/`artifactType`(`'baseline'`) doğru doldurulmuş; `targetFieldKey` YALNIZCA sağlandığında yazılıyor (sağlanmadığında alan tamamen unset kalıyor).
-- [ ] **PR2:** `querySpec.group` içeren bir istek `ValidationError` ile reddediliyor; `sum`/`avg`/`min`/`max` için `targetFieldKey` eksikken istek reddediliyor.
-- [ ] **PR2:** RBAC — `member`+ yeterli; iç `setFieldValues` yazımı sabit `'owner'` rolüyle çalışıyor (F3-T7/T8'in AYNI `'owner'`-bypass regresyon deseni, ayrı bir testle kanıtlanmış).
-- [ ] **PR2 (regresyon):** Mevcut `POST /workspaces/:workspaceId/objects/query` rotası, YENİ oluşturulan baseline `artifact` nesnelerini HİÇBİR kod değişikliği olmadan zaten doğru sorguluyor.
-- [ ] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR3:** `BaselineCreationForm`, seçilen `SavedView`'dan türetilen `{title, querySpec, aggregateFn, targetFieldKey?}` gövdesiyle isteği doğru tetikler.
-- [ ] **PR3:** `BaselineViewer`, mount'ta TAM OLARAK BİR kez `postObjectsQuery` çağırır (`refetchInterval` KULLANILMADIĞI ayrı bir negatif testle kanıtlanmış); "Yenile" butonu ikinci bir çağrıyı tetikler.
-- [ ] **PR3:** `BaselineViewer`, geçersiz/bozuk bir saklı `querySpec` karşısında ÇÖKMEDEN görünür bir "karşılaştırma yapılamıyor" durumuna düşer.
-- [ ] **PR3:** `BaselineViewer`, `nextCursor` mevcutken (sorgu tüm eşleşen satırları döndürmediğinde) bir uyarı banner'ı gösterir.
-- [ ] **PR3:** Mutasyon hatası (ör. sunucudan `ValidationError`) kullanıcıya görünür bir hata olarak yüzeye çıkar.
-- [ ] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `computeQueryAggregate('count', rows, undefined)` `rows.length` döner; `sum`/`avg`/`min`/`max`/`countUnique`/`countEmpty` `targetFieldKey` OLMADAN çağrıldığında `ValidationError` fırlatır.
+- [x] **PR1:** `computeQueryAggregate`, `targetFieldKey==='title'` iken nesnenin `.title`'ını (fieldValues değil) doğru okur; diğer her `targetFieldKey` için `row.fieldValues[targetFieldKey]`'i `computeAggregate`'e doğru delege eder (her `AggregateFn` için en az bir test).
+- [x] **PR1:** `computeDeviation`, `delta`/`direction` (`up`/`down`/`unchanged`) doğru hesaplar; `capturedValue===0` iken `percentChange:null` döner (asla `Infinity`/`NaN` sızdırmaz).
+- [x] **PR1:** `ArtifactType`'a `'baseline'` eklendi, `artifact-type.test.ts`'in exhaustiveness kanaryası güncellendi.
+- [x] **PR1:** `pnpm --filter @luminaos/artifacts typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR2:** `workspaces.service.ts`'in `seedArtifactFields`'ı `artifact` için `capturedValue`(`number`)/`aggregateFn`(`select`)/`targetFieldKey`(`text`) alanlarını doğru seed ediyor VE `artifactType`'ın seçenek listesi `baseline`'ı içeriyor — **HİÇBİR migration dosyası yazılmadı** (regresyon doğrulandı).
+- [x] **PR2:** `POST /workspaces/:workspaceId/artifacts/baselines` üzerinden gerçek bir `artifact` Lumina Object'i oluşturuluyor — `fieldValues.capturedValue`/`aggregateFn`/`querySpec`/`artifactType`(`'baseline'`) doğru doldurulmuş; `targetFieldKey` YALNIZCA sağlandığında yazılıyor (sağlanmadığında alan tamamen unset kalıyor).
+- [x] **PR2:** `querySpec.group` içeren bir istek `ValidationError` ile reddediliyor; `sum`/`avg`/`min`/`max` için `targetFieldKey` eksikken istek reddediliyor.
+- [x] **PR2:** RBAC — `member`+ yeterli; iç `setFieldValues` yazımı sabit `'owner'` rolüyle çalışıyor (F3-T7/T8'in AYNI `'owner'`-bypass regresyon deseni, ayrı bir testle kanıtlanmış).
+- [x] **PR2 (regresyon):** Mevcut `POST /workspaces/:workspaceId/objects/query` rotası, YENİ oluşturulan baseline `artifact` nesnelerini HİÇBİR kod değişikliği olmadan zaten doğru sorguluyor.
+- [x] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR3:** `BaselineCreationForm`, seçilen `SavedView`'dan türetilen `{title, querySpec, aggregateFn, targetFieldKey?}` gövdesiyle isteği doğru tetikler.
+- [x] **PR3:** `BaselineViewer`, mount'ta TAM OLARAK BİR kez `postObjectsQuery` çağırır (`refetchInterval` KULLANILMADIĞI ayrı bir negatif testle kanıtlanmış); "Yenile" butonu ikinci bir çağrıyı tetikler.
+- [x] **PR3:** `BaselineViewer`, geçersiz/bozuk bir saklı `querySpec` karşısında ÇÖKMEDEN görünür bir "karşılaştırma yapılamıyor" durumuna düşer.
+- [x] **PR3:** `BaselineViewer`, `nextCursor` mevcutken (sorgu tüm eşleşen satırları döndürmediğinde) bir uyarı banner'ı gösterir.
+- [x] **PR3:** Mutasyon hatası (ör. sunucudan `ValidationError`) kullanıcıya görünür bir hata olarak yüzeye çıkar.
+- [x] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+4 PR `main`'e merge edildi (3 uygulama PR'ı + spec/ADR'yi resmileştiren 1 doküman-only PR):
+
+- **Docs (spec + ADR-0044)** ([#249](https://github.com/sirfurkansahin/luminaos/pull/249)): bu spec dosyası + `docs/adr/ADR-0044-evrensel-baseline-sapma.md` — kod içermeyen, mimari kararı (a)-(h) ve PR bölünmesini sabitleyen doküman-only PR.
+- **PR1 — `packages/artifacts` baseline/sapma saf fonksiyonları** ([#250](https://github.com/sirfurkansahin/luminaos/pull/250)): `computeQueryAggregate` (`count`+`targetFieldKey` yokken `rows.length`, diğer tüm `aggregateFn`'ler için fail-closed `ValidationError`, `title` özel-durumu), `computeDeviation` (`delta`/`direction`/`capturedValue===0` iken `percentChange:null`), `ArtifactType`'a `'baseline'` eklenmesi + exhaustiveness kanaryası güncellemesi. Kanıt: 148/148 paket testi, %100 satır kapsamı.
+- **PR2 — `BaselinesService`/`Controller` + alan seed'leri** ([#251](https://github.com/sirfurkansahin/luminaos/pull/251)): `baselines.service.ts`/`baselines.controller.ts` (`POST /workspaces/:workspaceId/artifacts/baselines`, `member`+ RBAC, `'owner'`-bypass yazım deseni, SIFIR AI-gateway bağımlılığı), `workspaces.service.ts`'in `seedArtifactFields`'ına 3 yeni alan + `artifactType`'a 5. seçenek — HİÇBİR migration dosyası olmadan. Kanıt: tam server birim test paketi + 22/22 entegrasyon testi, sıfır regresyon.
+- **PR3 — Frontend `BaselineCreationForm` + `BaselineViewer`** ([#252](https://github.com/sirfurkansahin/luminaos/pull/252)): `useCaptureBaselineMutation.ts`, `BaselineCreationForm.tsx` (`SavedView`-kaynaklı, ad-hoc sorgu girişi YOK), `BaselineViewer.tsx` (mount'ta bir kez, `refetchInterval` YOK, elle yenile butonu, bozuk `querySpec`'te "karşılaştırma yapılamıyor"a fail-closed düşüş, `hasMoreRows`/`nextCursor` uyarı banner'ı). Kanıt: 34/34 yeni frontend testi + 870/870 tam web test paketi yeşil.
 
 ## Açık Sorular
 
 - **Sayfalar-arası toplam agregasyon** (Kapsam Dışı) — gerçek talep doğarsa (ör. binlerce satırlık bir workspace'te "tüm görevlerin toplam süresi" gibi bir baseline), `ObjectsService`'e `nextCursor`'ı OTOMATİK takip eden bir "tüm sayfaları agregasyona dahil et" modu AYRI bir gelecekteki genişleme olabilir.
 - **Gantt Baselines entegrasyonu** — bugün MEVCUT olmayan bir özelliğin bu motoru NASIL tüketeceği (aynı `artifactType='baseline'` mi, yoksa Gantt'a özel bir `targetObjectId`/tarih-aralığı alanı mı gerekir) bu görevde ÇÖZÜLMÜYOR, o özellik inşa edildiğinde AYRI bir karar gerektirir.
+- **PR2 uygulaması sırasında ortaya çıkan iki test-fixture hatası — düzeltildi, kod DEĞİŞMEDİ:** implementer, sessizce yamamak yerine iki gerçek fixture hatasını durdurup raporladı: (a) `baselines.service.test.ts`'in mock'lanmış gruplu `QueryResult` fixture'ı uydurma bir şekil (`{key, objects, aggregates}`) kullanıyordu, gerçek şekil (`{groupValue, count, items}`) değil — bir tip hatasına yol açıyordu; (b) `workspaces.integration.test.ts`'te F3-T7 PR2 ve F3-T8 PR2'den kalma İKİ ESKİ test, `artifactType` seçenek sayısı (`toHaveLength(4)`) ve toplam alan sayısı (`toHaveLength(5)`) için TAM sayıları sabit-kodlamıştı — bu görevin katkısal (additive) seed'i bunları meşru şekilde bozuyordu. İkisi de doğrudan düzeltildi: mock gerçek şekle çevrildi; iki eski assertion, neden büyüdüğünü açıklayan bir yorumla birlikte yeni (daha büyük, hâlâ TAM) sayılara güncellendi.
 
 ## Sıradaki adım
 
-Bu spec + `docs/adr/ADR-0044-evrensel-baseline-sapma.md`'nin insana onayı üzerine PR1'e (`packages/artifacts` genişlemesi: `computeQueryAggregate`, `computeDeviation`, `ArtifactType`'a `'baseline'` eklenmesi — SIFIR I/O, mevcut `computeAggregate`/`renderArtifactHtml`'i DEĞİŞTİRMEDEN yeniden kullanır) için `test-writer` ile başarısız testler yazılarak başlanır:
+F3-T10'un tamamlanmasıyla Epik F3-E4 (Plan-Gerçek Motoru, Kapsam N) HENÜZ TAMAMLANMADI — `docs/PLAN.md` satır 294'e göre epiğin ikinci ve SON görevi **F3-T11 — Sapma anında ajan destekli kök neden analizi kartı**. Bu, F3-T7→F3-T10 yay'ının (F3-E3+F3-E4'ün bu kısmı) İLK AI-gateway bağımlılığı yeniden getiren görevi olacak ve ADR-0029'un dört-kademeli hassas-veri sınıflandırmasına tabi KENDİ ADR'sini gerektirecek (ADR-0044'ün kendi "Mimari Değişmezlerle İlişki" bölümünde açıkça bu ADR'nin kapsamı DIŞINDA bırakılmıştı). Henüz ne ADR'si ne spec dosyası var:
 
 ```
-docs/adr/ADR-0044-evrensel-baseline-sapma.md'deki Karar (a)-(h)'yi ve
-docs/specs/F3-E4/F3-T10-evrensel-baseline-sapma.md'nin Kabul Kriterleri'ni temel alarak, F3-T10
-PR1 (packages/artifacts genişlemesi: computeQueryAggregate, computeDeviation, ArtifactType'a
-'baseline' eklenmesi -- sıfır I/O, mevcut computeAggregate/renderArtifactHtml'i DEĞİŞTİRMEDEN
-yeniden kullanır) için test-writer ile başarısız testleri yaz.
+docs/PLAN.md'nin Epik F3-E4'ün (Plan-Gerçek Motoru, Kapsam N) ilk görevi F3-T10'u
+tamamladığını doğrula; epiğin ikinci ve SON görevi F3-T11 -- Sapma anında ajan destekli kök
+neden analizi kartı (henüz ne ADR'si ne spec dosyası var). Önce explorer ile şunları keşfet:
+(1) bu görevde inşa edilen baseline/sapma altyapısını (packages/artifacts'taki
+computeQueryAggregate/computeDeviation, BaselinesService, BaselineViewer) -- F3-T11'in TEPKİ
+vereceği sapma sinyali budur; (2) mevcut AI-üretim orkestrasyon desenlerini (parseCommand,
+compileWidgetQuery, extractMeetingActions) -- yeni bir "bu sapmayı açıkla" AI akışı için emsal
+olarak; (3) docs/adr/ADR-0029-hibrit-ai-veri-siniflandirmasi.md'deki dört-kademeli hassas-veri
+sınıflandırmasının F3-T11'in YENİ AI-üretim yüzeyine nasıl uygulanması gerektiğini. Sonra
+architect ile docs/adr/ADR-0045-<konu>.md taslağını VE docs/specs/F3-E4/F3-T11-<konu>.md spec
+dosyasını oluştur, insana onaylat; sonra plan mode'a geç.
 ```
