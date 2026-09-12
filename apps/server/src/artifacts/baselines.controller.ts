@@ -14,6 +14,7 @@ import type { Role } from '@luminaos/core-objects';
 import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
+import { BaselineExplanationService } from './baseline-explanation.service.js';
 import { BaselinesService } from './baselines.service.js';
 import { captureBaselineSchema } from './dto/capture-baseline.schema.js';
 import { SessionAuthGuard } from '../auth/session-auth.guard.js';
@@ -36,7 +37,10 @@ import type { Request } from 'express';
 @Controller('workspaces/:workspaceId/artifacts/baselines')
 @UseGuards(SessionAuthGuard, WorkspaceMembershipGuard)
 export class BaselinesController {
-  constructor(private readonly baselinesService: BaselinesService) {}
+  constructor(
+    private readonly baselinesService: BaselinesService,
+    private readonly baselineExplanationService: BaselineExplanationService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -54,6 +58,26 @@ export class BaselinesController {
       aggregateFn: body.aggregateFn,
       ...(body.targetFieldKey !== undefined ? { targetFieldKey: body.targetFieldKey } : {}),
     });
+
+    return { object };
+  }
+
+  @Post(':id/explain')
+  @HttpCode(HttpStatus.OK)
+  async explain(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<{ object: ObjectWithFieldValues }> {
+    const actor = this.requireActor(req);
+    const callerRole = this.requireRole(req);
+
+    const object = await this.baselineExplanationService.explain(
+      workspaceId,
+      actor,
+      callerRole,
+      id,
+    );
 
     return { object };
   }

@@ -577,11 +577,12 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect(fieldDefinitions.find((fd) => fd.key === 'artifactType')).toBeDefined();
 
     // F3-T10 PR2 (ADR-0044 Karar b) added 3 MORE seeded fields
-    // (capturedValue/aggregateFn/targetFieldKey) on top of these 5 -- this
-    // assertion is updated alongside that change, not a regression: the
-    // ORIGINAL 5 fields checked above remain untouched, only the total count
-    // grew to 8.
-    expect(fieldDefinitions).toHaveLength(8);
+    // (capturedValue/aggregateFn/targetFieldKey), then F3-T11 PR2 (ADR-0045
+    // Karar d) added 3 MORE still (explanationSummary/explanationCauses/
+    // explanationGeneratedAt) -- this assertion is updated alongside each
+    // change, not a regression: the ORIGINAL 5 fields checked above remain
+    // untouched, only the total count grew to 11.
+    expect(fieldDefinitions).toHaveLength(11);
   });
 
   /**
@@ -676,8 +677,96 @@ describe('Workspace creation seeds status/priority fields (real Postgres + real 
     expect(fieldDefinitions.find((fd) => fd.key === 'generationPrompt')).toBeDefined();
     expect(fieldDefinitions.find((fd) => fd.key === 'querySpec')).toBeDefined();
 
-    // Now exactly 8 seeded fields total for "artifact" -- the original 5
+    // F3-T11 PR2 (ADR-0045 Karar d) added 3 MORE seeded fields
+    // (explanationSummary/explanationCauses/explanationGeneratedAt) on top
+    // of these 8 -- this assertion is updated alongside that change, not a
+    // regression: the 8 fields checked above remain untouched, only the
+    // total count grew to 11.
+    expect(fieldDefinitions).toHaveLength(11);
+  });
+
+  /**
+   * ===========================================================================
+   * F3-T11 PR2 ADDITION (ADR-0045 Karar d): THREE new Custom Fields
+   * (`explanationSummary`/`explanationCauses`/`explanationGeneratedAt`) are
+   * added to `seedArtifactFields`'s existing 8-field seed set for the
+   * `artifact` object type -- purely additive, NO migration, NO change to any
+   * of the 8 pre-existing fields (`htmlContent`/`themePreset`/
+   * `generationPrompt`/`querySpec`/`capturedValue`/`aggregateFn`/
+   * `targetFieldKey`/`artifactType`). `artifactType`'s own options list is
+   * NOT widened again by this PR (Karar d: these 3 fields are an optional
+   * sub-state of the EXISTING `'baseline'` value, no new `artifactType`
+   * enum value is introduced).
+   *
+   * RED STATE (expected, today): `seedArtifactFields`
+   * (`./workspaces.service.ts`) has no `explanationSummary`/
+   * `explanationCauses`/`explanationGeneratedAt` seed calls at all -- so
+   * `.find((fd) => fd.key === 'explanationSummary')` etc. resolve to
+   * `undefined` below, and the final `toHaveLength(11)` assertion fails
+   * (8 !== 11).
+   *
+   * CONTRACT PINNED BY THIS ADDITION (implementer must match precisely):
+   *
+   *   `explanationSummary`     -- fieldType 'longText', config {}
+   *   `explanationCauses`      -- fieldType 'longText', config {} (a
+   *                               JSON-stringified string[], the SAME
+   *                               longText-JSON-stringify convention
+   *                               `querySpec` already established)
+   *   `explanationGeneratedAt` -- fieldType 'datetime', config {}
+   *
+   * All 3 new fields use the SAME `SEEDED_FIELD_PERMISSIONS` shape already
+   * used for the other `artifact` fields -- this addition does not pin exact
+   * permission values beyond "present and an object", consistent with the
+   * other additions in this file.
+   * ===========================================================================
+   */
+  it('POST /workspaces also seeds "explanationSummary"(longText)/"explanationCauses"(longText)/"explanationGeneratedAt"(datetime) for "artifact", with ZERO change to the 8 other pre-existing fields (F3-T11 PR2, ADR-0045 Karar d)', async () => {
+    const { cookie, workspaceId } = await registerAdminWithWorkspace();
+
+    const listResponse = await request(server)
+      .get(artifactFieldsUrl(workspaceId))
+      .set('Cookie', cookie);
+
+    expect(listResponse.status).toBe(200);
+    const { fieldDefinitions } = listResponse.body as FieldDefinitionListEnvelope;
+
+    const explanationSummaryField = fieldDefinitions.find((fd) => fd.key === 'explanationSummary');
+    expect(explanationSummaryField).toBeDefined();
+    expect(explanationSummaryField?.fieldType).toBe('longText');
+    expect(explanationSummaryField?.objectType).toBe('artifact');
+    expect(explanationSummaryField?.config).toEqual({});
+
+    const explanationCausesField = fieldDefinitions.find((fd) => fd.key === 'explanationCauses');
+    expect(explanationCausesField).toBeDefined();
+    expect(explanationCausesField?.fieldType).toBe('longText');
+    expect(explanationCausesField?.objectType).toBe('artifact');
+    expect(explanationCausesField?.config).toEqual({});
+
+    const explanationGeneratedAtField = fieldDefinitions.find(
+      (fd) => fd.key === 'explanationGeneratedAt',
+    );
+    expect(explanationGeneratedAtField).toBeDefined();
+    expect(explanationGeneratedAtField?.fieldType).toBe('datetime');
+    expect(explanationGeneratedAtField?.objectType).toBe('artifact');
+    expect(explanationGeneratedAtField?.config).toEqual({});
+
+    // The 8 fields untouched by this PR are still present, unchanged --
+    // including "artifactType", whose options list is NOT widened again
+    // here (still exactly 5, the SAME 5 pinned by the F3-T10 PR2 addition
+    // above).
+    expect(fieldDefinitions.find((fd) => fd.key === 'htmlContent')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'themePreset')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'generationPrompt')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'querySpec')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'capturedValue')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'aggregateFn')).toBeDefined();
+    expect(fieldDefinitions.find((fd) => fd.key === 'targetFieldKey')).toBeDefined();
+    const artifactTypeField = fieldDefinitions.find((fd) => fd.key === 'artifactType');
+    expect(artifactTypeField).toBeDefined();
+    expect(artifactTypeField?.config.options ?? []).toHaveLength(5);
+
+    // Now exactly 11 seeded fields total for "artifact" -- the original 8
     // plus this PR's 3 new ones.
-    expect(fieldDefinitions).toHaveLength(8);
+    expect(fieldDefinitions).toHaveLength(11);
   });
 });

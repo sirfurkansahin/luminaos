@@ -2,8 +2,12 @@ import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { MockProvider } from '@luminaos/ai-gateway';
+import type { AICompletionResult } from '@luminaos/ai-gateway';
+
+import { AI_PROVIDER } from '../ai/ai-provider.token.js';
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';
 import { memberships } from '../db/schema/memberships.js';
@@ -11,6 +15,51 @@ import { memberships } from '../db/schema/memberships.js';
 import type { Database } from '../db/client.js';
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
+
+/**
+ * F3-T11 PR2 (RED step, ADR-0045 Karar e/h) ADDITION -- this file's original
+ * F3-T10 harness (above) is otherwise UNCHANGED: `BaselinesService.capture()`
+ * itself still has ZERO AI-gateway dependency (ADR-0044 Karar c), proven by
+ * every pre-existing test below still passing with zero AI wiring involved
+ * in the capture path. The NEW `POST .../baselines/:id/explain` route (ADR-
+ * 0045 Karar e), however, DOES depend on AI (via the new, separate
+ * `BaselineExplanationService`) -- so this file's `beforeAll` now ALSO
+ * configures a generous AI token/cost quota and overrides `AI_PROVIDER` with
+ * a fully-scripted `MockProvider` (`explainProviderResponder` below), rather
+ * than relying on the production `unconfiguredResponder`'s `RETURN:` marker
+ * convention (`ai-provider.module.ts`) -- that convention only works when
+ * caller-supplied text is the LAST content embedded in the rendered prompt,
+ * which is NOT the case for `explainDeviation`'s prompt template
+ * (`./explain-deviation.ts`): it always ends with a fixed
+ * `Direction: <up|down|unchanged>` line that the caller can never control,
+ * so there is no way to make a `RETURN:`-marked suffix survive as the LAST
+ * characters of the rendered prompt. `overrideProvider(AI_PROVIDER)` sidesteps
+ * that positional constraint entirely -- mirrors
+ * `trigger-suggestions.controller.integration.test.ts`'s own established
+ * `overrideProvider` precedent (documented there for the identical reason:
+ * `suggestTriggerTemplates`'s prompt template also always has fixed
+ * instructions text after the caller-supplied content).
+ */
+let explainResponseCounter = 0;
+
+function scriptedExplainResponse(): AICompletionResult {
+  explainResponseCounter += 1;
+  return {
+    text: JSON.stringify({
+      summary: `Deviation explanation attempt #${String(explainResponseCounter)}.`,
+      possibleCauses: ['A plausible cause from the scripted test provider.'],
+    }),
+    usage: { inputTokens: 5, outputTokens: 5 },
+  };
+}
+
+/** Wrapped in `vi.fn` (not just a plain function) so tests below can assert
+ * "the AI provider was invoked exactly N times" / "invoked zero additional
+ * times" (ADR-0045 Karar h's cost-protection regression) directly against
+ * this shared, module-scoped call-count, mirroring
+ * `widgets.controller.integration.test.ts`'s `seedUsageRow`-based quota
+ * assertions in spirit (observable side-effect count, not internal mocking). */
+const explainProviderResponder = vi.fn(scriptedExplainResponse);
 
 /**
  * F3-T10 PR2 (RED step, ADR-0044 Karar c/d/g) — real, end-to-end HTTP-level
@@ -143,16 +192,25 @@ describe('POST /workspaces/:workspaceId/artifacts/baselines (real Postgres + rea
     redisContainer = await new RedisContainer('redis:7').start();
     process.env.REDIS_URL = redisContainer.getConnectionUrl();
 
-    // BaselinesService has ZERO AI-gateway dependency (ADR-0044 Karar c) --
-    // no ANTHROPIC_API_KEY/quota env wiring is needed here at all, unlike
-    // `./widgets.controller.integration.test.ts`.
+    // BaselinesService (capture) has ZERO AI-gateway dependency (ADR-0044
+    // Karar c) -- no ANTHROPIC_API_KEY is needed here. The NEW `:id/explain`
+    // route (F3-T11 PR2, ADR-0045) DOES depend on AI (via the new, separate
+    // `BaselineExplanationService`), so a generous quota is configured and
+    // `AI_PROVIDER` is overridden below with `explainProviderResponder`
+    // (this file's own header doc comment explains why the production
+    // `unconfiguredResponder`/`RETURN:` convention doesn't fit here).
     delete process.env.ANTHROPIC_API_KEY;
+    process.env.AI_TOKEN_QUOTA_PER_WORKSPACE = '1000000';
+    process.env.AI_COST_BUDGET_USD_PER_WORKSPACE = '1000000';
 
     await runMigrations(container.getConnectionUri());
 
     const { AppModule } = await import('../app.module.js');
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AI_PROVIDER)
+      .useValue(new MockProvider(explainProviderResponder))
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
 
@@ -218,8 +276,90 @@ describe('POST /workspaces/:workspaceId/artifacts/baselines (real Postgres + rea
     return (response.body as ObjectEnvelope).object.id;
   }
 
+  /** Defines an ad-hoc `number` Custom Field on the `task` object type, so a
+   * test can exercise a REAL numeric `targetFieldKey` for `avg`/`min`/`max`
+   * aggregation (none of `seedTaskFields`'s built-ins -- `status`/`priority`/
+   * `remindAt`/`remindAcknowledged` -- are numeric). Owner role satisfies
+   * `FieldsController`'s `admin+` guard. */
+  async function defineNumberField(
+    cookie: string,
+    workspaceId: string,
+    key: string,
+  ): Promise<void> {
+    const response = await request(server)
+      .post(`/workspaces/${workspaceId}/object-types/task/fields`)
+      .set('Cookie', cookie)
+      .send({
+        key,
+        label: key,
+        fieldType: 'number',
+        config: {},
+        permissions: { owner: 'edit', admin: 'edit', member: 'edit', guest: 'view' },
+      });
+
+    expect(response.status).toBe(201);
+  }
+
+  /** `PATCH .../objects/:objectId/fields` -- sets one or more Custom Field
+   * values directly on an existing object. */
+  async function patchFieldValues(
+    cookie: string,
+    workspaceId: string,
+    objectId: string,
+    values: Record<string, unknown>,
+  ): Promise<void> {
+    const response = await request(server)
+      .patch(`/workspaces/${workspaceId}/objects/${objectId}/fields`)
+      .set('Cookie', cookie)
+      .send({ values });
+
+    expect(response.status).toBe(200);
+  }
+
+  /** A non-baseline `artifact` object, used to exercise the `:id/explain`
+   * artifactType guard (ADR-0045) with ZERO interference with this file's
+   * shared `explainProviderResponder` scripting. NOTE: the generic
+   * `POST /workspaces/:workspaceId/objects` route's DTO
+   * (`create-object.schema.ts`) only allows `objectType` to be
+   * `task`/`doc`/`note`/`timeblock` -- `'artifact'` is deliberately NOT in
+   * that enum (every `artifact` is created via one of the dedicated
+   * generation routes: `.../artifacts`, `.../artifacts/widgets`,
+   * `.../artifacts/baselines`). So instead: capture a real baseline via the
+   * ALREADY-covered `POST .../baselines` route, then overwrite its
+   * `artifactType` away from `'baseline'` to another seeded, valid `select`
+   * option (`'report'`) via the ALREADY-covered `PATCH .../fields` route --
+   * yielding a real `artifact` object whose `fieldValues.artifactType !==
+   * 'baseline'`. */
+  async function createPlainArtifact(cookie: string, workspaceId: string): Promise<string> {
+    const baseline = await captureBaseline(cookie, workspaceId);
+    await patchFieldValues(cookie, workspaceId, baseline.id, { artifactType: 'report' });
+    return baseline.id;
+  }
+
   function baselinesUrl(workspaceId: string): string {
     return `/workspaces/${workspaceId}/artifacts/baselines`;
+  }
+
+  function explainUrl(workspaceId: string, baselineId: string): string {
+    return `/workspaces/${workspaceId}/artifacts/baselines/${baselineId}/explain`;
+  }
+
+  /** Captures a real baseline via the ALREADY-covered `POST .../baselines`
+   * route above, returning just the id + fieldValues the `:id/explain` tests
+   * below need. */
+  async function captureBaseline(
+    cookie: string,
+    workspaceId: string,
+    overrides: Record<string, unknown> = {},
+  ): Promise<{ id: string; fieldValues: Record<string, unknown> }> {
+    const response = await request(server)
+      .post(baselinesUrl(workspaceId))
+      .set('Cookie', cookie)
+      .send(validBody(overrides));
+
+    expect(response.status).toBe(201);
+    const { object } = response.body as ObjectEnvelope;
+    return { id: object.id, fieldValues: object.fieldValues };
   }
 
   function queryUrl(workspaceId: string): string {
@@ -450,6 +590,199 @@ describe('POST /workspaces/:workspaceId/artifacts/baselines (real Postgres + rea
       expect(found).toBeDefined();
       expect(found?.type).toBe('artifact');
       expect(found?.fieldValues.artifactType).toBe('baseline');
+    });
+  });
+
+  /**
+   * F3-T11 PR2 (RED step, ADR-0045 Karar e/h) -- `POST .../baselines/:id/explain`.
+   *
+   * ============================================================================
+   * RED STATE (expected, today): `BaselinesController` has no `:id/explain`
+   * route and no second constructor param (`BaselineExplanationService`
+   * doesn't exist yet either). Every request below is therefore expected to
+   * 404 via Nest's own default "Cannot POST ..." handler (no matching route
+   * at all), NOT via `AppErrorFilter` mapping an `AppError` -- this block's
+   * assertions will fail with e.g. "expected 404 to be 200". That is the
+   * correct red: it means the ROUTE doesn't exist yet. `implementer` must add
+   * `BaselineExplanationService` (`./baseline-explanation.service.ts`) +
+   * wire it as `BaselinesController`'s second collaborator + register its
+   * `useFactory` on `ArtifactsModule` (ADR-0045 Karar e) to turn this green.
+   * ============================================================================
+   */
+  describe('POST /workspaces/:workspaceId/artifacts/baselines/:id/explain (real Postgres + real HTTP, via Testcontainers + supertest, ADR-0045 Karar e/h)', () => {
+    describe('success path', () => {
+      it('200 { object } with explanationSummary/explanationCauses/explanationGeneratedAt populated, for an owner-role member', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        await createTask(cookie, workspaceId, 'Task one');
+        await createTask(cookie, workspaceId, 'Task two');
+        const baseline = await captureBaseline(cookie, workspaceId);
+
+        const callsBefore = explainProviderResponder.mock.calls.length;
+
+        const response = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', cookie)
+          .send();
+
+        expect(response.status).toBe(200);
+        const { object } = response.body as ObjectEnvelope;
+
+        expect(typeof object.fieldValues.explanationSummary).toBe('string');
+        expect(object.fieldValues.explanationSummary as string).toContain(
+          'Deviation explanation attempt',
+        );
+
+        expect(typeof object.fieldValues.explanationCauses).toBe('string');
+        const parsedCauses: unknown = JSON.parse(object.fieldValues.explanationCauses as string);
+        expect(parsedCauses).toEqual(['A plausible cause from the scripted test provider.']);
+
+        expect(typeof object.fieldValues.explanationGeneratedAt).toBe('string');
+        expect(Number.isNaN(Date.parse(object.fieldValues.explanationGeneratedAt as string))).toBe(
+          false,
+        );
+
+        // The AI provider was genuinely invoked exactly once for this call --
+        // proves the route is really wired to `BaselineExplanationService`,
+        // not returning a stubbed/hardcoded response.
+        expect(explainProviderResponder.mock.calls.length).toBe(callsBefore + 1);
+      });
+
+      it("RBAC: a GUEST-role member (the least-privileged role) can still successfully call explain (200) -- no stricter gate than plain membership, because the internal field-value write uses the fixed 'owner' role, not the caller's own", async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        const baseline = await captureBaseline(cookie, workspaceId);
+        const guestCookie = await addMemberWithRole(workspaceId, 'guest');
+
+        const response = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', guestCookie)
+          .send();
+
+        expect(response.status).toBe(200);
+        const { object } = response.body as ObjectEnvelope;
+        expect(typeof object.fieldValues.explanationSummary).toBe('string');
+      });
+
+      it('a second explain() call OVERWRITES the previous explanationSummary -- no history/versioning kept (ADR-0045 Karar f)', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        const baseline = await captureBaseline(cookie, workspaceId);
+
+        const firstResponse = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', cookie)
+          .send();
+        expect(firstResponse.status).toBe(200);
+        const firstSummary = (firstResponse.body as ObjectEnvelope).object.fieldValues
+          .explanationSummary as string;
+
+        const secondResponse = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', cookie)
+          .send();
+        expect(secondResponse.status).toBe(200);
+        const secondSummary = (secondResponse.body as ObjectEnvelope).object.fieldValues
+          .explanationSummary as string;
+
+        // The scripted provider bumps its counter on every call, so a
+        // genuinely fresh AI round-trip happened -- not a cached/idempotent
+        // response.
+        expect(secondSummary).not.toBe(firstSummary);
+
+        // Only the LATEST value is retrievable anywhere -- no "previous
+        // explanation" surfaces via a normal object read.
+        const queryResponse = await request(server)
+          .post(queryUrl(workspaceId))
+          .set('Cookie', cookie)
+          .send({ objectType: 'artifact', filters: [] });
+        const found = (queryResponse.body as ObjectsQueryResult).objects.find(
+          (object) => object.id === baseline.id,
+        );
+        expect(found?.fieldValues.explanationSummary).toBe(secondSummary);
+      });
+    });
+
+    describe('artifactType guard -> 400', () => {
+      it('rejects a non-baseline artifact object (no fieldValues.artifactType at all)', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        const plainArtifactId = await createPlainArtifact(cookie, workspaceId);
+
+        const response = await request(server)
+          .post(explainUrl(workspaceId, plainArtifactId))
+          .set('Cookie', cookie)
+          .send();
+
+        expect(response.status).toBe(400);
+      });
+    });
+
+    describe('cost-protection -> 400, AI provider NEVER invoked (ADR-0045 Karar h, the most important regression in this block)', () => {
+      /**
+       * `computeQueryAggregate` must return `null` at EXPLAIN time, but NOT
+       * at CAPTURE time -- `BaselinesService.capture()` (F3-T10, unmodified
+       * by this PR) has no guard against a `null` `computeQueryAggregate`
+       * result and would itself reject the capture with a 400 (the
+       * `capturedValue` field is `number`-typed) if the aggregate were
+       * already uncomputable at capture time. A naive "avg against a field
+       * no task has" scenario is therefore uncapturable in the first place.
+       * Instead: define a real numeric field, capture an `avg` baseline
+       * filtered to `status = 'todo'` while exactly one matching task has a
+       * numeric value set (capture succeeds, capturedValue = 10), then flip
+       * that task's `status` away from `'todo'` so the SAME stored
+       * `querySpec` matches zero rows by the time `:id/explain` re-runs the
+       * query -- `computeQueryAggregate` then legitimately returns `null`
+       * only at explain time.
+       */
+      it('rejects with 400 and does NOT increase the AI provider call count when computeQueryAggregate cannot compute a currentValue at explain time (data drifted since capture)', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        await defineNumberField(cookie, workspaceId, 'metricValue');
+        const taskId = await createTask(cookie, workspaceId, 'Task one');
+        await patchFieldValues(cookie, workspaceId, taskId, { status: 'todo', metricValue: 10 });
+
+        const baseline = await captureBaseline(cookie, workspaceId, {
+          querySpec: {
+            objectType: 'task',
+            filters: [{ field: 'status', operator: 'equals', value: 'todo' }],
+          },
+          aggregateFn: 'avg',
+          targetFieldKey: 'metricValue',
+        });
+        expect(baseline.fieldValues.capturedValue).toBe(10);
+
+        await patchFieldValues(cookie, workspaceId, taskId, { status: 'done' });
+
+        const callsBefore = explainProviderResponder.mock.calls.length;
+
+        const response = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', cookie)
+          .send();
+
+        expect(response.status).toBe(400);
+        expect(explainProviderResponder.mock.calls.length).toBe(callsBefore);
+      });
+    });
+
+    describe('authentication/authorization', () => {
+      it('returns 401 when the request carries no session cookie at all', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        const baseline = await captureBaseline(cookie, workspaceId);
+
+        const response = await request(server).post(explainUrl(workspaceId, baseline.id)).send();
+
+        expect(response.status).toBe(401);
+      });
+
+      it('returns 403 when the caller is authenticated but not a member of this workspace', async () => {
+        const { cookie, workspaceId } = await registerOwnerWithWorkspace();
+        const baseline = await captureBaseline(cookie, workspaceId);
+        const { cookie: outsiderCookie } = await registerUser();
+
+        const response = await request(server)
+          .post(explainUrl(workspaceId, baseline.id))
+          .set('Cookie', outsiderCookie)
+          .send();
+
+        expect(response.status).toBe(403);
+      });
     });
   });
 });
