@@ -47,13 +47,26 @@
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `isSensitivityTier()` dört geçerli değer (`'tier0'`,`'tier1'`,`'tier2'`,`'tier3'`) için `true`, geçersiz/rastgele string ve `undefined`/`null`/sayı gibi tip-dışı girdiler için `false` döndürüyor.
-- [ ] **PR1:** `StaticTierRoutingPolicy.route()` `{tier:'tier0'|'tier1'|'tier2', request}` girdisinde `'local'`, `{tier:'tier3', request}` girdisinde `'cloud'` döndürüyor.
-- [ ] **PR1:** `StaticTierRoutingPolicy.route()` geçersiz/bilinmeyen bir `tier` değeriyle çağrıldığında `ValidationError` fırlatıyor (içerik-analizi YOK, yalnızca enum-doğrulama regresyon kanıtı).
-- [ ] **PR1:** `LocalProvider.complete(request)` girdi `request`'in içeriğinden BAĞIMSIZ, her zaman sabit bir `text` + `usage:{inputTokens:0,outputTokens:0}` içeren `AICompletionResult` döndürüyor (gerçek çıkarım YAPMADIĞININ regresyon kanıtı).
-- [ ] **PR1:** `packages/ai-gateway/src/index.ts`, `SensitivityTier`/`isSensitivityTier`/`AIRoutingPolicy`/`ClassifiedAIRequest`/`AIRoutingDestination`/`StaticTierRoutingPolicy`/`LocalProvider`'ın TÜMÜNÜ paket-dışından import edilebilir şekilde re-export ediyor.
-- [ ] **PR1:** `apps/desktop/package.json` VE `apps/server/src/ai/*` dosyalarının HİÇBİRİNDE değişiklik yok (import-graph/diff regresyon-doğrulaması).
-- [ ] **PR1:** `pnpm --filter @luminaos/ai-gateway typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `isSensitivityTier()` dört geçerli değer (`'tier0'`,`'tier1'`,`'tier2'`,`'tier3'`) için `true`, geçersiz/rastgele string ve `undefined`/`null`/sayı gibi tip-dışı girdiler için `false` döndürüyor.
+- [x] **PR1:** `StaticTierRoutingPolicy.route()` `{tier:'tier0'|'tier1'|'tier2', request}` girdisinde `'local'`, `{tier:'tier3', request}` girdisinde `'cloud'` döndürüyor.
+- [x] **PR1:** `StaticTierRoutingPolicy.route()` geçersiz/bilinmeyen bir `tier` değeriyle çağrıldığında `ValidationError` fırlatıyor (içerik-analizi YOK, yalnızca enum-doğrulama regresyon kanıtı).
+- [x] **PR1:** `LocalProvider.complete(request)` girdi `request`'in içeriğinden BAĞIMSIZ, her zaman sabit bir `text` + `usage:{inputTokens:0,outputTokens:0}` içeren `AICompletionResult` döndürüyor (gerçek çıkarım YAPMADIĞININ regresyon kanıtı).
+- [x] **PR1:** `packages/ai-gateway/src/index.ts`, `SensitivityTier`/`isSensitivityTier`/`AIRoutingPolicy`/`ClassifiedAIRequest`/`AIRoutingDestination`/`StaticTierRoutingPolicy`/`LocalProvider`'ın TÜMÜNÜ paket-dışından import edilebilir şekilde re-export ediyor.
+- [x] **PR1:** `apps/desktop/package.json` VE `apps/server/src/ai/*` dosyalarının HİÇBİRİNDE değişiklik yok (import-graph/diff regresyon-doğrulaması).
+- [x] **PR1:** `pnpm --filter @luminaos/ai-gateway typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+1 PR `main`'e merge edildi:
+
+- **PR1 — `packages/ai-gateway` sözleşim + stub** ([#260](https://github.com/sirfurkansahin/luminaos/pull/260)): `sensitivity-tier.ts` (`SensitivityTier`/`SENSITIVITY_TIERS`/`isSensitivityTier`, ADR-0029'un Kademe 0-3'üne birebir karşılık, kapalı 4-değerli enum), `routing-policy.ts` (`AIRoutingDestination`/`ClassifiedAIRequest`/`AIRoutingPolicy`/`StaticTierRoutingPolicy` — v0 sabit eşleme tier0/1/2→`'local'`, tier3→`'cloud'`, geçersiz `tier`'da `ValidationError`), `local-provider.ts` (`LocalProvider implements AIProvider` — sabit/mock `AICompletionResult`, girdiden BAĞIMSIZ her zaman `usage:{inputTokens:0,outputTokens:0}`, gerçek çıkarım YOK), `index.ts`'in üç yeni dosyayı `AnthropicProvider`/`MockProvider`'la AYNI desende re-export etmesi. Kanıt:
+  - `packages/ai-gateway/src/sensitivity-tier.test.ts` — 4 geçerli tier değeri için `true`; geçersiz/malformed string'ler (`'tier4'`, `'TIER0'`, `''`, boşluklu varyantlar) ve tip-dışı girdiler (`undefined`/`null`/sayı/obje/dizi/boolean) için `false`; `SENSITIVITY_TIERS`'in tam olarak 4 elemanlı, sabit sırada olduğu.
+  - `packages/ai-gateway/src/routing-policy.test.ts` — `tier0`/`tier1`/`tier2` için `'local'`, `tier3` için `'cloud'`; geçersiz `tier` (`'garbage'`) için `ValidationError` fırlatıldığı (İnsan kararı 3'ün "yalnızca enum-doğrulama, içerik-analizi YOK" regresyon kanıtı); `route()`'un saf/deterministik olduğu ve girdiyi mutasyona uğratmadığı.
+  - `packages/ai-gateway/src/local-provider.test.ts` — girdi `request`'in içeriğinden (prompt uzunluğu/model/`maxTokens`) TAMAMEN BAĞIMSIZ, her zaman `usage:{inputTokens:0,outputTokens:0}` döndüğü (gerçek çıkarım YAPMADIĞININ regresyon kanıtı); dönen `text`/`model` alanlarının dolu string olduğu.
+  - `packages/ai-gateway/src/index.test.ts` — `isSensitivityTier`/`SENSITIVITY_TIERS`/`StaticTierRoutingPolicy`/`LocalProvider`'ın runtime değer olarak, `AIRoutingDestination`/`ClassifiedAIRequest`/`AIRoutingPolicy`/`SensitivityTier`'ın tip olarak `index.ts` üzerinden paket-dışından import edilebildiği (tip-only re-export'lar `import type` + tip-check ile kanıtlanıyor, davranışsal test mümkün olmadığından).
+  - Kaynak kodda doğrulandı (bu kapanış sırasında): `apps/desktop/package.json`'da `@luminaos/ai-gateway` bağımlılığı YOK (`apps/desktop` bu paketi hâlâ tüketmiyor — İnsan kararı 1/kapsam dışı maddesinin regresyon kanıtı); `packages/ai-gateway/src/index.ts`'in yalnızca `sensitivity-tier.ts`/`routing-policy.ts`/`local-provider.ts`'i `export *` ile eklediği, `apps/server/src/ai/*`'a dokunmadığı.
+
+**Epik F3-E5 (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]) durumu:** Bu görev (F3-T12) epiğin İLK görevi — epik HENÜZ KAPANMIYOR. Epiğin İKİNCİ ve SON görevi F3-T13 ("Bildirim bütçeleri, bağlam-değiştirme sayacı, ajan sessiz saatleri, aşırı yük sinyali → yeniden dengeleme önerisi") hâlâ bekliyor; ne ADR'si ne spec dosyası var.
 
 ## Açık Sorular
 
@@ -64,12 +77,20 @@
 
 ## Sıradaki adım
 
-ADR-0046 + bu spec insan onayına sunulur. Onaylanırsa `test-writer` ile PR1'e başlanır:
+F3-T12'nin tamamlanmasıyla Epik F3-E5 (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]) HENÜZ KAPANMADI — `docs/PLAN.md` satır 299'a göre epiğin İKİNCİ ve SON görevi F3-T13: **Bildirim bütçeleri, bağlam-değiştirme sayacı, ajan sessiz saatleri, aşırı yük sinyali → yeniden dengeleme önerisi**. Bu görevin ne ADR'si ne spec dosyası henüz var:
 
 ```
-docs/adr/ADR-0046-cihaz-ustu-model-koprusu.md'deki Karar (a)-(d)'yi ve
-docs/specs/F3-E5/F3-T12-cihaz-ustu-model-koprusu.md'nin Kabul Kriterleri'ni temel alarak,
-F3-T12 PR1 (packages/ai-gateway'e sensitivity-tier.ts/routing-policy.ts/local-provider.ts
-eklenmesi + index.ts re-export genişlemesi -- saf, sıfır I/O, sıfır framework, tek pakette
-izole birim test edilebilir) için test-writer ile başarısız testleri yaz.
+docs/PLAN.md'nin Epik F3-E5'inin (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]) ilk görevi
+F3-T12'yi (ADR-0046, main'e merge edildi) tamamladığını doğrula; epiğin İKİNCİ ve SON görevi
+F3-T13 -- Bildirim bütçeleri, bağlam-değiştirme sayacı, ajan sessiz saatleri, aşırı yük sinyali
+→ yeniden dengeleme önerisi (henüz ne ADR'si ne spec dosyası var). Önce explorer ile şunları
+keşfet: (1) kod tabanında mevcut bir bildirim/interrupt altyapısı var mı (varsa nerede, yoksa
+bunu doğrula); (2) `apps/desktop/src/consent/` içindeki rıza/erişim modelini VE bu oturumdaki
+ADR emsallerinde geçen `AvailabilitySelector`/kullanılabilirlik-durumu benzeri herhangi bir
+kavramı -- "ajan sessiz saatleri" için doğrudan emsal olabilir mi; (3) mevcut herhangi bir
+ajan-aksiyon-bütçesi/oran-sınırlama kavramını (ör. `InboundMcpRateLimitService`) -- "bildirim
+bütçesi" kavramının yapısal emsali olabilir mi; (4) bağlam-değiştirme (context-switch) sayımı
+veya aşırı-yük sinyali üreten mevcut herhangi bir mekanizma var mı. Sonra architect ile
+docs/adr/ADR-0047-<konu>.md taslağını VE docs/specs/F3-E5/F3-T13-<konu>.md spec dosyasını
+oluştur, insana onaylat; sonra plan mode'a geç.
 ```
