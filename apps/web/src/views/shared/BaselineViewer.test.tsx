@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement, type ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { computeDeviation } from '@luminaos/artifacts';
 
@@ -10,6 +10,7 @@ import { BaselineViewer as BaselineViewerModuleExport } from './BaselineViewer.j
 
 import type { ObjectQueryResult } from '../../hooks/useObjectsQuery.js';
 import type { ObjectWithFieldValues, QueryResult } from '../../lib/apiClient.js';
+import type { UseMutationResult } from '@tanstack/react-query';
 
 /**
  * F3-T10 PR3 (evrensel baseline/sapma motoru, frontend yarısı, ADR-0044
@@ -81,10 +82,23 @@ import type { ObjectWithFieldValues, QueryResult } from '../../lib/apiClient.js'
  * 15 live rows -> delta=5, percentChange=50, both exact integers).
  */
 
-const { mockedUseObjectQuery } = vi.hoisted(() => ({ mockedUseObjectQuery: vi.fn() }));
+const { mockedUseObjectQuery, mockedUseExplainDeviationMutation } = vi.hoisted(() => ({
+  mockedUseObjectQuery: vi.fn(),
+  mockedUseExplainDeviationMutation: vi.fn(),
+}));
 
 vi.mock('../../hooks/useObjectsQuery.js', () => ({
   useObjectQuery: mockedUseObjectQuery,
+}));
+
+// F3-T11 PR3 (sapma açıklama kartı, ADR-0045 Karar e/g) -- a NEW hook,
+// `apps/web/src/hooks/useExplainDeviationMutation.ts`, does not exist yet.
+// Mocked wholesale here mirroring `WidgetGenerationForm.test.tsx`'s
+// `useGenerateWidgetMutation` mocking convention exactly (vi.hoisted +
+// vi.mock), since `BaselineViewer` is expected to call it directly (per the
+// ADR's own code sketch, Karar g) rather than receiving it as a prop.
+vi.mock('../../hooks/useExplainDeviationMutation.js', () => ({
+  useExplainDeviationMutation: mockedUseExplainDeviationMutation,
 }));
 
 vi.mock('../../lib/apiClient.js', () => ({
@@ -185,6 +199,37 @@ function makeLiveRows(count: number): ObjectWithFieldValues[] {
       }) as unknown as ObjectWithFieldValues,
   );
 }
+
+// F3-T11 PR3 (sapma açıklama kartı, ADR-0045 Karar g) -- mirrors
+// `WidgetGenerationForm.test.tsx`'s `mockMutation` helper exactly. The
+// mutation under test takes NO variables (`mutate()` is called with zero
+// arguments -- ADR-0045 Karar g's `onClick={() => explainMutation.mutate()}`).
+function mockExplainMutation(
+  overrides: Partial<UseMutationResult<{ object: ObjectWithFieldValues }, Error, void>> = {},
+): { mutate: ReturnType<typeof vi.fn> } {
+  const mutate = vi.fn();
+  mockedUseExplainDeviationMutation.mockReturnValue({
+    mutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    error: null,
+    data: undefined,
+    reset: vi.fn(),
+    status: 'idle',
+    ...overrides,
+  });
+  return { mutate };
+}
+
+beforeEach(() => {
+  // Sane, non-pending/non-error default so every EXISTING test above (which
+  // predates this hook's existence and does not call mockExplainMutation
+  // itself) keeps rendering correctly once BaselineViewer.tsx is extended to
+  // call useExplainDeviationMutation unconditionally.
+  mockExplainMutation();
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -345,5 +390,200 @@ describe('BaselineViewer', () => {
 
     expect(container).toBeEmptyDOMElement();
     expect(mockedPostObjectsQuery).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * F3-T11 PR3 (sapma açıklama kartı, ADR-0045 Karar f/g, spec Kapsam madde 7 +
+ * Kabul Kriterleri) -- TDD red step. `BaselineViewer.tsx` is NOT yet extended
+ * with the "Açıklama iste"/"Yeniden oluştur" button + explanation card --
+ * this whole block is expected to fail until the implementer adds:
+ *   - a call to `useExplainDeviationMutation(workspaceId, artifactObjectId)`
+ *     (mocked above via vi.mock('../../hooks/useExplainDeviationMutation.js')).
+ *   - a button (data-testid="baseline-explain-button") whose label is
+ *     "Açıklama iste" when `object.fieldValues.explanationSummary` is
+ *     `undefined`, or "Yeniden oluştur" when it is a non-empty string; its
+ *     onClick calls `explainMutation.mutate()` with NO arguments; it is
+ *     `disabled` while `explainMutation.isPending`.
+ *   - a pending indicator (data-testid="baseline-explain-loading") shown
+ *     while `explainMutation.isPending` -- mirrors
+ *     `WidgetGenerationForm.tsx`'s `data-testid="widget-generating"`
+ *     convention 1:1 (ADR-0045 Karar g's own code sketch pins this exact
+ *     testid).
+ *   - an error block (data-testid="baseline-explain-error") shown while
+ *     `explainMutation.isError` -- mirrors `WidgetGenerationForm.tsx`'s
+ *     `EmptyState` `data-testid="widget-generate-error"` convention 1:1
+ *     (ADR-0045 Karar g's own code sketch pins this exact testid).
+ *   - when `explanationSummary` is set, a card (data-testid=
+ *     "baseline-explanation-card") containing the summary text
+ *     (data-testid="baseline-explanation-summary") and one list item per
+ *     entry of `explanationCauses` (data-testid="baseline-explanation-cause"
+ *     each) -- `explanationCauses` is a JSON-stringified string array parsed
+ *     with the SAME "bozuksa sessizce undefined/[] dön" defensive discipline
+ *     as this file's own `parseQuerySpec` (JSON.parse + safe fallback,
+ *     NEVER throwing) -- malformed/non-JSON input renders the card with the
+ *     summary but ZERO cause list items, never crashing.
+ */
+describe('BaselineViewer — açıklama iste / yeniden oluştur (F3-T11 PR3, ADR-0045 Karar f/g)', () => {
+  it('renders the "baseline-explain-button" with the label "Açıklama iste" when no explanation has been generated yet', () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.getByTestId('baseline-explain-button')).toHaveTextContent('Açıklama iste');
+  });
+
+  it('renders the SAME button with the label "Yeniden oluştur", plus the explanation card with the summary text, once explanationSummary is a non-empty string', () => {
+    mockObjectQuery(
+      makeBaselineObjectFixture({
+        explanationSummary: 'Bu ay tamamlanan görev sayısı belirgin şekilde arttı.',
+      }),
+    );
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.getByTestId('baseline-explain-button')).toHaveTextContent('Yeniden oluştur');
+    expect(screen.getByTestId('baseline-explanation-card')).toBeInTheDocument();
+    expect(screen.getByTestId('baseline-explanation-summary')).toHaveTextContent(
+      'Bu ay tamamlanan görev sayısı belirgin şekilde arttı.',
+    );
+  });
+
+  it('renders one "baseline-explanation-cause" list item per entry of a JSON-stringified explanationCauses array', () => {
+    mockObjectQuery(
+      makeBaselineObjectFixture({
+        explanationSummary: 'Özet metni.',
+        explanationCauses: JSON.stringify(['Ekip büyüdü', 'Süreç iyileştirildi']),
+      }),
+    );
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    const causes = screen.getAllByTestId('baseline-explanation-cause');
+    expect(causes).toHaveLength(2);
+    expect(causes[0]).toHaveTextContent('Ekip büyüdü');
+    expect(causes[1]).toHaveTextContent('Süreç iyileştirildi');
+  });
+
+  it('does not crash and renders the card with ZERO cause list items when explanationCauses is malformed/non-JSON', () => {
+    mockObjectQuery(
+      makeBaselineObjectFixture({
+        explanationSummary: 'Özet metni.',
+        explanationCauses: 'not json',
+      }),
+    );
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    const { Wrapper } = createWrapper();
+
+    expect(() => {
+      render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+        wrapper: Wrapper,
+      });
+    }).not.toThrow();
+
+    expect(screen.getByTestId('baseline-explanation-card')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('baseline-explanation-cause')).toHaveLength(0);
+  });
+
+  it('calls the explain mutation with no arguments when the button is clicked', async () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    const { mutate } = mockExplainMutation();
+    const { Wrapper } = createWrapper();
+    const user = userEvent.setup();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+    await user.click(screen.getByTestId('baseline-explain-button'));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith();
+  });
+
+  it('disables the explain button and shows a pending indicator while the explain mutation isPending', () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    mockExplainMutation({ isPending: true });
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.getByTestId('baseline-explain-button')).toBeDisabled();
+    expect(screen.getByTestId('baseline-explain-loading')).toBeInTheDocument();
+  });
+
+  it('does not show the pending indicator when the explain mutation is not pending', () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    mockExplainMutation();
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.queryByTestId('baseline-explain-loading')).not.toBeInTheDocument();
+  });
+
+  it('renders a visible error block when the explain mutation isError', () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    mockExplainMutation({
+      isError: true,
+      error: new Error('Deviation explanation generation failed.'),
+    });
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.getByTestId('baseline-explain-error')).toBeInTheDocument();
+  });
+
+  it('does not render the error block when the explain mutation is not in an error state', () => {
+    mockObjectQuery(makeBaselineObjectFixture());
+    mockedPostObjectsQuery.mockResolvedValueOnce({
+      objects: makeLiveRows(1),
+    } satisfies QueryResult);
+    mockExplainMutation();
+    const { Wrapper } = createWrapper();
+
+    render(<BaselineViewer workspaceId={workspaceId} artifactObjectId={artifactObjectId} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(screen.queryByTestId('baseline-explain-error')).not.toBeInTheDocument();
   });
 });
