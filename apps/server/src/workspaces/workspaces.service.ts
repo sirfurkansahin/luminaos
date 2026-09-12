@@ -326,6 +326,45 @@ export class WorkspacesService {
       },
       ARTIFACT_OBJECT_TYPE,
     );
+
+    // F3-T11 PR2 ADDITION (ADR-0045 Karar d): 3 new Custom Fields for
+    // `BaselineExplanationService`-generated deviation explanation cards.
+    // Purely additive: NO migration, NO change to the 8 fields above.
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'explanationSummary',
+        label: 'Explanation Summary',
+        fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'explanationCauses',
+        label: 'Explanation Causes',
+        fieldType: 'longText',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
+
+    await this.defineSeedField(
+      workspaceId,
+      {
+        key: 'explanationGeneratedAt',
+        label: 'Explanation Generated At',
+        fieldType: 'datetime',
+        config: {},
+        permissions: SEEDED_FIELD_PERMISSIONS,
+      },
+      ARTIFACT_OBJECT_TYPE,
+    );
   }
 
   /** Wraps a single `FieldDefinitionsService.define()` seed call with the

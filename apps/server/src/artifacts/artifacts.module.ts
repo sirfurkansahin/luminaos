@@ -4,6 +4,7 @@ import type { AIProvider } from '@luminaos/ai-gateway';
 
 import { ArtifactsController } from './artifacts.controller.js';
 import { ArtifactsService } from './artifacts.service.js';
+import { BaselineExplanationService } from './baseline-explanation.service.js';
 import { BaselinesController } from './baselines.controller.js';
 import { BaselinesService } from './baselines.service.js';
 import { WidgetsController } from './widgets.controller.js';
@@ -74,6 +75,16 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
       useFactory: (objectsService: ObjectsService): BaselinesService =>
         new BaselinesService(objectsService),
       inject: [ObjectsService],
+    },
+    {
+      provide: BaselineExplanationService,
+      useFactory: (
+        aiUsageService: AIUsageService,
+        objectsService: ObjectsService,
+        provider: AIProvider,
+      ): BaselineExplanationService =>
+        new BaselineExplanationService(aiUsageService, objectsService, provider),
+      inject: [AIUsageService, ObjectsService, AI_PROVIDER],
     },
   ],
   exports: [ArtifactsService],
