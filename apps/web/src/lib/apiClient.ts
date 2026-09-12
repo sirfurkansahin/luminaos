@@ -1,4 +1,5 @@
 import type {
+  AggregateFn,
   FieldDefinition,
   LuminaObject,
   RecurrenceRule,
@@ -1093,6 +1094,23 @@ export function generateWidget(
 ): Promise<{ object: ObjectWithFieldValues }> {
   return request<{ object: ObjectWithFieldValues }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/artifacts/widgets`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/**
+ * F3-T10 PR3 (evrensel baseline/sapma motoru, ADR-0044 Karar d/h) -- mirrors
+ * `generateWidget`'s exact call shape.
+ */
+export function captureBaseline(
+  workspaceId: string,
+  input: { title: string; querySpec: QuerySpec; aggregateFn: AggregateFn; targetFieldKey?: string },
+): Promise<{ object: ObjectWithFieldValues }> {
+  return request<{ object: ObjectWithFieldValues }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/artifacts/baselines`,
     {
       method: 'POST',
       body: JSON.stringify(input),
