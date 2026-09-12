@@ -1,6 +1,6 @@
 # F3-T9 — Komut Düzlemi v2: Niyet Ayrıştırıcı → Modül/Aksiyon Yönlendirme; Ambient Öneri Yüzeyi
 
-**Epik:** F3-E3 (Artifact + Canlı Widget [Kapsam L] ve Intent-first UI [Kapsam M]) · **Durum:** PLANLANDI — Epik F3-E3'ün ÜÇÜNCÜ ve SON görevi, Kapsam L'nin (F3-T7/F3-T8, ikisi de `main`'e tam birleşti) TAMAMLANMASININ ardından Kapsam M'in ("Intent-first UI") TEK görevi. Mimari karar `docs/adr/ADR-0043-komut-duzlemi-v2.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E3 (Artifact + Canlı Widget [Kapsam L] ve Intent-first UI [Kapsam M]) · **Durum:** TAMAMLANDI — Epik F3-E3'ün ÜÇÜNCÜ ve SON görevi, Kapsam L'nin (F3-T7/F3-T8, ikisi de `main`'e tam birleşti) TAMAMLANMASININ ardından Kapsam M'in ("Intent-first UI") TEK görevi. Mimari karar `docs/adr/ADR-0043-komut-duzlemi-v2.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** F1-T16 (`CommandsService.parse()`/`decide()`, `ProposedAction`, ADR-0015) — DEĞİŞTİRİLMEZ. F2-T16 (`GET .../commands/proposals`, `AutomationHistoryPanel.tsx`, `useProposalsQuery`/`useDecideProposalMutation`, ADR-0033) — DEĞİŞTİRİLMEZ, YENİDEN KULLANILIR. F3-T5 (`AutonomyTierSettingsService`, `AutonomyTierPanel.tsx`, ADR-0039) — yalnızca `AutonomyTierPanel.tsx`'in `KNOWN_ACTION_TYPES` sabiti refactor edilir, servis DEĞİŞMEZ.
 
 ## Amaç
@@ -59,45 +59,41 @@ Bugün `docs/PLAN.md` §5'in "Komut düzlemi tüm modül aksiyonlarını tek kay
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `findActionRegistryEntry`, bilinen bir `actionType` için doğru `ActionRegistryEntry`'yi, bilinmeyen bir `actionType` için `undefined` döner.
-- [ ] **PR1:** `ACTION_REGISTRY`'nin `actionType` alanları TAM OLARAK 6 değer içerir: `createTask`, `generateSubtasks`, `assignPeople`, `createTaskFromMeeting`, `createTaskFromTrigger`, `reconfigureAgentPermissions` — her biri doğru `module` (`task` veya `agentPermissions`) ile eşleşmiş.
-- [ ] **PR1 (tutarlılık-kritik):** `action-registry.consistency.test.ts`, `ACTION_REGISTRY`'nin `actionType` kümesinin `PROPOSED_ACTION_TYPES`'ın (parse-command.ts'in zod enum'undan türetilen, `dispatchExecute`'un dispatch ettiği TAM tip kümesiyle birebir aynı) kümesiyle EŞİT olduğunu doğrular — bu test, iki listeden birine TEK taraflı bir tip eklenip diğerine eklenmezse KIRMIZI olmalı (test-writer bu regresyon-senaryosunu AÇIKÇA kanıtlamalı).
-- [ ] **PR1:** `dispatchExecute`'un (`apps/server/src/commands/commands.service.ts`) switch mantığına HİÇBİR KOD DEĞİŞİKLİĞİ yapılmadı (regresyon: mevcut `commands.service.test.ts`/entegrasyon testlerinin TAMAMI değişmeden yeşil).
-- [ ] **PR1:** `pnpm --filter @luminaos/agent-runtime typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR2:** `AutonomyTierPanel`, `ACTION_REGISTRY`'den türetilen listeyle ÖNCEKİ davranışla BİREBİR aynı 6 satırı (aynı `actionType`/`label` sırası ve içeriği) render eder (regresyon: mevcut `AutonomyTierPanel.test.tsx` DEĞİŞMEDEN yeşil kalır).
-- [ ] **PR2:** `CommandPalette`'te `rawQuery` boş değilken bir "`{rawQuery}` komutunu çalıştır" satırı görünür, boşken görünmez; bu satır mevcut arrow-key/Enter arama-navigasyon davranışına (mevcut `CommandPalette.test.tsx`) HİÇBİR REGRESYON getirmez.
-- [ ] **PR2:** Bu satıra tıklandığında/Enter'a basıldığında `apiClient.parseCommand(workspaceId, {command: rawQuery})` doğru gövdeyle çağrılır.
-- [ ] **PR2:** `parseResult.autonomousResults` içindeki HER aksiyon, palette'te "otomatik yürütüldü" olarak (Onayla/Reddet butonu OLMADAN) gösterilir.
-- [ ] **PR2:** `parseResult.actions` içinde olup `autonomousResults`'ta KARŞILIĞI OLMAYAN her aksiyon "bekliyor" olarak gösterilir VE `AutomationHistoryPanel`'e (`#automation-history-panel`) bir çapa-bağlantısı sunulur — palette bu aksiyonlar için kendi onayla/reddet UI'sini SUNMAZ.
-- [ ] **PR2:** `parseResult.parseError === true` durumunda kullanıcıya görünür bir hata mesajı gösterilir (çökmeden).
-- [ ] **PR2:** `useAmbientPendingProposalsQuery`, `listProposals`'ı `{pendingOnly:true, limit:5}` ile, `refetchInterval=45_000`+`refetchIntervalInBackground:false` seçenekleriyle çağırdığının doğrulanması.
-- [ ] **PR2 (doğruluk-kritik):** `useAmbientPendingProposalsQuery`'nin, `decidedAt:null` AMA `actions:[]` olan bir mock proposal satırını sayıma DAHİL ETMEDİĞİ — yalnızca `actions.length>0` olan `decidedAt:null` satırların sayıldığı ayrı bir testle kanıtlanmış.
-- [ ] **PR2:** `AmbientProposalsBadge`, sayı `0` iken HİÇBİR ŞEY render ETMEZ (`null` döner); sayı `>0` iken `AutomationHistoryPanel`'e (`#automation-history-panel`) giden bir bağlantı ve doğru sayı/`"5+"` metni içerir (`hasMore:true` durumu ayrı test edilmiş).
-- [ ] **PR2 (regresyon):** `AutomationHistoryPanel`'in KENDİSİ (`useProposalsQuery`/`useDecideProposalMutation`, onayla/reddet akışı) HİÇBİR DAVRANIŞ DEĞİŞİKLİĞİ görmüyor — yalnızca `App.tsx`'te bir sarmalayıcı `id` kazanıyor.
-- [ ] **PR2:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** `findActionRegistryEntry`, bilinen bir `actionType` için doğru `ActionRegistryEntry`'yi, bilinmeyen bir `actionType` için `undefined` döner.
+- [x] **PR1:** `ACTION_REGISTRY`'nin `actionType` alanları TAM OLARAK 6 değer içerir: `createTask`, `generateSubtasks`, `assignPeople`, `createTaskFromMeeting`, `createTaskFromTrigger`, `reconfigureAgentPermissions` — her biri doğru `module` (`task` veya `agentPermissions`) ile eşleşmiş.
+- [x] **PR1 (tutarlılık-kritik):** `action-registry.consistency.test.ts`, `ACTION_REGISTRY`'nin `actionType` kümesinin `PROPOSED_ACTION_TYPES`'ın (parse-command.ts'in zod enum'undan türetilen, `dispatchExecute`'un dispatch ettiği TAM tip kümesiyle birebir aynı) kümesiyle EŞİT olduğunu doğrular — bu test, iki listeden birine TEK taraflı bir tip eklenip diğerine eklenmezse KIRMIZI olmalı (test-writer bu regresyon-senaryosunu AÇIKÇA kanıtlamalı).
+- [x] **PR1:** `dispatchExecute`'un (`apps/server/src/commands/commands.service.ts`) switch mantığına HİÇBİR KOD DEĞİŞİKLİĞİ yapılmadı (regresyon: mevcut `commands.service.test.ts`/entegrasyon testlerinin TAMAMI değişmeden yeşil).
+- [x] **PR1:** `pnpm --filter @luminaos/agent-runtime typecheck && lint && test:changed` VE `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR2:** `AutonomyTierPanel`, `ACTION_REGISTRY`'den türetilen listeyle ÖNCEKİ davranışla BİREBİR aynı 6 satırı (aynı `actionType`/`label` sırası ve içeriği) render eder (regresyon: mevcut `AutonomyTierPanel.test.tsx` DEĞİŞMEDEN yeşil kalır).
+- [x] **PR2:** `CommandPalette`'te `rawQuery` boş değilken bir "`{rawQuery}` komutunu çalıştır" satırı görünür, boşken görünmez; bu satır mevcut arrow-key/Enter arama-navigasyon davranışına (mevcut `CommandPalette.test.tsx`) HİÇBİR REGRESYON getirmez.
+- [x] **PR2:** Bu satıra tıklandığında/Enter'a basıldığında `apiClient.parseCommand(workspaceId, {command: rawQuery})` doğru gövdeyle çağrılır.
+- [x] **PR2:** `parseResult.autonomousResults` içindeki HER aksiyon, palette'te "otomatik yürütüldü" olarak (Onayla/Reddet butonu OLMADAN) gösterilir.
+- [x] **PR2:** `parseResult.actions` içinde olup `autonomousResults`'ta KARŞILIĞI OLMAYAN her aksiyon "bekliyor" olarak gösterilir VE `AutomationHistoryPanel`'e (`#automation-history-panel`) bir çapa-bağlantısı sunulur — palette bu aksiyonlar için kendi onayla/reddet UI'sini SUNMAZ.
+- [x] **PR2:** `parseResult.parseError === true` durumunda kullanıcıya görünür bir hata mesajı gösterilir (çökmeden).
+- [x] **PR2:** `useAmbientPendingProposalsQuery`, `listProposals`'ı `{pendingOnly:true, limit:5}` ile, `refetchInterval=45_000`+`refetchIntervalInBackground:false` seçenekleriyle çağırdığının doğrulanması.
+- [x] **PR2 (doğruluk-kritik):** `useAmbientPendingProposalsQuery`'nin, `decidedAt:null` AMA `actions:[]` olan bir mock proposal satırını sayıma DAHİL ETMEDİĞİ — yalnızca `actions.length>0` olan `decidedAt:null` satırların sayıldığı ayrı bir testle kanıtlanmış.
+- [x] **PR2:** `AmbientProposalsBadge`, sayı `0` iken HİÇBİR ŞEY render ETMEZ (`null` döner); sayı `>0` iken `AutomationHistoryPanel`'e (`#automation-history-panel`) giden bir bağlantı ve doğru sayı/`"5+"` metni içerir (`hasMore:true` durumu ayrı test edilmiş).
+- [x] **PR2 (regresyon):** `AutomationHistoryPanel`'in KENDİSİ (`useProposalsQuery`/`useDecideProposalMutation`, onayla/reddet akışı) HİÇBİR DAVRANIŞ DEĞİŞİKLİĞİ görmüyor — yalnızca `App.tsx`'te bir sarmalayıcı `id` kazanıyor.
+- [x] **PR2:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+
+## Done
+
+3 PR `main`'e merge edildi (2 uygulama PR'ı + spec/ADR'yi resmileştiren 1 doküman-only PR):
+
+- **Docs (spec + ADR-0043)** ([#245](https://github.com/sirfurkansahin/luminaos/pull/245)): bu spec dosyası + `docs/adr/ADR-0043-komut-duzlemi-v2.md` — kod içermeyen, mimari kararı (a)-(h) ve PR bölünmesini sabitleyen doküman-only PR.
+- **PR1 — `packages/agent-runtime` action registry** ([#246](https://github.com/sirfurkansahin/luminaos/pull/246)): `action-registry.ts` (`ActionModule`/`ActionRegistryEntry`/`ACTION_REGISTRY` 6 sabit giriş/`findActionRegistryEntry`, sıfır I/O), `parse-command.ts`'e `PROPOSED_ACTION_TYPES` export'u, `action-registry.consistency.test.ts` (drift-simülasyon regresyon testleri dahil) — `dispatchExecute`'un switch'i DEĞİŞTİRİLMEDİ. Kanıt: 119/119 `agent-runtime` testi + 580/580 server birim testi yeşil, `commands.service.ts`'e sıfır regresyon.
+- **PR2 — Frontend: registry tüketimi + palette-parse wiring + ambient rozet** ([#247](https://github.com/sirfurkansahin/luminaos/pull/247)): `AutonomyTierPanel.KNOWN_ACTION_TYPES`'ın `ACTION_REGISTRY`'den türetilmesi, `apiClient.parseCommand`/`useParseCommandMutation`, `CommandPalette`'e "komutu çalıştır" satırı + yürütülmüş/bekleyen aksiyon render ayrımı + `#automation-history-panel` çapa-bağlantısı (palette içinde onayla/reddet UI'si YOK), `useAmbientPendingProposalsQuery`/`AmbientProposalsBadge` (YENİ), `App.tsx`'e mount + sarmalayıcı `id`. Kanıt: 74/74 yeni/genişletilmiş frontend testi + 836/836 tam web test paketi yeşil, sıfır regresyon.
 
 ## Açık Sorular
 
 - **`CommandPalette`'in "komutu çalıştır" satırının tam UI-yerleşimi/etiketi** (sonuç grubunun altında mı, ayrı bir sekme/mod mu) — implementer'ın kararı, F3-T7 PR3'ün AYNI serbestliği; kabul kriterleri davranışı sabitliyor, pikseli DEĞİL.
 - **Ambient rozetin App shell'deki TAM konumu** (`App.tsx`'in bugünkü flat dev-shell yapısında hangi panelin hemen öncesi/sonrası) — implementer'ın kararı; gerçek bir header/nav bileşeni bu görevde İNŞA EDİLMİYOR (kod tabanında henüz yok).
 - **Gerçek bir routing/sekme sistemi geldiğinde ambient rozetin `href="#automation-history-panel"` çapa-bağlantısının nasıl bir gerçek "panele git" navigasyonuna dönüşeceği** — bu görev İÇİNDE ÇÖZÜLMÜYOR, flat dev-shell'in kendisi ayrı bir gelecekteki karar.
+- **PR2 uygulaması sırasında test-writer'ın kendi test fixture'larında ortaya çıkan iki lint hatası — düzeltildi:** `AmbientProposalsBadge.test.tsx`'te bir template-literal içinde sayının doğrudan interpolasyonundan kaynaklanan bir lint hatası; `AutonomyTierPanel.test.tsx`'te, `@luminaos/agent-runtime` henüz `apps/web`'in gerçek bir bağımlılığı olmadan yazılmış olmasından kalma, gereğinden savunmacı bir `@vite-ignore` etiketli dinamik `import()` kullanımı. Bağımlılık gerçek hale geldikten sonra ikisi de doğrudan düzeltildi — dinamik import, normal statik/tipli bir import'a çevrildi. Küçük bir uygulama notu, tasarım kararı değil.
 
 ## Sıradaki adım
 
-Bu spec + `docs/adr/ADR-0043-komut-duzlemi-v2.md` insana onaylatıldıktan sonra PR1'e `test-writer` ile başlanır:
-
-```
-docs/adr/ADR-0043-komut-duzlemi-v2.md'deki Karar (a)-(h)'yi ve
-docs/specs/F3-E3/F3-T9-komut-duzlemi-v2.md'nin Kabul Kriterleri'ni temel alarak, F3-T9
-PR1 (packages/agent-runtime'a action-registry.ts: ActionModule/ActionRegistryEntry/
-ACTION_REGISTRY/findActionRegistryEntry -- sıfır I/O, saf TS; apps/server/src/ai/parse-command.ts'e
-export const PROPOSED_ACTION_TYPES eklenmesi; apps/server/src/commands/action-registry.consistency.test.ts
--- ACTION_REGISTRY'nin actionType kümesinin PROPOSED_ACTION_TYPES kümesiyle TAM eşleştiğini,
-ve tek taraflı bir tip eklenirse testin KIRMIZI olduğunu doğrulayan test) için test-writer ile
-başarısız testleri yaz.
-```
-
-Epik F3-E3, F3-T9'un tamamlanmasıyla (Kapsam L + Kapsam M) TAMAMLANMIŞ olacak — `docs/PLAN.md`'ye göre sıradaki Epik **F3-E4: Plan-Gerçek Motoru (Kapsam N)**, ilk görevi **F3-T10 — Evrensel baseline: herhangi bir sorgu/metrik/plan anlık görüntüsü + sapma hesaplayıcı** (satır 293). F3-T9 `main`'e merge edildikten sonra:
+Epik F3-E3, F3-T9'un tamamlanmasıyla (Kapsam L + Kapsam M) TAMAMLANDI — `docs/PLAN.md`'ye göre sıradaki Epik **F3-E4: Plan-Gerçek Motoru (Kapsam N)**, ilk görevi **F3-T10 — Evrensel baseline: herhangi bir sorgu/metrik/plan anlık görüntüsü + sapma hesaplayıcı** (satır 293). Henüz ne ADR'si ne spec dosyası var:
 
 ```
 docs/PLAN.md'nin Epik F3-E3'ü (Artifact + Canlı Widget, Kapsam L / Intent-first UI, Kapsam M)
