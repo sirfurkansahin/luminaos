@@ -4,3 +4,5 @@ export * from './theme-preset.js';
 export * from './render-artifact-html.js';
 export * from './derive-widget-columns.js';
 export * from './build-query-result-table-section.js';
+export * from './compute-query-aggregate.js';
+export * from './compute-deviation.js';
