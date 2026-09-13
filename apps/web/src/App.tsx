@@ -23,6 +23,7 @@ import { FlightRecorderPanel } from './views/shared/FlightRecorderPanel';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
 import { McpAccessPanel } from './views/shared/McpAccessPanel';
 import { MemoryPassportPanel } from './views/shared/MemoryPassportPanel';
+import { NotificationPreferencesPanel } from './views/shared/NotificationPreferencesPanel';
 import { TriggerSuggestionsPanel } from './views/shared/TriggerSuggestionsPanel';
 import { WebhookSubscriptionsPanel } from './views/shared/WebhookSubscriptionsPanel';
 import { TableView } from './views/TableView';
@@ -31,8 +32,13 @@ import { ViewSwitcher } from './views/ViewSwitcher';
 
 // Auth/workspace-switcher (F0-T5 hazır ama apps/web tarafında henüz
 // tüketilmiyor) gelene kadar dev-only sabit bir workspace — F1-T7 PR1
-// planındaki karar. `objectType` da aynı şekilde v0 için sabit.
+// planındaki karar. `objectType` da aynı şekilde v0 için sabit. `DEV_USER_ID`
+// aynı gerekçeyle (F3-T13 PR3, ADR-0047 Karar g) — kullanıcı oturumu henüz
+// apps/web tarafında tüketilmiyor, `NotificationPreferencesPanel`/
+// `AutonomyTierPanel`'in `userId`'ye ihtiyacı olan kişisel-bildirim
+// özellikleri için dev-only sabit bir kullanıcı kimliği.
 const DEV_WORKSPACE_ID = 'dev-workspace';
+const DEV_USER_ID = 'dev-user';
 const OBJECT_TYPE = 'task';
 
 const flatQuerySpec: QuerySpec = { objectType: OBJECT_TYPE, filters: [] };
@@ -124,7 +130,8 @@ export function App() {
       <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
       <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
-      <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} />
+      <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
+      <NotificationPreferencesPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
 
       <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
         Toggle theme ({theme})
