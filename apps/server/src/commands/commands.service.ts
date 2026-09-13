@@ -24,6 +24,7 @@ import type { Actor, NewDomainEvent } from '@luminaos/shared';
 
 import { ActionProposalProjection } from './action-proposal.projection.js';
 import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
+import { AgentNotificationGovernorService } from '../agent-runtime/agent-notification-governor.service.js';
 import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
@@ -344,6 +345,7 @@ export class CommandsService {
     private readonly agentActionRecordsService: AgentActionRecordsService,
     private readonly autonomyTierSettingsService: AutonomyTierSettingsService,
     private readonly commentsService: CommentsService,
+    private readonly notificationGovernor: AgentNotificationGovernorService,
   ) {}
 
   /**
@@ -656,6 +658,17 @@ export class CommandsService {
    * notification failure must never affect the already-completed action's
    * own result. Silently skipped (not an error) when there is no
    * `sourceObjectId` to comment on at all (e.g. a scheduled trigger fire).
+   *
+   * F3-T13 PR2 (ADR-0047 Karar h): the actual `CommentsService.create` call
+   * now moves INSIDE the `deliver` callback passed to
+   * `AgentNotificationGovernorService.guardAndDeliver` — the gate decides
+   * whether (and only then) `deliver` (this comment write) ever runs, based
+   * on the recipient's own budget/quiet-hours preference. The
+   * `sourceObjectId === undefined` early-return and the surrounding
+   * try/catch are UNCHANGED from ADR-0039 §h: the governor never even sees a
+   * `sourceObjectId`-less call, and a governor/recording failure is
+   * swallowed here exactly like a bare `commentsService.create` failure
+   * always was.
    */
   private async notifyAutonomousAction(
     workspaceId: string,
@@ -667,10 +680,23 @@ export class CommandsService {
     }
 
     try {
-      await this.commentsService.create(workspaceId, AUTONOMY_DIAL_ACTOR, 'member', {
-        objectId: sourceObjectId,
-        body: `Bu aksiyon otonomi kadranınızda "yap-bildir" olarak ayarlı olduğu için otomatik yürütüldü: ${action.intent}`,
-      });
+      await this.notificationGovernor.guardAndDeliver(
+        workspaceId,
+        action.type,
+        sourceObjectId,
+        async () => {
+          const comment = await this.commentsService.create(
+            workspaceId,
+            AUTONOMY_DIAL_ACTOR,
+            'member',
+            {
+              objectId: sourceObjectId,
+              body: `Bu aksiyon otonomi kadranınızda "yap-bildir" olarak ayarlı olduğu için otomatik yürütüldü: ${action.intent}`,
+            },
+          );
+          return { commentId: comment.id };
+        },
+      );
     } catch (error) {
       this.logger.error(
         `Autonomous-action notification comment failed for workspace ${workspaceId}, action "${action.type}"; the action's own execution/ledger record is unaffected.`,

@@ -5,6 +5,7 @@ import { AgentActionRecordsService } from './agent-action-records.service.js';
 import { AgentConcurrencyGuard } from './agent-concurrency-guard.js';
 import { AgentDirectoryController } from './agent-directory.controller.js';
 import { AgentDirectoryService } from './agent-directory.service.js';
+import { AgentNotificationGovernorService } from './agent-notification-governor.service.js';
 import { AgentPermissionManifestsController } from './agent-permission-manifests.controller.js';
 import { AgentPermissionManifestsService } from './agent-permission-manifests.service.js';
 import { AgentResourceLimitsService } from './agent-resource-limits.service.js';
@@ -44,6 +45,12 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * service-layer only, mirrors this module's own `AgentResourceLimitsService`
  * "no HTTP surface" precedent), exported for PR2's
  * `AgentNotificationGovernorService` to consume.
+ *
+ * F3-T13 PR2 (ADR-0047 Karar h) additionally registers
+ * `AgentNotificationGovernorService` — also no controller/route (internal-
+ * only, same precedent), exported so `CommandsModule` (already importing
+ * this module via `forwardRef()`) can inject it into `CommandsService`'s
+ * widened constructor.
  */
 @Module({
   imports: [EventStoreModule, DbModule, AuthModule, forwardRef(() => CommandsModule)],
@@ -60,6 +67,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentActionRecordsService,
     AutonomyTierSettingsService,
     NotificationPreferencesService,
+    AgentNotificationGovernorService,
     {
       provide: AgentConcurrencyGuard,
       useFactory: () => new AgentConcurrencyGuard(env.agentSandboxMaxConcurrentPerAgent),
@@ -74,6 +82,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentActionRecordsService,
     AutonomyTierSettingsService,
     NotificationPreferencesService,
+    AgentNotificationGovernorService,
   ],
 })
 export class AgentRuntimeModule {}

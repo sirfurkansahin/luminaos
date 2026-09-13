@@ -134,6 +134,7 @@ describe('AppErrorFilter.catch() -- non-AppError branch (unit test, real pino-ba
       agentSandboxMaxConcurrentPerAgent: 3,
       agentActionRateLimitPerWindow: 100,
       agentActionRateLimitWindowMs: 60_000,
+      agentNotificationBudgetWindowMs: 3_600_000,
     };
     const options: PinoHttpOptions = buildPinoHttpOptions(fakeEnv);
 

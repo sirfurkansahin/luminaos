@@ -59,6 +59,8 @@ export interface Env {
   agentActionRateLimitPerWindow: number;
   /** `AgentResourceLimitsService.assertActionRateNotExceeded`'s rate-limit window size in milliseconds (F3-T1 PR3, ADR-0035 Karar g). Absent/blank -> default; present-but-invalid -> fatal. */
   agentActionRateLimitWindowMs: number;
+  /** `AgentNotificationGovernorService.countDeliveredInWindow`'s rolling-window size in milliseconds (F3-T13 PR2, ADR-0047 Karar b/d/f) -- the SAME `readPositiveIntegerEnv` pattern as `agentActionRateLimitWindowMs`. Absent/blank -> default; present-but-invalid -> fatal. */
+  agentNotificationBudgetWindowMs: number;
 }
 
 /**
@@ -170,6 +172,10 @@ function readEnv(): Env {
     agentActionRateLimitWindowMs: readPositiveIntegerEnv(
       'AGENT_ACTION_RATE_LIMIT_WINDOW_MS',
       DEFAULT_AGENT_ACTION_RATE_LIMIT_WINDOW_MS,
+    ),
+    agentNotificationBudgetWindowMs: readPositiveIntegerEnv(
+      'AGENT_NOTIFICATION_BUDGET_WINDOW_MS',
+      DEFAULT_AGENT_NOTIFICATION_BUDGET_WINDOW_MS,
     ),
   };
 }
@@ -352,6 +358,9 @@ const DEFAULT_AGENT_ACTION_RATE_LIMIT_PER_WINDOW = 100;
 
 /** `AGENT_ACTION_RATE_LIMIT_WINDOW_MS`'s own default (F3-T1 PR3, ADR-0035 Karar g) — 60 seconds. */
 const DEFAULT_AGENT_ACTION_RATE_LIMIT_WINDOW_MS = 60_000;
+
+/** `AGENT_NOTIFICATION_BUDGET_WINDOW_MS`'s own default (F3-T13 PR2, ADR-0047 Karar b/f) — 1 hour; the ADR/spec do not pin an exact default, this mirrors `agentActionRateLimitWindowMs`'s own "generous but bounded" reasoning at a scale appropriate for a personal notification budget rather than a per-agent rate limit. */
+const DEFAULT_AGENT_NOTIFICATION_BUDGET_WINDOW_MS = 3_600_000;
 
 /**
  * Shared "absent = default, present-but-invalid = fatal" reader for the
