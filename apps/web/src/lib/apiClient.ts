@@ -1136,3 +1136,74 @@ export function explainDeviation(
     },
   );
 }
+
+/**
+ * F3-T13 PR3 (bildirim bütçesi/sessiz saatler, ADR-0047 Karar b/i) --
+ * mirrors `setAutonomyTier`'s exact call shape, except the settings are
+ * scoped per-`(workspaceId, userId)` rather than per-`(workspaceId,
+ * actionType)` (ADR-0047 Karar b/3 -- personal preference, not a workspace
+ * policy).
+ */
+export interface QuietHoursWindow {
+  startHourUtc: number;
+  endHourUtc: number;
+}
+
+export interface NotificationPreference {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  notificationBudgetPerWindow: number;
+  quietHours: QuietHoursWindow | null;
+  updatedAt: string;
+}
+
+export interface NotificationPreferenceInput {
+  notificationBudgetPerWindow: number;
+  quietHours: QuietHoursWindow | null;
+}
+
+export function getNotificationPreference(
+  workspaceId: string,
+  userId: string,
+): Promise<{ preference: NotificationPreference | null }> {
+  return request<{ preference: NotificationPreference | null }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/notification-preferences/${encodeURIComponent(userId)}`,
+    { method: 'GET' },
+  );
+}
+
+export function setNotificationPreference(
+  workspaceId: string,
+  userId: string,
+  input: NotificationPreferenceInput,
+): Promise<{ preference: NotificationPreference }> {
+  return request<{ preference: NotificationPreference }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/notification-preferences/${encodeURIComponent(userId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/**
+ * F3-T13 PR3 (ADR-0047 Karar f/g) -- CANLI/derived usage summary, no write
+ * endpoint (mirrors `listAgentActionRecords`'s "read-only, no mutation
+ * counterpart" shape).
+ */
+export interface NotificationUsageSummary {
+  deliveredCountInWindow: number;
+  overloaded: boolean;
+  topActionType: { actionType: string; count: number } | null;
+}
+
+export function getNotificationUsageSummary(
+  workspaceId: string,
+  userId: string,
+): Promise<{ summary: NotificationUsageSummary }> {
+  return request<{ summary: NotificationUsageSummary }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/notification-preferences/${encodeURIComponent(userId)}/usage-summary`,
+    { method: 'GET' },
+  );
+}

@@ -11,6 +11,7 @@ import { AgentPermissionManifestsService } from './agent-permission-manifests.se
 import { AgentResourceLimitsService } from './agent-resource-limits.service.js';
 import { AutonomyTierSettingsController } from './autonomy-tier-settings.controller.js';
 import { AutonomyTierSettingsService } from './autonomy-tier-settings.service.js';
+import { NotificationPreferencesController } from './notification-preferences.controller.js';
 import { NotificationPreferencesService } from './notification-preferences.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { CommandsModule } from '../commands/commands.module.js';
@@ -51,6 +52,11 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * only, same precedent), exported so `CommandsModule` (already importing
  * this module via `forwardRef()`) can inject it into `CommandsService`'s
  * widened constructor.
+ *
+ * F3-T13 PR3 (ADR-0047 Karar i) additionally wires
+ * `NotificationPreferencesController` — the first HTTP surface for either
+ * of the two services above, mirroring `AutonomyTierSettingsController`'s
+ * exact guard-stack/RBAC-delegation-to-service shape.
  */
 @Module({
   imports: [EventStoreModule, DbModule, AuthModule, forwardRef(() => CommandsModule)],
@@ -59,6 +65,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentDirectoryController,
     AgentActionRecordsController,
     AutonomyTierSettingsController,
+    NotificationPreferencesController,
   ],
   providers: [
     AgentPermissionManifestsService,

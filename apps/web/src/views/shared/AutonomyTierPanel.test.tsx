@@ -89,16 +89,35 @@ const KNOWN_ACTION_TYPES = [
   'reconfigureAgentPermissions',
 ] as const;
 
-const { mockedUseAutonomyTierSettingsQuery, mockedUseSetAutonomyTierMutation } = vi.hoisted(() => {
+const {
+  mockedUseAutonomyTierSettingsQuery,
+  mockedUseSetAutonomyTierMutation,
+  mockedUseNotificationUsageSummaryQuery,
+} = vi.hoisted(() => {
   return {
     mockedUseAutonomyTierSettingsQuery: vi.fn(),
     mockedUseSetAutonomyTierMutation: vi.fn(),
+    // F3-T13 PR3 (ADR-0047 Karar g) -- see the dedicated describe block near
+    // the bottom of this file. Declared here (rather than inline in that
+    // describe block) because `vi.mock` factories below are hoisted above
+    // all imports/top-level statements, so the referenced mock fns must be
+    // too (mirrors this same file's existing two mocks' own reasoning).
+    mockedUseNotificationUsageSummaryQuery: vi.fn(),
   };
 });
 
 vi.mock('../../hooks/useAutonomyTierSettingsQuery.js', () => ({
   useAutonomyTierSettingsQuery: mockedUseAutonomyTierSettingsQuery,
   useSetAutonomyTierMutation: mockedUseSetAutonomyTierMutation,
+}));
+
+// F3-T13 PR3 (ADR-0047 Karar g) -- not yet consumed by the CURRENTLY-MERGED
+// AutonomyTierPanel.tsx (that's this suite's whole point, the TDD red step);
+// mocking its module here ahead of time is harmless for every pre-existing
+// test in this file (none of them import or exercise this hook) and lets
+// the new describe block below assert the not-yet-built integration.
+vi.mock('../../hooks/useNotificationUsageSummaryQuery.js', () => ({
+  useNotificationUsageSummaryQuery: mockedUseNotificationUsageSummaryQuery,
 }));
 
 const AutonomyTierPanel = AutonomyTierPanelModuleExport;
@@ -380,5 +399,175 @@ describe('AutonomyTierPanel row scoping', () => {
     expect(
       within(createTaskRow).queryByTestId('autonomy-tier-select-assignPeople'),
     ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * F3-T13 PR3 (ADR-0047 Karar g, spec Kabul Kriterleri) — TDD red step.
+ * Contract under test (not yet implemented — implementer must extend
+ * `AutonomyTierPanel.tsx` to call a new
+ * `useNotificationUsageSummaryQuery(workspaceId, userId)` hook
+ * (`../../hooks/useNotificationUsageSummaryQuery.js`, mocked wholesale below
+ * via `vi.hoisted`, mirroring this file's own established mocking approach
+ * for `useAutonomyTierSettingsQuery`/`useSetAutonomyTierMutation` above) and
+ * render a banner from its result:
+ *
+ * - `data-testid="autonomy-rebalance-suggestion"` banner renders ONLY when
+ *   the usage-summary query's `data.summary.overloaded === true`. It is
+ *   ABSENT whenever `overloaded` is `false`, and ABSENT while the
+ *   usage-summary query is loading/erroring (fail-quiet — this banner is a
+ *   passive suggestion, ADR-0047 Karar g/insan kararı 1, never a blocking
+ *   state; a missing/loading/erroring summary is treated exactly like
+ *   `overloaded: false`, i.e. no banner, NOT a panel-wide error state).
+ * - when rendered, the banner's text content includes the
+ *   `data.summary.topActionType.actionType`'s label as resolved from
+ *   `@luminaos/agent-runtime`'s `ACTION_REGISTRY` (`findActionRegistryEntry`
+ *   or an equivalent lookup) — NOT the raw `actionType` string, and NOT a
+ *   hand-maintained duplicate label.
+ * - the banner contains NO `<button>` (or any other element with an
+ *   `onClick`/`role="button"`) anywhere in its subtree that calls
+ *   `useSetAutonomyTierMutation`'s `mutate` — insan kararı 1 (ADR-0047 Karar
+ *   g): the suggestion is READ-ONLY, no "hemen uygula" shortcut. This is
+ *   asserted both by "no `<button>` inside the banner element" AND by "the
+ *   tier-set mutation's `mutate` is never called merely from the banner
+ *   being present/rendered".
+ * - `useNotificationUsageSummaryQuery` is called with exactly
+ *   `(workspaceId, userId)` — this test suite hardcodes a fixed `userId`
+ *   ('user-1') for `AutonomyTierPanel`'s own second, NEW required prop
+ *   `userId: string` (widening `AutonomyTierPanelProps` — the panel needs a
+ *   `userId` to know WHOSE usage summary to fetch, since ADR-0047 Karar b/3
+ *   scopes `NotificationPreference`/usage per-user, unlike the workspace-
+ *   wide `TaskAutonomySetting` this panel otherwise renders).
+ */
+describe('AutonomyTierPanel <- overloaded rebalance suggestion banner (ADR-0047 Karar g)', () => {
+  const userId = 'user-1';
+
+  function mockUsageSummary(
+    summary:
+      | {
+          deliveredCountInWindow: number;
+          overloaded: boolean;
+          topActionType: { actionType: string; count: number } | null;
+        }
+      | undefined,
+    overrides: Partial<UseQueryResult<{ summary: unknown }>> = {},
+  ): void {
+    mockedUseNotificationUsageSummaryQuery.mockReturnValue({
+      data: summary ? { summary } : undefined,
+      isLoading: false,
+      isError: false,
+      error: null,
+      ...overrides,
+    });
+  }
+
+  it('does NOT render the rebalance-suggestion banner when overloaded is false', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary({ deliveredCountInWindow: 2, overloaded: false, topActionType: null });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    expect(screen.queryByTestId('autonomy-rebalance-suggestion')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the rebalance-suggestion banner while the usage-summary query is loading', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary(undefined, { isLoading: true });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    expect(screen.queryByTestId('autonomy-rebalance-suggestion')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the rebalance-suggestion banner when the usage-summary query errors (fail-quiet, not a panel-wide error)', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary(undefined, { isError: true, error: new Error('boom') });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    expect(screen.queryByTestId('autonomy-rebalance-suggestion')).not.toBeInTheDocument();
+    // Fail-quiet, NOT the panel's own top-level error state -- the 6 rows
+    // still render normally.
+    expect(screen.getAllByTestId(/^autonomy-tier-item-/)).toHaveLength(ACTION_REGISTRY.length);
+  });
+
+  it("renders the rebalance-suggestion banner with topActionType's ACTION_REGISTRY label when overloaded is true", () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary({
+      deliveredCountInWindow: 12,
+      overloaded: true,
+      topActionType: { actionType: 'createTask', count: 9 },
+    });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    const banner = screen.getByTestId('autonomy-rebalance-suggestion');
+    expect(banner).toBeInTheDocument();
+    const entry = ACTION_REGISTRY.find((candidate) => candidate.actionType === 'createTask');
+    expect(entry).toBeDefined();
+    expect(banner).toHaveTextContent(entry?.label ?? '');
+  });
+
+  it('never resolves the banner label to the raw actionType string when a registry label exists', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary({
+      deliveredCountInWindow: 12,
+      overloaded: true,
+      topActionType: { actionType: 'assignPeople', count: 7 },
+    });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    const banner = screen.getByTestId('autonomy-rebalance-suggestion');
+    // 'assignPeople' the raw actionType string must NOT appear verbatim --
+    // only its Turkish ACTION_REGISTRY label ('Kişi ata') should.
+    expect(banner).not.toHaveTextContent('assignPeople');
+    expect(banner).toHaveTextContent('Kişi ata');
+  });
+
+  it('contains NO <button> element anywhere inside the rebalance-suggestion banner (insan kararı 1 -- no "hemen uygula" shortcut)', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary({
+      deliveredCountInWindow: 12,
+      overloaded: true,
+      topActionType: { actionType: 'createTask', count: 9 },
+    });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    const banner = screen.getByTestId('autonomy-rebalance-suggestion');
+    expect(within(banner).queryAllByRole('button')).toHaveLength(0);
+    expect(banner.querySelector('button')).toBeNull();
+  });
+
+  it('never calls the tier-set mutation merely because the overloaded banner rendered', () => {
+    mockQuery({ settings: [] });
+    const { setMutate } = mockSetMutation();
+    mockUsageSummary({
+      deliveredCountInWindow: 12,
+      overloaded: true,
+      topActionType: { actionType: 'createTask', count: 9 },
+    });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    expect(screen.getByTestId('autonomy-rebalance-suggestion')).toBeInTheDocument();
+    expect(setMutate).not.toHaveBeenCalled();
+  });
+
+  it('calls useNotificationUsageSummaryQuery with exactly (workspaceId, userId)', () => {
+    mockQuery({ settings: [] });
+    mockSetMutation();
+    mockUsageSummary({ deliveredCountInWindow: 0, overloaded: false, topActionType: null });
+
+    render(<AutonomyTierPanel workspaceId={workspaceId} userId={userId} />);
+
+    expect(mockedUseNotificationUsageSummaryQuery).toHaveBeenCalledWith(workspaceId, userId);
   });
 });

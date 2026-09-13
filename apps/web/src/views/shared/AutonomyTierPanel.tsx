@@ -1,4 +1,4 @@
-import { ACTION_REGISTRY } from '@luminaos/agent-runtime';
+import { ACTION_REGISTRY, findActionRegistryEntry } from '@luminaos/agent-runtime';
 import {
   EmptyState,
   SelectContent,
@@ -13,6 +13,7 @@ import {
   useAutonomyTierSettingsQuery,
   useSetAutonomyTierMutation,
 } from '../../hooks/useAutonomyTierSettingsQuery.js';
+import { useNotificationUsageSummaryQuery } from '../../hooks/useNotificationUsageSummaryQuery.js';
 
 import type { AutonomyTier, TaskAutonomySetting } from '../../lib/apiClient.js';
 
@@ -23,9 +24,18 @@ import type { AutonomyTier, TaskAutonomySetting } from '../../lib/apiClient.js';
  * `SelectRoot`/`SelectTrigger`/`SelectContent`/`SelectItem` per-row dropdown
  * pattern from `@luminaos/ui`. Renders exactly 6 rows -- one per known action
  * type -- regardless of what the query's `settings` array contains.
+ *
+ * F3-T13 PR3 (ADR-0047 Karar g) additionally renders a passive "aşırı yük ->
+ * yeniden dengeleme önerisi" banner (`data-testid="autonomy-rebalance-
+ * suggestion"`) driven by `useNotificationUsageSummaryQuery(workspaceId,
+ * userId)` -- `userId` is OPTIONAL (widening, not breaking, every pre-
+ * existing caller) because a workspace this panel is rendered without a
+ * known caller identity simply never shows the banner (fail-quiet, insan
+ * kararı 1 -- this is a passive suggestion, never a blocking state).
  */
 export interface AutonomyTierPanelProps {
   workspaceId: string;
+  userId?: string;
 }
 
 // F3-T9 PR2 (ADR-0043 Karar f) -- derived from `@luminaos/agent-runtime`'s
@@ -89,9 +99,18 @@ function AutonomyTierRow({
   );
 }
 
-export function AutonomyTierPanel({ workspaceId }: AutonomyTierPanelProps) {
+export function AutonomyTierPanel({ workspaceId, userId }: AutonomyTierPanelProps) {
   const { data, isLoading, isError } = useAutonomyTierSettingsQuery(workspaceId);
   const setMutation = useSetAutonomyTierMutation(workspaceId);
+
+  // F3-T13 PR3 (ADR-0047 Karar g) -- called unconditionally (rules of hooks),
+  // ahead of the early loading/error returns below, even though its result
+  // is only consulted after them. `userId ?? ''` is a harmless placeholder
+  // for the (currently-untested-in-production) case where no caller identity
+  // is known yet -- the derived `showRebalanceSuggestion` below always
+  // resolves to `false` for a `?? ''` placeholder query result, so no banner
+  // renders (fail-quiet, same as loading/erroring).
+  const usageSummaryQuery = useNotificationUsageSummaryQuery(workspaceId, userId ?? '');
 
   function handleChange(actionType: string, tier: AutonomyTier): void {
     setMutation.mutate({ actionType, tier });
@@ -117,6 +136,29 @@ export function AutonomyTierPanel({ workspaceId }: AutonomyTierPanelProps) {
 
   const settings: TaskAutonomySetting[] = data?.settings ?? [];
 
+  // Fail-quiet (ADR-0047 Karar g/insan kararı 1): a loading/erroring/missing
+  // usage summary, or `overloaded === false`, or a `null` `topActionType`,
+  // is treated exactly like "no suggestion" -- never a panel-wide error
+  // state, never blocking the 6 rows below. Optional-chained off
+  // `usageSummaryQuery` itself (rather than assuming a `UseQueryResult`
+  // shape) because every one of this file's OTHER, pre-existing tests mocks
+  // `useNotificationUsageSummaryQuery` only at the module level without ever
+  // configuring a return value for it (they don't exercise this banner at
+  // all) -- the mock's default `vi.fn()` return is `undefined` there, which
+  // the real `UseQueryResult` return type disallows; the next 4 lines are
+  // therefore defensive against that test-only shape, not the production
+  // one, hence the targeted `no-unnecessary-condition` disables below.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see comment above
+  const summary = usageSummaryQuery?.data?.summary;
+  const topActionType = summary?.topActionType ?? null;
+  const showRebalanceSuggestion =
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see comment above
+    !usageSummaryQuery?.isLoading &&
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see comment above
+    !usageSummaryQuery?.isError &&
+    summary?.overloaded === true &&
+    topActionType !== null;
+
   return (
     <>
       {setMutation.isError ? (
@@ -125,6 +167,16 @@ export function AutonomyTierPanel({ workspaceId }: AutonomyTierPanelProps) {
           title="Otonomi kademesi güncellenemedi"
           description="Kısa bir süre sonra tekrar deneyin."
         />
+      ) : null}
+
+      {showRebalanceSuggestion ? (
+        <div data-testid="autonomy-rebalance-suggestion">
+          <p>
+            Bildirim bütçeniz doldu. En çok bildirime yol açan aksiyon:{' '}
+            {findActionRegistryEntry(topActionType.actionType)?.label ?? topActionType.actionType}.
+            Bu aksiyonun otonomi kademesini gözden geçirmeyi düşünebilirsiniz.
+          </p>
+        </div>
       ) : null}
 
       <ul aria-label="Otonomi kadranı">
