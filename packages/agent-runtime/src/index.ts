@@ -8,3 +8,7 @@ export * from './permission-manifest-commands.js';
 export * from './evaluate-manifest-grant.js';
 export * from './run-in-agent-sandbox.js';
 export * from './action-registry.js';
+export * from './notification-preference.js';
+export * from './notification-preference-events.js';
+export * from './notification-delivery-record.js';
+export * from './notification-delivery-events.js';
