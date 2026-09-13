@@ -59,20 +59,30 @@ Bugün `notifyAutonomousAction` (ADR-0039 §h) her `act_and_notify` aksiyonu iç
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** `NotificationPreferencesService.resolvePreference` ayar bulunamadığında `null` döner (fail-open, budget/quiet-hours kontrolü hiç yapılmaz).
-- [ ] **PR1:** `NotificationPreferencesService.set`, çağıran `actor.id !== userId` olduğunda ADMIN DAHİL herkese `ForbiddenError` fırlatır (self-only, admin istisnası YOK).
-- [ ] **PR1:** `NotificationPreferencesService.get`, `requestingUserId !== userId` VE çağıran admin+ DEĞİLSE `ForbiddenError` fırlatır; admin+ başka bir kullanıcının tercihini OKUYABİLİR.
-- [ ] **PR1:** `agent_notification_preferences`/`agent_notification_deliveries` migration'ının down script'i mevcut ve geri-alma test edilmiş.
-- [ ] **PR2:** `updatedBy.type !== 'user'` veya `NotificationPreference` satırı yoksa `guardAndDeliver` bugünküyle AYNI şekilde koşulsuz teslim eder (regresyon testi).
-- [ ] **PR2:** Şu anki UTC saat kullanıcının `quietHours` aralığındaysa (gece-yarısı-saran aralık dahil, ör. 22→07) bildirim `suppressed_quiet_hours` olarak bastırılır, `CommentsService.create` HİÇ ÇAĞRILMAZ.
-- [ ] **PR2:** Kayan pencere içinde `deliveredCount >= notificationBudgetPerWindow` olduğunda sonraki teslim `suppressed_budget_exceeded` olarak bastırılır.
-- [ ] **PR2:** Başarılı bir teslimde `AgentNotificationDelivered` kaydedilir VE bağlam-değiştirme sayacı (`getUsageSummary().deliveredCountInWindow`) yalnızca bunu sayar — bastırılan kayıtlar sayaca dahil EDİLMEZ.
-- [ ] **PR2:** `sourceObjectId===undefined` durumunda `notifyAutonomousAction` governor'a hiç ULAŞMADAN (mevcut ADR-0039 davranışı) erken döner.
-- [ ] **PR2:** Governor/kayıt hatası gerçek aksiyonun yürütülmesini/ledger yazımını ETKİLEMEZ (best-effort regresyonu).
-- [ ] **PR3:** `AutonomyTierPanel.tsx`'teki `autonomy-rebalance-suggestion` banner'ı yalnızca `overloaded===true` iken render edilir, `topActionType`'ın etiketi `ACTION_REGISTRY`'den doğru okunur; banner içinde `AutonomyTierSettingsService.set`'i tetikleyen HİÇBİR buton YOKTUR.
-- [ ] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR3 ayrıca `@luminaos/web` için).
-- [ ] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2: self-only RBAC'ın gerçekten admin'i bile reddettiği, `guardAndDeliver`'ın gerçek mutasyonu/ledger'ı asla etkilemediği).
-- [ ] Spec dosyasına Done + PR linkleri işlendi.
+- [x] **PR1:** `NotificationPreferencesService.resolvePreference` ayar bulunamadığında `null` döner (fail-open, budget/quiet-hours kontrolü hiç yapılmaz). Kanıt: PR #263, `apps/server/src/agent-runtime/notification-preferences.service.ts` (`resolvePreference`, satır ~168) + `notification-preferences.service.integration.test.ts`.
+- [x] **PR1:** `NotificationPreferencesService.set`, çağıran `actor.id !== userId` olduğunda ADMIN DAHİL herkese `ForbiddenError` fırlatır (self-only, admin istisnası YOK). Kanıt: PR #263, aynı dosya satır ~101/105 (`throw new ForbiddenError()`), integration test'te admin-dahil-reddedilir senaryosu.
+- [x] **PR1:** `NotificationPreferencesService.get`, `requestingUserId !== userId` VE çağıran admin+ DEĞİLSE `ForbiddenError` fırlatır; admin+ başka bir kullanıcının tercihini OKUYABİLİR. Kanıt: PR #263, aynı dosya satır ~151/155 + integration test.
+- [x] **PR1:** `agent_notification_preferences`/`agent_notification_deliveries` migration'ının down script'i mevcut ve geri-alma test edilmiş. Kanıt: PR #263, `apps/server/src/db/migrations/0046_agent_notification_governor.sql` + `apps/server/src/db/migrations/down/0046_agent_notification_governor.down.sql`, `db/migration.integration.test.ts` kapsamında.
+- [x] **PR2:** `updatedBy.type !== 'user'` veya `NotificationPreference` satırı yoksa `guardAndDeliver` bugünküyle AYNI şekilde koşulsuz teslim eder (regresyon testi). Kanıt: PR #264, `apps/server/src/agent-runtime/agent-notification-governor.service.ts` satır ~87 (`if (!setting || setting.updatedBy.type !== 'user')`) + `agent-notification-governor.service.integration.test.ts`.
+- [x] **PR2:** Şu anki UTC saat kullanıcının `quietHours` aralığındaysa (gece-yarısı-saran aralık dahil, ör. 22→07) bildirim `suppressed_quiet_hours` olarak bastırılır, `CommentsService.create` HİÇ ÇAĞRILMAZ. Kanıt: PR #264, aynı servis satır ~109 (`'suppressed_quiet_hours'`) + integration test (gece-yarısı-sarma dahil).
+- [x] **PR2:** Kayan pencere içinde `deliveredCount >= notificationBudgetPerWindow` olduğunda sonraki teslim `suppressed_budget_exceeded` olarak bastırılır. Kanıt: PR #264, aynı servis satır ~122 (`'suppressed_budget_exceeded'`) + integration test.
+- [x] **PR2:** Başarılı bir teslimde `AgentNotificationDelivered` kaydedilir VE bağlam-değiştirme sayacı (`getUsageSummary().deliveredCountInWindow`) yalnızca bunu sayar — bastırılan kayıtlar sayaca dahil EDİLMEZ. Kanıt: PR #264, aynı servis satır ~217/257/288 (`deliveredCountInWindow`, `countDeliveredInWindow`, `getUsageSummary`) + integration test.
+- [x] **PR2:** `sourceObjectId===undefined` durumunda `notifyAutonomousAction` governor'a hiç ULAŞMADAN (mevcut ADR-0039 davranışı) erken döner. Kanıt: PR #264, `apps/server/src/commands/commands.service.ts` satır ~678 (`if (sourceObjectId === undefined)`) + `commands.service.notification-governor.integration.test.ts`.
+- [x] **PR2:** Governor/kayıt hatası gerçek aksiyonun yürütülmesini/ledger yazımını ETKİLEMEZ (best-effort regresyonu). Kanıt: PR #264, mevcut try/catch korunmuş (satır ~664-690 civarı) + `commands.service.notification-governor.integration.test.ts` best-effort regresyon senaryosu.
+- [x] **PR3:** `AutonomyTierPanel.tsx`'teki `autonomy-rebalance-suggestion` banner'ı yalnızca `overloaded===true` iken render edilir, `topActionType`'ın etiketi `ACTION_REGISTRY`'den doğru okunur; banner içinde `AutonomyTierSettingsService.set`'i tetikleyen HİÇBİR buton YOKTUR. Kanıt: PR #265, `apps/web/src/views/shared/AutonomyTierPanel.tsx` satır ~173 (`data-testid="autonomy-rebalance-suggestion"`) + `AutonomyTierPanel.test.tsx`.
+- [x] Her PR'da `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil (PR3 ayrıca `@luminaos/web` için). Kanıt: PR #263/#264/#265 CI geçmişi (yeşil, main'e squash-merge edildi).
+- [x] `security-reviewer` her PR'da çağrılır ve bulgu kapatılmadan bir sonraki PR'a geçilmez (özellikle PR2: self-only RBAC'ın gerçekten admin'i bile reddettiği, `guardAndDeliver`'ın gerçek mutasyonu/ledger'ı asla etkilemediği). Kanıt: PR #263/#264/#265 açıklamalarında security-reviewer geçişi kayıtlı.
+- [x] Spec dosyasına Done + PR linkleri işlendi. Kanıt: aşağıdaki "Done" bölümü.
+
+## Done
+
+**Durum: TAMAMLANDI** — F3-T13'ün 3 alt-PR'ı da main'e squash-merge edildi; bu görevle birlikte **Epik F3-E5 (Hibrit AI [Kapsam O] + Refah Katmanı [Kapsam P]) TAMAMEN kapandı** (F3-T12 zaten kapalıydı, F3-T13 epiğin son görevi).
+
+- **PR1 (#263):** Bildirim tercihi/teslim domain tipleri (`packages/agent-runtime/src/notification-preference.ts`, `notification-delivery-record.ts` + olay şemaları), `NotificationPreferencesService` (`set`/`get`/`resolvePreference`, self-only RBAC), `agent_notification_preferences`/`agent_notification_deliveries` şemaları + `0046_agent_notification_governor.sql` migration'ı ve eşleşen `down/0046_agent_notification_governor.down.sql` geri-alma script'i.
+- **PR2 (#264):** `AgentNotificationGovernorService` (`guardAndDeliver`/`countDeliveredInWindow`/`isWithinQuietHours`/`recordOutcome`/`getUsageSummary`) ve `CommandsService.notifyAutonomousAction`'ın bu servisi sarmasıyla kablolanması — fail-open, sessiz-saat bastırma (gece-yarısı-sarma dahil), bütçe aşımı bastırma, teslim sayacı ve mevcut best-effort/erken-dönüş davranışlarının regresyonsuz korunması.
+- **PR3 (#265):** `NotificationPreferencesPanel.tsx`, `AutonomyTierPanel.tsx`'e pasif `autonomy-rebalance-suggestion` banner'ı, `useNotificationPreferenceQuery`/mutation + `useNotificationUsageSummaryQuery` hook'ları, `apiClient.ts` ve `App.tsx` kablolaması.
+
+Kod incelemesiyle doğrulandı: yukarıdaki tüm kabul kriterleri gerçek dosya/satırlarla eşleşiyor, spec ile mevcut kod arasında tutarsızlık bulunmadı.
 
 ## Açık Sorular
 
