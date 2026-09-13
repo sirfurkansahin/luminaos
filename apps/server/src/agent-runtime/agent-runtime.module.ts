@@ -10,6 +10,7 @@ import { AgentPermissionManifestsService } from './agent-permission-manifests.se
 import { AgentResourceLimitsService } from './agent-resource-limits.service.js';
 import { AutonomyTierSettingsController } from './autonomy-tier-settings.controller.js';
 import { AutonomyTierSettingsService } from './autonomy-tier-settings.service.js';
+import { NotificationPreferencesService } from './notification-preferences.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { CommandsModule } from '../commands/commands.module.js';
 import { env } from '../config/env.js';
@@ -37,6 +38,12 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
  * (for `AgentPermissionManifestsService`/`AutonomyTierSettingsService`),
  * closing a genuine 2-module cycle. Mirrors `CommandsModule`'s own
  * `CommentsModule` `forwardRef()` precedent.
+ *
+ * F3-T13 PR1 (ADR-0047 Karar a) additionally registers
+ * `NotificationPreferencesService` — no controller/route yet (PR1 scope is
+ * service-layer only, mirrors this module's own `AgentResourceLimitsService`
+ * "no HTTP surface" precedent), exported for PR2's
+ * `AgentNotificationGovernorService` to consume.
  */
 @Module({
   imports: [EventStoreModule, DbModule, AuthModule, forwardRef(() => CommandsModule)],
@@ -52,6 +59,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentDirectoryService,
     AgentActionRecordsService,
     AutonomyTierSettingsService,
+    NotificationPreferencesService,
     {
       provide: AgentConcurrencyGuard,
       useFactory: () => new AgentConcurrencyGuard(env.agentSandboxMaxConcurrentPerAgent),
@@ -65,6 +73,7 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
     AgentDirectoryService,
     AgentActionRecordsService,
     AutonomyTierSettingsService,
+    NotificationPreferencesService,
   ],
 })
 export class AgentRuntimeModule {}
