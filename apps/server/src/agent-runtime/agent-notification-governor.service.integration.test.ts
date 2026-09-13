@@ -222,6 +222,7 @@ describe('F3-T13 PR2 (RED step): AgentNotificationGovernorService — budget/qui
     container = await new PostgreSqlContainer('postgres:16').start();
     const connectionString = container.getConnectionUri();
     process.env.DATABASE_URL = connectionString;
+    process.env.REDIS_URL = 'redis://unit-test-placeholder:6379';
     process.env.AGENT_NOTIFICATION_BUDGET_WINDOW_MS = String(AGENT_NOTIFICATION_BUDGET_WINDOW_MS);
 
     await runMigrations(connectionString);

@@ -12,6 +12,7 @@ import { ForbiddenError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
 
 import { AgentActionRecordsService } from '../agent-runtime/agent-action-records.service.js';
+import { AgentNotificationGovernorService } from '../agent-runtime/agent-notification-governor.service.js';
 import { AgentPermissionManifestsService } from '../agent-runtime/agent-permission-manifests.service.js';
 import { AutonomyTierSettingsService } from '../agent-runtime/autonomy-tier-settings.service.js';
 import { AI_PROVIDER } from '../ai/ai-provider.token.js';
@@ -161,6 +162,7 @@ type CommandsServiceConstructor = new (
   agentActionRecordsService: AgentActionRecordsService,
   autonomyTierSettingsService: AutonomyTierSettingsService,
   commentsService: CommentsService,
+  notificationGovernor: AgentNotificationGovernorService,
 ) => CommandsServiceContract;
 
 interface RawCommandProposalRow {
@@ -204,6 +206,7 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
   let agentActionRecordsService: AgentActionRecordsService;
   let autonomyTierSettingsService: AutonomyTierSettingsService;
   let commentsService: CommentsService;
+  let notificationGovernor: AgentNotificationGovernorService;
   let service: CommandsServiceContract;
 
   beforeAll(async () => {
@@ -263,6 +266,7 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
     agentActionRecordsService = app.get(AgentActionRecordsService);
     autonomyTierSettingsService = app.get(AutonomyTierSettingsService);
     commentsService = app.get(CommentsService);
+    notificationGovernor = app.get(AgentNotificationGovernorService);
 
     const commandsModule: unknown = await import('./commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
@@ -280,6 +284,7 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
       agentActionRecordsService,
       autonomyTierSettingsService,
       commentsService,
+      notificationGovernor,
     );
   }, 60_000);
 

@@ -466,7 +466,13 @@ describe('CommandsService notification-governor wiring (F3-T13 PR2, real Postgre
     const service = createService(passthroughGovernor());
 
     const triggerId = newObjectId();
-    const sourceObjectId = newObjectId();
+    const sourceObject = await objectsService.create(
+      workspaceId,
+      { type: 'user', id: randomUUID() },
+      { objectType: 'task', title: 'Notif-governor AC4 source object' },
+      'owner',
+    );
+    const sourceObjectId = sourceObject.id;
     const intent = 'Notif-governor AC4 intent';
     const action = createTaskAction('Notif-governor AC4 task', intent);
 
