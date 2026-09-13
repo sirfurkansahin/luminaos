@@ -22,6 +22,7 @@ import { workspaces } from '../db/schema/workspaces.js';
 import { EventStoreService } from '../event-store/event-store.service.js';
 import { ProjectionRunner } from '../event-store/projections/projection-runner.service.js';
 
+import type { AgentNotificationGovernorService } from '../agent-runtime/agent-notification-governor.service.js';
 import type { AIUsageService } from '../ai/ai-usage.service.js';
 import type { Database } from '../db/client.js';
 import type { ObjectsService } from '../objects/objects.service.js';
@@ -161,6 +162,7 @@ type CommandsServiceConstructor = new (
   agentActionRecordsService: AgentActionRecordsService,
   autonomyTierSettingsService: AutonomyTierSettingsService,
   commentsService: CommentsService,
+  notificationGovernor: AgentNotificationGovernorService,
 ) => CommandsServiceContract;
 
 interface RawCommandProposalRow {
@@ -204,6 +206,7 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
   let agentActionRecordsService: AgentActionRecordsService;
   let autonomyTierSettingsService: AutonomyTierSettingsService;
   let commentsService: CommentsService;
+  let notificationGovernor: AgentNotificationGovernorService;
   let service: CommandsServiceContract;
 
   beforeAll(async () => {
@@ -264,6 +267,23 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
     autonomyTierSettingsService = app.get(AutonomyTierSettingsService);
     commentsService = app.get(CommentsService);
 
+    // Dynamically imported (not statically), same as `ObjectsService`/
+    // `AIUsageService` above -- a static top-level import of this class would
+    // be hoisted and evaluated BEFORE this `beforeAll` sets `REDIS_URL`,
+    // since it transitively imports `../config/env.js` (F3-T13 PR2, ADR-0047
+    // Karar f's `agentNotificationBudgetWindowMs`), which fails fast
+    // (`process.exit(1)`) when `REDIS_URL` is unset at module-evaluation time.
+    const notificationGovernorModule: unknown =
+      await import('../agent-runtime/agent-notification-governor.service.js');
+    const AgentNotificationGovernorServiceCtor = (
+      notificationGovernorModule as {
+        AgentNotificationGovernorService: Type<AgentNotificationGovernorService>;
+      }
+    ).AgentNotificationGovernorService;
+    notificationGovernor = app.get<AgentNotificationGovernorService>(
+      AgentNotificationGovernorServiceCtor,
+    );
+
     const commandsModule: unknown = await import('./commands.service.js');
     const CommandsServiceCtor = (commandsModule as { CommandsService: CommandsServiceConstructor })
       .CommandsService;
@@ -280,6 +300,7 @@ describe('CommandsService autonomy-dial wiring (F3-T5 PR2, real Postgres + real 
       agentActionRecordsService,
       autonomyTierSettingsService,
       commentsService,
+      notificationGovernor,
     );
   }, 60_000);
 
