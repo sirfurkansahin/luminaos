@@ -330,6 +330,13 @@
       "when": 1789023600000,
       "tag": "0047_federation_links_and_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789672027845,
+      "tag": "0048_federation_rate_limit_buckets",
+      "breakpoints": true
     }
   ]
 }

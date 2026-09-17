@@ -11,7 +11,7 @@ export default [
     // this package's own passing `tsc`/`vitest` runs), but the resolver
     // plugin produces a false-positive `import-x/no-unresolved` here.
     // Scoped to only the one file that imports these deep paths.
-    files: ['src/mcp-server/mcp.controller.ts'],
+    files: ['src/mcp-server/mcp.controller.ts', 'src/federation/federation-mcp.controller.ts'],
     rules: {
       'import-x/no-unresolved': 'off',
     },

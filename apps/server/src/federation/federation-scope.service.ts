@@ -67,9 +67,18 @@ export class FederationScopeService {
     return row;
   }
 
+  /**
+   * ADR-0048 §e: "kaldırılması da AYNI yetki gerektirir" -- removal requires
+   * the SAME authority as `addObject` (the row's own `ownerWorkspaceId`'s
+   * `admin+`), not merely "any admin of either side of the link". Without
+   * this, an admin of the COUNTERPART workspace (or, before this fix, an
+   * admin of any unrelated third workspace -- security-reviewer finding,
+   * PR2) could tombstone an object the HOST never agreed to un-share.
+   */
   async removeObject(
     linkId: string,
     objectId: string,
+    ownerWorkspaceId: string,
     actorRole: MembershipRole,
   ): Promise<FederationScopeObject> {
     if (!hasAtLeastRole(actorRole, 'admin')) {
@@ -83,6 +92,7 @@ export class FederationScopeService {
         and(
           eq(federationScopeObjects.federationLinkId, linkId),
           eq(federationScopeObjects.objectId, objectId),
+          eq(federationScopeObjects.ownerWorkspaceId, ownerWorkspaceId),
           isNull(federationScopeObjects.removedAt),
         ),
       )
@@ -96,17 +106,28 @@ export class FederationScopeService {
   }
 
   /**
-   * Fail-closed scope check used by `FederationMcpController` (PR2) -- NOT
-   * exercised by this PR's own tests, but included here since it depends
-   * only on this table.
+   * Fail-closed scope check used by `FederationMcpController` (PR2). Scoped
+   * by `ownerWorkspaceId === hostWorkspaceId` (not just `federationLinkId`),
+   * matching `listActiveObjectIds`'s exact same invariant -- a bilateral
+   * link can carry scope rows added by EITHER side, but only the HOST's own
+   * additions are ever valid for a request this host is serving. Without
+   * this, a scope row the grantee added in the reverse direction could
+   * satisfy this check for the wrong host, letting a fail-closed host-side
+   * audit event fire for an object this host never actually shared
+   * (security-reviewer finding, PR2).
    */
-  async isActiveScopeObject(linkId: string, objectId: string): Promise<boolean> {
+  async isActiveScopeObject(
+    linkId: string,
+    hostWorkspaceId: string,
+    objectId: string,
+  ): Promise<boolean> {
     const [row] = await this.db
       .select({ id: federationScopeObjects.id })
       .from(federationScopeObjects)
       .where(
         and(
           eq(federationScopeObjects.federationLinkId, linkId),
+          eq(federationScopeObjects.ownerWorkspaceId, hostWorkspaceId),
           eq(federationScopeObjects.objectId, objectId),
           isNull(federationScopeObjects.removedAt),
         ),
@@ -114,6 +135,59 @@ export class FederationScopeService {
       .limit(1);
 
     return row !== undefined;
+  }
+
+  /**
+   * F3-T14 PR2 (ADR-0048 §g): all currently-active `objectId`s the HOST side
+   * (`hostWorkspaceId`) has added to this link's scope -- used by
+   * `filterFederatedContextGraph` to elide neighbor-entity nodes the host
+   * never opted in to sharing. Deliberately scoped by `ownerWorkspaceId`
+   * (not just `federationLinkId`) since a bilateral link can, in principle,
+   * carry scope rows added by EITHER side; only the host's own additions are
+   * ever relevant to a request this host is serving.
+   */
+  async listActiveObjectIds(linkId: string, hostWorkspaceId: string): Promise<Set<string>> {
+    const rows = await this.db
+      .select({ objectId: federationScopeObjects.objectId })
+      .from(federationScopeObjects)
+      .where(
+        and(
+          eq(federationScopeObjects.federationLinkId, linkId),
+          eq(federationScopeObjects.ownerWorkspaceId, hostWorkspaceId),
+          isNull(federationScopeObjects.removedAt),
+        ),
+      );
+
+    return new Set(rows.map((row) => row.objectId));
+  }
+
+  /**
+   * F3-T14 PR2 (REST surface, ADR-0016 §a): full active scope-object rows
+   * for `FederationScopeController`'s `member+` list endpoint. `member+`
+   * itself is never role-gated further (ADR-0016 §a), but the caller's
+   * `workspaceId` MUST still be one of `linkId`'s two actual ends --
+   * otherwise any member of a totally unrelated workspace could read a
+   * foreign link's shared-object list by supplying its own `workspaceId`
+   * (which passes `WorkspaceMembershipGuard`, which only checks membership,
+   * not linkId association) alongside someone else's `linkId`
+   * (security-reviewer finding, PR2).
+   */
+  async listActive(linkId: string, workspaceId: string): Promise<FederationScopeObject[]> {
+    const link = await this.getLinkOrThrow(linkId);
+
+    if (workspaceId !== link.initiatorWorkspaceId && workspaceId !== link.counterpartWorkspaceId) {
+      throw new ForbiddenError();
+    }
+
+    return this.db
+      .select()
+      .from(federationScopeObjects)
+      .where(
+        and(
+          eq(federationScopeObjects.federationLinkId, linkId),
+          isNull(federationScopeObjects.removedAt),
+        ),
+      );
   }
 
   private async getLinkOrThrow(linkId: string): Promise<typeof federationLinks.$inferSelect> {
