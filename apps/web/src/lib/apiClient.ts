@@ -1207,3 +1207,206 @@ export function getNotificationUsageSummary(
     { method: 'GET' },
   );
 }
+
+/**
+ * F3-T14 PR3 (ADR-0048 §b/§c) -- `FederationLink` lifecycle client, feeding
+ * `FederationLinksPanel`. Mirrors the already-merged server-side
+ * `FederationLinksController`/`FederationScopeController` shapes exactly
+ * (`apps/server/src/federation/federation-links.controller.ts`,
+ * `federation-scope.controller.ts`); not imported from the server, per this
+ * file's convention of locally re-declaring every shape.
+ */
+export type FederationLinkStatus = 'pending' | 'active' | 'revoked';
+
+export interface FederationLink {
+  id: string;
+  initiatorWorkspaceId: string;
+  counterpartWorkspaceId: string;
+  pairKey: string;
+  status: FederationLinkStatus;
+  initiatedByUserId: string;
+  acceptedByUserId: string | null;
+  revokedByUserId: string | null;
+  initiatorAuditStreamId: string;
+  counterpartAuditStreamId: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+}
+
+export function listFederationLinks(workspaceId: string): Promise<{ links: FederationLink[] }> {
+  return request<{ links: FederationLink[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links`,
+    { method: 'GET' },
+  );
+}
+
+export function initiateFederationLink(
+  workspaceId: string,
+  counterpartWorkspaceId: string,
+): Promise<{ link: FederationLink }> {
+  return request<{ link: FederationLink }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ counterpartWorkspaceId }),
+    },
+  );
+}
+
+export function acceptFederationLink(
+  workspaceId: string,
+  linkId: string,
+): Promise<{ link: FederationLink }> {
+  return request<{ link: FederationLink }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/accept`,
+    { method: 'POST' },
+  );
+}
+
+export function revokeFederationLink(
+  workspaceId: string,
+  linkId: string,
+): Promise<{ link: FederationLink }> {
+  return request<{ link: FederationLink }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/revoke`,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * F3-T14 PR3 (ADR-0048 §e) -- federation scope object client, feeding
+ * `FederationLinksPanel`'s per-link scope-management section. Mirrors
+ * `FederationScopeController`'s exact shape.
+ */
+export interface FederationScopeObject {
+  id: string;
+  federationLinkId: string;
+  objectId: string;
+  ownerWorkspaceId: string;
+  addedByUserId: string;
+  addedAt: string;
+  removedAt: string | null;
+}
+
+export function listFederationScopeObjects(
+  workspaceId: string,
+  linkId: string,
+): Promise<{ scopeObjects: FederationScopeObject[] }> {
+  return request<{ scopeObjects: FederationScopeObject[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/scope`,
+    { method: 'GET' },
+  );
+}
+
+export function addFederationScopeObject(
+  workspaceId: string,
+  linkId: string,
+  objectId: string,
+): Promise<{ scopeObject: FederationScopeObject }> {
+  return request<{ scopeObject: FederationScopeObject }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/scope`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ objectId }),
+    },
+  );
+}
+
+export function removeFederationScopeObject(
+  workspaceId: string,
+  linkId: string,
+  objectId: string,
+): Promise<void> {
+  // No explicit `<void>` type argument, matching deleteMemoryRecord's/
+  // disconnectIntegration's rationale above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/scope/${encodeURIComponent(objectId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/**
+ * F3-T14 PR3 (ADR-0048 §d, İNSAN ONAYLI) -- federation credential client.
+ * Mirrors `listMcpGrants`/`createMcpGrant`/`revokeMcpGrant`'s exact
+ * request-shape convention -- fixed 30/90/365-day duration menu, default 90,
+ * no "never expires" escape hatch. There is deliberately NO list/GET endpoint
+ * (ADR-0048 §d/spec PR2 controller surface, a bilinçli PR2 scope decision) --
+ * `FederationLinksPanel` tracks created credentials in local component state
+ * only, not via a TanStack Query cache.
+ */
+export interface FederationLinkCredential {
+  id: string;
+  federationLinkId: string;
+  granteeWorkspaceId: string;
+  name: string;
+  tokenPrefix: string;
+  createdByUserId: string;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface CreateFederationCredentialResult {
+  credential: FederationLinkCredential;
+  rawToken: string;
+}
+
+export function createFederationCredential(
+  workspaceId: string,
+  linkId: string,
+  name: string,
+  expiresAtDays?: 30 | 90 | 365,
+): Promise<CreateFederationCredentialResult> {
+  return request<CreateFederationCredentialResult>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/credentials`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ name, ...(expiresAtDays !== undefined ? { expiresAtDays } : {}) }),
+    },
+  );
+}
+
+export function revokeFederationCredential(
+  workspaceId: string,
+  linkId: string,
+  credentialId: string,
+): Promise<void> {
+  // No explicit `<void>` type argument, matching revokeMcpGrant's/
+  // deleteMemoryRecord's rationale above.
+  return request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/credentials/${encodeURIComponent(credentialId)}/revoke`,
+    { method: 'POST' },
+  );
+}
+
+/**
+ * F3-T14 PR3 (ADR-0048 §h/RBAC özeti "member+") -- own-workspace federation
+ * audit-log read client, feeding `FederationAuditLogPanel`. Mirrors the
+ * already-merged server-side `StoredEvent` shape exactly
+ * (`apps/server/src/event-store/event-store.service.ts`) -- read paths are
+ * never role-gated beyond plain membership (ADR-0016 §a), enforced server-
+ * side only.
+ */
+export interface FederationAuditEvent {
+  id: string;
+  streamId: string;
+  streamType: string;
+  workspaceId: string;
+  type: 'FederatedContextAccessed' | 'FederatedContextRequested';
+  version: number;
+  payload: Record<string, unknown>;
+  actor: { type: string; id: string };
+  occurredAt: string;
+  globalPosition: number;
+}
+
+export function getFederationAuditLog(
+  workspaceId: string,
+  linkId: string,
+): Promise<{ events: FederationAuditEvent[] }> {
+  return request<{ events: FederationAuditEvent[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/federation-links/${encodeURIComponent(linkId)}/audit-log`,
+    { method: 'GET' },
+  );
+}
