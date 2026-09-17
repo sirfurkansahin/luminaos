@@ -20,6 +20,7 @@ import { DbModule } from './db/db.module.js';
 import { DirectMessagesModule } from './direct-messages/direct-messages.module.js';
 import { DocsModule } from './docs/docs.module.js';
 import { ExportModule } from './export/export.module.js';
+import { FederationModule } from './federation/federation.module.js';
 import { FieldsModule } from './fields/fields.module.js';
 import { HealthModule } from './health/health.module.js';
 import { IntegrationsModule } from './integrations/integrations.module.js';
@@ -88,6 +89,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
     SkillsModule,
     CommentsModule,
     DirectMessagesModule,
+    FederationModule,
   ],
   controllers: [AppController],
   providers: [

@@ -42,3 +42,6 @@ export * from './agents.js';
 export * from './object-comments.js';
 export * from './mention-actions.js';
 export * from './dm-messages.js';
+export * from './federation-links.js';
+export * from './federation-link-credentials.js';
+export * from './federation-scope-objects.js';
