@@ -27,6 +27,18 @@ declare module 'express-serve-static-core' {
     mcpGrant?: {
       id: string;
     };
+    /** Populated only by `FederationTokenAuthGuard`
+     * (`federation/federation-token-auth.guard.ts`, ADR-0048 §f) -- never set
+     * on the `SessionAuthGuard`/`McpTokenAuthGuard` paths. Carries the
+     * resolved federation credential's own grant shape: there is no human
+     * `user`/`membership` behind a federation call, the counterpart
+     * WORKSPACE itself is the caller. */
+    federationGrant?: {
+      linkId: string;
+      credentialId: string;
+      granteeWorkspaceId: string;
+      hostWorkspaceId: string;
+    };
   }
 }
 

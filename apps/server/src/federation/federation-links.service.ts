@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, or } from 'drizzle-orm';
 
 import {
   ConflictError,
@@ -146,6 +146,30 @@ export class FederationLinksService {
     }
 
     return row;
+  }
+
+  /**
+   * F3-T14 PR2 (REST surface): a public lookup used by
+   * `FederationLinksController`/`FederationScopeController` to resolve a
+   * link's two sides (e.g. to derive the "other side" as a credential's
+   * `granteeWorkspaceId`, or to validate a URL `:workspaceId` genuinely
+   * belongs to this link before allowing an accept/revoke).
+   */
+  async get(linkId: string): Promise<FederationLink> {
+    return this.getOrThrow(linkId);
+  }
+
+  /** All links (any status) where `workspaceId` is either side. */
+  async listForWorkspace(workspaceId: string): Promise<FederationLink[]> {
+    return this.db
+      .select()
+      .from(federationLinks)
+      .where(
+        or(
+          eq(federationLinks.initiatorWorkspaceId, workspaceId),
+          eq(federationLinks.counterpartWorkspaceId, workspaceId),
+        ),
+      );
   }
 
   private assertTransition(from: FederationLinkStatus, to: FederationLinkStatus): void {

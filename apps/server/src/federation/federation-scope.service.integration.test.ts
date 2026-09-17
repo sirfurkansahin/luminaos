@@ -107,7 +107,12 @@ interface FederationScopeServiceContract {
     actorUserId: string,
     actorRole: Role,
   ): Promise<FederationScopeObject>;
-  removeObject(linkId: string, objectId: string, actorRole: Role): Promise<FederationScopeObject>;
+  removeObject(
+    linkId: string,
+    objectId: string,
+    ownerWorkspaceId: string,
+    actorRole: Role,
+  ): Promise<FederationScopeObject>;
 }
 
 type FederationScopeServiceConstructor = new (db: Database) => FederationScopeServiceContract;
@@ -371,7 +376,12 @@ describe('FederationScopeService (real Postgres via Testcontainers, ADR-0048 §e
         'admin',
       );
 
-      const removed = await scopeService.removeObject(linkId, objectId, 'admin');
+      const removed = await scopeService.removeObject(
+        linkId,
+        objectId,
+        initiatorWorkspaceId,
+        'admin',
+      );
       expect(removed.removedAt).not.toBeNull();
 
       const rows = await rawScopeRowsFor(linkId, objectId);
@@ -394,7 +404,7 @@ describe('FederationScopeService (real Postgres via Testcontainers, ADR-0048 §e
         initiatorAdminUserId,
         'admin',
       );
-      await scopeService.removeObject(linkId, objectId, 'admin');
+      await scopeService.removeObject(linkId, objectId, initiatorWorkspaceId, 'admin');
 
       const readded = await scopeService.addObject(
         linkId,
