@@ -19,6 +19,8 @@ import { AvailabilitySelector } from './views/shared/AvailabilitySelector';
 import { CommandPalette } from './views/shared/CommandPalette';
 import { CreateObjectButton } from './views/shared/CreateObjectButton';
 import { DirectMessagePanel } from './views/shared/DirectMessagePanel';
+import { FederationAuditLogPanel } from './views/shared/FederationAuditLogPanel';
+import { FederationLinksPanel } from './views/shared/FederationLinksPanel';
 import { FlightRecorderPanel } from './views/shared/FlightRecorderPanel';
 import { IntegrationsPanel } from './views/shared/IntegrationsPanel';
 import { McpAccessPanel } from './views/shared/McpAccessPanel';
@@ -40,6 +42,13 @@ import { ViewSwitcher } from './views/ViewSwitcher';
 const DEV_WORKSPACE_ID = 'dev-workspace';
 const DEV_USER_ID = 'dev-user';
 const OBJECT_TYPE = 'task';
+
+// F3-T14 PR3 (ADR-0048) -- same F0-T5-pending limitation as DEV_WORKSPACE_ID
+// above: real workspace-role RBAC isn't wired into apps/web yet, so
+// `FederationLinksPanel`'s `isAdmin` gate is a dev-only constant here. Real
+// enforcement is the server's 403 either way (ADR-0048 §c) -- this is a UI
+// nicety, not a security boundary.
+const DEV_IS_ADMIN = true;
 
 const flatQuerySpec: QuerySpec = { objectType: OBJECT_TYPE, filters: [] };
 const boardQuerySpec: QuerySpec = { objectType: OBJECT_TYPE, filters: [], group: 'status' };
@@ -114,6 +123,14 @@ export function App() {
   const [liveStartField, setLiveStartField] = useState<string | undefined>(undefined);
   const [liveEndField, setLiveEndField] = useState<string | undefined>(undefined);
 
+  // F3-T14 PR3 (ADR-0048) -- dev-only: `FederationAuditLogPanel` needs a
+  // specific `linkId` to view, but there is no link-selection UI yet
+  // (`FederationLinksPanel`'s own list doesn't expose an onSelect callback,
+  // mirroring its pinned test contract). A plain text input lets a developer
+  // paste a `FederationLink`'s id (visible in `FederationLinksPanel`'s own
+  // list/network tab) to exercise the audit-log panel manually.
+  const [federationAuditLinkId, setFederationAuditLinkId] = useState('');
+
   return (
     <main>
       <h1>LuminaOS</h1>
@@ -130,6 +147,21 @@ export function App() {
       <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
       <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
       <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
+      <FederationLinksPanel workspaceId={DEV_WORKSPACE_ID} isAdmin={DEV_IS_ADMIN} />
+      <input
+        data-testid="federation-audit-log-link-id-input"
+        value={federationAuditLinkId}
+        onChange={(event) => {
+          setFederationAuditLinkId(event.target.value);
+        }}
+        placeholder="Denetim günlüğü için FederationLink id'si"
+      />
+      {federationAuditLinkId.trim().length > 0 && (
+        <FederationAuditLogPanel
+          workspaceId={DEV_WORKSPACE_ID}
+          linkId={federationAuditLinkId.trim()}
+        />
+      )}
       <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
       <NotificationPreferencesPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
 
