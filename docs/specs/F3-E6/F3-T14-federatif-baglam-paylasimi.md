@@ -1,6 +1,6 @@
 # F3-T14 — Kurumlar Arası Paylaşılan Proje Alanı: Federatif Bağlam Paylaşımı v0
 
-**Epik:** F3-E6 (Federatif Beyin v0 [Kapsam Q]) · **Durum:** Mimari onaylandı, uygulama bekliyor — Epiğin TEK görevi. Mimari karar `docs/adr/ADR-0048-federatif-baglam-paylasimi-v0.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
+**Epik:** F3-E6 (Federatif Beyin v0 [Kapsam Q]) · **Durum:** TAMAMLANDI (PR1/PR2/PR3 `main`'e merge edildi) — Epiğin TEK görevi, bu görevin kapanması Epik F3-E6'yı TAMAMEN kapatır. Mimari karar `docs/adr/ADR-0048-federatif-baglam-paylasimi-v0.md`'de tam resmileşti — bu spec o ADR'yi görev kapsamına (amaç/kapsam/PR bölünmesi/kabul kriterleri) çevirir, yeniden türetmez.
 **Bağımlılık:** F2-T12/ADR-0028 (`McpTokenAuthGuard`/`mcp_client_grants`'ın PAT deseni, `ContextService.getContext` sözleşimi — bu görev bunları OKUR/TAKLİT EDER, DEĞİŞTİRMEZ). ADR-0018 (`ContextResponse`/`ContextEdgeSummary` şekli, alan-bazlı `canViewField` süzgeci). ADR-0016 (export/okuma rol-gate yasağı). ADR-0029 (dört kademeli hassasiyet sınıflandırması — bu görev ÜÇÜNCÜ bir eksen açıyor, ADR-0029'u değiştirmiyor).
 
 ## Amaç
@@ -68,22 +68,22 @@
 
 ## Kabul Kriterleri
 
-- [ ] **PR1:** Durum-makinesi geçiş matrisi (`pending→active`, `pending/active→revoked`, geçersiz geçişler `InvalidObjectStateError`) birim testlerle kanıtlı.
-- [ ] **PR1:** `initiate`/`accept`/`revoke` — yetkisiz rol `ForbiddenError`; initiator kendi teklifini kabul edemiyor; aynı iki workspace arasında ikinci pending/active link `ConflictError`; `revoke` sonrası yeniden link kurulabiliyor.
-- [ ] **PR1:** Kapsam ekleme/çıkarma — var olmayan `objectId` `NotFoundError`; yanlış `ownerWorkspaceId` `ForbiddenError`; tombstone sonrası yeniden eklenebiliyor.
-- [ ] **PR1:** Credential oluşturma yalnızca 30/90/365 gün kabul ediyor (varsayılan 90), `expiresAt` hiçbir kod yolunda `NULL` yazılmıyor.
-- [ ] **PR1:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz; migration 0047 + down script mevcut ve ters sırada tabloları düşürüyor.
-- [ ] **PR2:** Kapsam-dışı `objectId` isteği `ContextService.getContext`'i SIFIR kez çağırıyor (fail-closed kanıtı).
-- [ ] **PR2:** `filterFederatedContextGraph`, kapsam-dışı `entity` komşusunu edge listesinden TAMAMEN eliyor (yalnızca title/fieldValues değil, düğümün kendisi); `person`/`time`/`topic` düğümleri etkilenmiyor.
-- [ ] **PR2:** Host-tarafı `FederatedContextAccessed` yazımı başarısız olduğunda istek başarısız dönüyor VE `ContextService` hiç çağrılmıyor.
-- [ ] **PR2:** Grantee-tarafı `FederatedContextRequested` yazımı başarısız olsa bile istek başarılı dönüyor (best-effort regresyonu).
-- [ ] **PR2:** `FederationTokenAuthGuard` — bulunamayan/iptal edilmiş/süresi dolmuş token VE `pending`/`revoked` durumundaki link için AYNI 401'i döndürüyor (durum sızdırmıyor); `revoke` sonrası bir sonraki çağrı ANINDA 401.
-- [ ] **PR2:** REST uç noktalarında `admin+`/`member+` RBAC ayrımı doğru uygulanıyor; rate-limit `(hostWorkspaceId, credentialId)` anahtarıyla çalışıyor.
-- [ ] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
-- [ ] **PR3:** `admin+` olmayan kullanıcı için yönetim aksiyonları UI'da gizli/devre dışı; API çağrısı 403.
-- [ ] **PR3:** Link durumuna göre doğru aksiyon butonları (pending → kabul et/iptal, active → kapsam yönetimi/iptal, revoked → salt-okunur) render ediliyor.
-- [ ] **PR3:** Denetim günlüğü paneli her iki event tipini ayırt ederek doğru render ediyor.
-- [ ] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz.
+- [x] **PR1:** Durum-makinesi geçiş matrisi (`pending→active`, `pending/active→revoked`, geçersiz geçişler `InvalidObjectStateError`) birim testlerle kanıtlı. Kanıt: PR #268, `apps/server/src/federation/federation-link-state.test.ts` (15 test).
+- [x] **PR1:** `initiate`/`accept`/`revoke` — yetkisiz rol `ForbiddenError`; initiator kendi teklifini kabul edemiyor; aynı iki workspace arasında ikinci pending/active link `ConflictError`; `revoke` sonrası yeniden link kurulabiliyor. Kanıt: PR #268, `apps/server/src/federation/federation-links.service.integration.test.ts`.
+- [x] **PR1:** Kapsam ekleme/çıkarma — var olmayan `objectId` `NotFoundError`; yanlış `ownerWorkspaceId` `ForbiddenError`; tombstone sonrası yeniden eklenebiliyor. Kanıt: PR #268, `apps/server/src/federation/federation-scope.service.integration.test.ts`.
+- [x] **PR1:** Credential oluşturma yalnızca 30/90/365 gün kabul ediyor (varsayılan 90), `expiresAt` hiçbir kod yolunda `NULL` yazılmıyor. Kanıt: PR #268, `apps/server/src/federation/federation-link-credentials.service.integration.test.ts`.
+- [x] **PR1:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz; migration 0047 + down script mevcut ve ters sırada tabloları düşürüyor. Kanıt: PR #268 CI (yeşil), `apps/server/src/db/migrations/0047_federation_links_and_scope.sql` + `down/0047_federation_links_and_scope.down.sql`.
+- [x] **PR2:** Kapsam-dışı `objectId` isteği `ContextService.getContext`'i SIFIR kez çağırıyor (fail-closed kanıtı). Kanıt: PR #269, `apps/server/src/federation/federation-mcp.controller.integration.test.ts` test 1.
+- [x] **PR2:** `filterFederatedContextGraph`, kapsam-dışı `entity` komşusunu edge listesinden TAMAMEN eliyor (yalnızca title/fieldValues değil, düğümün kendisi); `person`/`time`/`topic` düğümleri etkilenmiyor. Kanıt: PR #269, `apps/server/src/federation/filter-federated-context-graph.test.ts` (10 test).
+- [x] **PR2:** Host-tarafı `FederatedContextAccessed` yazımı başarısız olduğunda istek başarısız dönüyor VE `ContextService` hiç çağrılmıyor. Kanıt: PR #269, `federation-mcp.controller.integration.test.ts` test 3; `federation-audit.service.integration.test.ts`.
+- [x] **PR2:** Grantee-tarafı `FederatedContextRequested` yazımı başarısız olsa bile istek başarılı dönüyor (best-effort regresyonu). Kanıt: PR #269, `federation-mcp.controller.integration.test.ts` test 4 — implementer'ın ilk halinde bu test kırmızıydı (best-effort çağrısının kontrolcü seviyesinde savunma-katmanı try/catch'i eksikti), `federation-mcp.controller.ts`'e eklenen try/catch ile düzeltildi ve doğrulandı.
+- [x] **PR2:** `FederationTokenAuthGuard` — bulunamayan/iptal edilmiş/süresi dolmuş token VE `pending`/`revoked` durumundaki link için AYNI 401'i döndürüyor (durum sızdırmıyor); `revoke` sonrası bir sonraki çağrı ANINDA 401. Kanıt: PR #269, `federation-token-auth.guard.integration.test.ts` (11 test).
+- [x] **PR2:** REST uç noktalarında `admin+`/`member+` RBAC ayrımı doğru uygulanıyor; rate-limit `(hostWorkspaceId, credentialId)` anahtarıyla çalışıyor. Kanıt: PR #269, `federation-links.controller.integration.test.ts`, `federation-scope.controller.integration.test.ts`.
+- [x] **PR2:** `pnpm --filter @luminaos/server typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz. **Düzeltme:** security-reviewer 2 bulgu buldu (aşağıdaki Done bölümüne bakınız), ikisi de commit edilmeden önce kapatıldı ve regresyon testleriyle kanıtlandı (`federation-scope.controller.integration.test.ts` test 9-10).
+- [x] **PR3:** `admin+` olmayan kullanıcı için yönetim aksiyonları UI'da gizli/devre dışı; API çağrısı 403. Kanıt: PR #270, `apps/web/src/views/shared/FederationLinksPanel.test.tsx` (`isAdmin=false` senaryoları).
+- [x] **PR3:** Link durumuna göre doğru aksiyon butonları (pending → kabul et/iptal, active → kapsam yönetimi/iptal, revoked → salt-okunur) render ediliyor. Kanıt: PR #270, `FederationLinksPanel.test.tsx`.
+- [x] **PR3:** Denetim günlüğü paneli her iki event tipini ayırt ederek doğru render ediyor. Kanıt: PR #270, `apps/web/src/views/shared/FederationAuditLogPanel.test.tsx`.
+- [x] **PR3:** `pnpm --filter @luminaos/web typecheck && lint && test:changed` yeşil; `security-reviewer` bulgusuz. Kanıt: PR #270 CI (yeşil), security-reviewer: bulgu yok.
 
 ## Açık Sorular
 
@@ -91,18 +91,19 @@
 - **`packages/memory` federasyon genişlemesi** — bu görev tamamlandıktan sonra doğal bir sonraki görev adayı; ayrı bir spec/ADR gerektirecek (İnsan kararı 3).
 - **Gerçek bir "süresiz federasyon" ihtiyacı doğarsa** — Karar (d)'nin nullable `expiresAt` kolonu şema-seviyesinde esnek bırakıldı, ama v0'ın hiçbir kod yolu bunu kullanmıyor; gelecekte AYRI bir insan kararı + ADR gerektirir.
 
-## Sıradaki adım
+## Done
 
-ADR-0048 ve bu spec onaylandı — `test-writer` → `implementer` → `security-reviewer` ritüeline **PR1**'den başlanır:
+**Durum: TAMAMLANDI** — F3-T14'ün 3 alt-PR'ı da main'e squash-merge edildi; bu görevle birlikte **Epik F3-E6 (Federatif Beyin v0 [Kapsam Q]) TAMAMEN kapandı** (F3-T14 epiğin tek görevi).
 
-```
-docs/specs/F3-E6/F3-T14-federatif-baglam-paylasimi.md'nin PR1'ini uygula: federation_links/
-federation_link_credentials/federation_scope_objects şemaları + migration 0047 (+ down script) +
-saf durum-makinesi (federation-link-state.ts) + FederationLinksService/FederationScopeService/
-FederationLinkCredentialsService. Önce test-writer ile PR1'in Kabul Kriterleri'ndeki başarısız
-testleri yaz (durum geçiş matrisi, RBAC/ConflictError/InvalidObjectStateError senaryoları, credential
-30/90/365 gün doğrulaması), sonra implementer ile asgari uygulamayı yap. docs/adr/ADR-0048-
-federatif-baglam-paylasimi-v0.md Karar (a)-(e)/(k) referans alınmalı, yeniden türetilmemeli.
-```
+- **PR1 (#268):** `federation_links`/`federation_link_credentials`/`federation_scope_objects` şemaları + migration `0047` (+ down script), saf durum-makinesi (`federation-link-state.ts`), `FederationLinksService`/`FederationScopeService`/`FederationLinkCredentialsService`.
+- **PR2 (#269):** `FederationTokenAuthGuard`, `filterFederatedContextGraph`, `FederationAuditService` (host fail-closed/grantee best-effort), `FederationRateLimitService`, `FederationMcpController` (`POST /federation-mcp`), `FederationLinksController`/`FederationScopeController` (REST yüzeyi).
+- **PR3 (#270):** `FederationLinksPanel`, `FederationAuditLogPanel`, `apiClient.ts` genişlemesi, `App.tsx` kablolaması.
 
-F3-T14, `docs/PLAN.md`'nin Faz 3'ünün SON epiğinin (F3-E6, Kapsam Q) TEK görevi — PR1/PR2/PR3'ün tamamı `main`'e merge olduğunda Faz 3 TAMAMEN kapanır, Faz 4 planlaması insana bırakılır.
+**security-reviewer'ın PR2'de bulduğu 2 bulgu (ikisi de commit edilmeden önce kapatıldı):**
+
+1. **HIGH — Cross-tenant IDOR:** `FederationScopeController`'ın `listScopeObjects`/`removeScopeObject` rotaları `:workspaceId`'nin `:linkId`'nin gerçek bir tarafı olduğunu doğrulamıyordu — `WorkspaceMembershipGuard` yalnızca ÜYELİK kontrol eder, linkId ilişkisini değil. Bir üçüncü, tamamen ilgisiz workspace'in üyesi, kendi `workspaceId`'sini + başka bir çiftin `linkId`'sini vererek o çiftin paylaşılan nesne listesini okuyabilir/silebilirdi. **Düzeltme:** `federation-scope.service.ts`'in `listActive()`'ı (satır ~175-191) artık linki çözüp `workspaceId`'nin linkin iki ucundan biri olmadığı durumda `ForbiddenError` fırlatıyor. **Regresyon testi:** `federation-scope.controller.integration.test.ts` test 9.
+2. **MEDIUM — Ownership-direction:** `removeObject()`'in `WHERE` koşulu `ownerWorkspaceId`'yi kontrol etmiyordu — linkin GRANTEE tarafındaki bir admin, HOST'un paylaştığı bir nesneyi kendi `workspaceId`'siyle silebilirdi (ADR-0048 Karar e: kaldırma, ekleme ile AYNI yetkiyi — nesnenin sahibi workspace'in admin+'ını — gerektirir). **Düzeltme:** `removeObject()` (satır ~78-106) artık `ownerWorkspaceId`'nin tam eşleştiğini zorunlu kılıyor. **Regresyon testi:** `federation-scope.controller.integration.test.ts` test 10.
+
+Kod incelemesiyle doğrulandı: yukarıdaki tüm kabul kriterleri gerçek dosya/satırlarla eşleşiyor, spec ile mevcut kod arasında tutarsızlık bulunmadı.
+
+**Faz 3 TAMAMEN KAPANDI.** `docs/PLAN.md`'nin Faz 3'ündeki 6 epiğin (F3-E1 Agent Runtime + Skill SDK, F3-E2 Cam Kutu Otonomi, F3-E3 Artifact + Canlı Widget + Intent-first UI, F3-E4 Plan-Gerçek Motoru, F3-E5 Hibrit AI + Refah Katmanı, F3-E6 Federatif Beyin v0) TÜMÜ artık kapalı — her birinin altındaki 14 görevin (F3-T1 ila F3-T14) her biri kendi spec dosyasında bir `## Done` bölümüne sahip, kod incelemesiyle bağımsız olarak doğrulandı. Faz 4 planlaması insana bırakılır.
