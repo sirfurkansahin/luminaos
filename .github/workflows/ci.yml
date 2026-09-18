@@ -159,6 +159,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # `quality`/`integration` job'ları vitest uzerinden kosuyor, o da
+      # workspace paketlerini KAYNAKTAN cozumluyor -- ama bu job'un
+      # `apps/web` (vite dev sunucusu) ve `apps/server` (tsx ile calisan gercek
+      # dev script'i) webServer'lari GERCEK Node ESM cozumlemesi kullaniyor, bu
+      # da her workspace bagimliliginin (`@luminaos/shared`, `@luminaos/ui`,
+      # vb.) `package.json` "exports"'unun isaret ettigi `dist/`'inin GERCEKTEN
+      # var olmasini gerektiriyor -- CI'da bunlari kimse onceden derlemiyordu
+      # (bu is'in tam da E2E'nin var olma amaci oldugu bir bosluk).
+      - name: Build workspace packages
+        run: pnpm build
+
       # Playwright'ın kendi tarayıcı ikilisi pnpm'in kurduğu npm paketinden
       # ayrı bir indirme adımı gerektiriyor -- yalnızca Chromium (F0-T9 kapsamı,
       # bkz. docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md "Kapsam DIŞI").
