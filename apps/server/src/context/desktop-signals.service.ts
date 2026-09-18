@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
 
-import { ForbiddenError, deriveDeterministicUuid } from '@luminaos/shared';
+import { ForbiddenError } from '@luminaos/shared';
 import type { NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { DesktopSignalConsentsService } from './desktop-signal-consents.service.js';
 import { EventStoreService } from '../event-store/event-store.service.js';

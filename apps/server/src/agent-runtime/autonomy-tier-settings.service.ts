@@ -5,8 +5,9 @@ import { and, eq } from 'drizzle-orm';
 
 import { AUTONOMY_GOVERNANCE_FLOOR } from '@luminaos/agent-runtime';
 import type { AutonomyTier, TaskAutonomySetting } from '@luminaos/agent-runtime';
-import { AppError, deriveDeterministicUuid, ForbiddenError } from '@luminaos/shared';
+import { AppError, ForbiddenError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { TaskAutonomySettingProjection } from './autonomy-tier-settings.projection.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

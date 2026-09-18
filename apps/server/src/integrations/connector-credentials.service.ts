@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 
-import { decryptSecret, encryptSecret, InvalidObjectStateError } from '@luminaos/shared';
+import { InvalidObjectStateError } from '@luminaos/shared';
+import { decryptSecret, encryptSecret } from '@luminaos/shared/server';
 
 import { env } from '../config/env.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

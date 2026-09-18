@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 
-import { AppError, deriveDeterministicUuid } from '@luminaos/shared';
+import { AppError } from '@luminaos/shared';
 import type { NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { DesktopSignalConsentProjection } from './desktop-signal-consent.projection.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

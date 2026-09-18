@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
 
-import { AppError, deriveDeterministicUuid, ForbiddenError, NotFoundError } from '@luminaos/shared';
+import { AppError, ForbiddenError, NotFoundError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { DmMessageProjection } from './direct-message.projection.js';
 import { CommandsService } from '../commands/commands.service.js';

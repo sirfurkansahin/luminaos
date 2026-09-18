@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { encryptSecret } from '@luminaos/shared';
+import { encryptSecret } from '@luminaos/shared/server';
 
 /**
  * F2-T16 PR2 (RED step), ADR-0033 Karar (e)/(f) — `WebhookDeliveryService`,

@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { deriveDeterministicUuid, ForbiddenError, ValidationError } from '@luminaos/shared';
+import { ForbiddenError, ValidationError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';

@@ -5,8 +5,9 @@ import { and, eq } from 'drizzle-orm';
 
 import { agentNotificationPreferenceSetPayloadSchema } from '@luminaos/agent-runtime';
 import type { NotificationPreference, QuietHoursWindow } from '@luminaos/agent-runtime';
-import { AppError, deriveDeterministicUuid, ForbiddenError } from '@luminaos/shared';
+import { AppError, ForbiddenError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { NotificationPreferenceProjection } from './notification-preferences.projection.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

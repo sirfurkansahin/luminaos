@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { deriveDeterministicUuid } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { DesktopSignalConsentProjection } from './desktop-signal-consent.projection.js';
 import { createDatabaseClient } from '../db/client.js';

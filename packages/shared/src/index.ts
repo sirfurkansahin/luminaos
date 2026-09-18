@@ -1,8 +1,11 @@
+// Kept free of `node:*` imports on purpose — Vite's dev server evaluates a
+// barrel's entire module graph on any named import, so anything Node-only
+// re-exported here would crash `apps/web`'s browser bundle at load time
+// (`Module "node:crypto" has been externalized...`). Node-only utilities
+// (ids/, secrets/) live behind the `@luminaos/shared/server` subpath.
 export * from './errors/index.js';
 export * from './events/index.js';
-export * from './ids/index.js';
 export * from './query/index.js';
-export * from './secrets/index.js';
 
 /**
  * `/health`'s response shape. Widened for F0-T8 PR-C: health-checking now
