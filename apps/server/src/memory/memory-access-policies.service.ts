@@ -4,8 +4,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 
 import type { MemoryAccessPolicy } from '@luminaos/memory';
-import { AppError, deriveDeterministicUuid } from '@luminaos/shared';
+import { AppError } from '@luminaos/shared';
 import type { NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { MemoryAccessPolicyProjection } from './memory-access-policy.projection.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

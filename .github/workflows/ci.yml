@@ -103,6 +103,88 @@ jobs:
         run: pnpm test:integration
         timeout-minutes: 30
 
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lumina
+          POSTGRES_PASSWORD: lumina
+          POSTGRES_DB: lumina_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lumina -d lumina_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://lumina:lumina@localhost:5432/lumina_dev
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Cache turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `quality`/`integration` job'ları vitest uzerinden kosuyor, o da
+      # workspace paketlerini KAYNAKTAN cozumluyor -- ama bu job'un
+      # `apps/web` (vite dev sunucusu) ve `apps/server` (tsx ile calisan gercek
+      # dev script'i) webServer'lari GERCEK Node ESM cozumlemesi kullaniyor, bu
+      # da her workspace bagimliliginin (`@luminaos/shared`, `@luminaos/ui`,
+      # vb.) `package.json` "exports"'unun isaret ettigi `dist/`'inin GERCEKTEN
+      # var olmasini gerektiriyor -- CI'da bunlari kimse onceden derlemiyordu
+      # (bu is'in tam da E2E'nin var olma amaci oldugu bir bosluk).
+      - name: Build workspace packages
+        run: pnpm build
+
+      # Playwright'ın kendi tarayıcı ikilisi pnpm'in kurduğu npm paketinden
+      # ayrı bir indirme adımı gerektiriyor -- yalnızca Chromium (F0-T9 kapsamı,
+      # bkz. docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md "Kapsam DIŞI").
+      - name: Install Playwright browsers (chromium)
+        working-directory: apps/e2e
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Migration'lar `apps/e2e/playwright.config.ts`'in `apps/server`
+      # webServer'ının `command`'ına gömülü (`db:migrate && dev`, idempotent)
+      # -- bu job'un burada ayrıca bir migrate adımına ihtiyacı yok, Playwright
+      # kendi webServer'larını başlatırken bunu kendisi çalıştırır.
+      - name: E2E tests (Playwright)
+        run: pnpm --filter @luminaos/e2e run test:e2e
+        timeout-minutes: 15
+
   security:
     name: security
     runs-on: ubuntu-latest

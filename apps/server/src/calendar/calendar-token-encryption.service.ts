@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { decryptSecret, encryptSecret, InvalidObjectStateError } from '@luminaos/shared';
+import { InvalidObjectStateError } from '@luminaos/shared';
+import { decryptSecret, encryptSecret } from '@luminaos/shared/server';
 
 import { env } from '../config/env.js';
 

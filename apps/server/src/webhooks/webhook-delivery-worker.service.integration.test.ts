@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { encryptSecret } from '@luminaos/shared';
+import { encryptSecret } from '@luminaos/shared/server';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';

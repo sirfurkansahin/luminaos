@@ -39,7 +39,15 @@ import { ViewSwitcher } from './views/ViewSwitcher';
 // apps/web tarafında tüketilmiyor, `NotificationPreferencesPanel`/
 // `AutonomyTierPanel`'in `userId`'ye ihtiyacı olan kişisel-bildirim
 // özellikleri için dev-only sabit bir kullanıcı kimliği.
-const DEV_WORKSPACE_ID = 'dev-workspace';
+//
+// F0-T9: `?e2eWorkspaceId=<id>` query param'ı, Playwright E2E testlerinin
+// (apps/e2e) sunucu ZATEN ÇALIŞIRKEN API'ye istek atarak oluşturduğu taze bir
+// workspace'i runtime'da (her sayfa yüklemesinde) enjekte etmesini sağlar —
+// build-time bir Vite env değişkeni bunu yapamaz (Vite `import.meta.env`'i
+// dev sunucusu açılırken bir kez okur, ama E2E workspace'i o andan SONRA
+// oluşturuluyor). Param yoksa (normal geliştirme) `'dev-workspace'`'e düşer.
+const DEV_WORKSPACE_ID =
+  new URLSearchParams(window.location.search).get('e2eWorkspaceId') ?? 'dev-workspace';
 const DEV_USER_ID = 'dev-user';
 const OBJECT_TYPE = 'task';
 

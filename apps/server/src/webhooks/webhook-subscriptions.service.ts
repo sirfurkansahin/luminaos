@@ -5,13 +5,13 @@ import { and, eq } from 'drizzle-orm';
 import { ulid } from 'ulid';
 
 import {
-  encryptSecret,
   ForbiddenError,
   InvalidObjectStateError,
   NotFoundError,
   ValidationError,
 } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
+import { encryptSecret } from '@luminaos/shared/server';
 
 import { assertSafeWebhookUrl } from './ssrf-guard.js';
 import { env } from '../config/env.js';

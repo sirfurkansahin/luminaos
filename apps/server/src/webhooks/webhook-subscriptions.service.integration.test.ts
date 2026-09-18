@@ -3,8 +3,9 @@ import crypto from 'node:crypto';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { decryptSecret, ForbiddenError, NotFoundError, ValidationError } from '@luminaos/shared';
+import { ForbiddenError, NotFoundError, ValidationError } from '@luminaos/shared';
 import type { Actor } from '@luminaos/shared';
+import { decryptSecret } from '@luminaos/shared/server';
 
 import { createDatabaseClient } from '../db/client.js';
 import { runMigrations } from '../db/migrate.js';

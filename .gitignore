@@ -11,3 +11,5 @@ ai-eval-results.json
 !.env.example
 .DS_Store
 Thumbs.db
+apps/e2e/test-results/
+apps/e2e/playwright-report/

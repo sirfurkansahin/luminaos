@@ -8,8 +8,9 @@ import {
   evaluateManifestGrant,
   type AgentPermissionManifest,
 } from '@luminaos/agent-runtime';
-import { AppError, deriveDeterministicUuid, ForbiddenError } from '@luminaos/shared';
+import { AppError, ForbiddenError } from '@luminaos/shared';
 import type { Actor, NewDomainEvent } from '@luminaos/shared';
+import { deriveDeterministicUuid } from '@luminaos/shared/server';
 
 import { AgentPermissionManifestProjection } from './agent-permission-manifests.projection.js';
 import { DATABASE_CONNECTION } from '../db/database-connection.token.js';

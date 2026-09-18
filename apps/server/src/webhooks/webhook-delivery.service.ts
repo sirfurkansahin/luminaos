@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
 
-import { decryptSecret } from '@luminaos/shared';
+import { decryptSecret } from '@luminaos/shared/server';
 
 import { assertSafeWebhookUrl } from './ssrf-guard.js';
 
