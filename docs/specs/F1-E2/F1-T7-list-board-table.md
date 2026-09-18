@@ -1,6 +1,6 @@
 # F1-T7 — List + Board + Table Görünümleri (İlk Gerçek Arayüz)
 
-**Epik:** F1-E2 · **Durum:** Tamamlandı (gerçek tarayıcıda pointer-tabanlı sürükle-bırak E2E'si ve 10.000 satır performans ölçümü F0-T9/gerçek backend'e bağlı, ayrıca not edildi)
+**Epik:** F1-E2 · **Durum:** Tamamlandı (gerçek tarayıcıda pointer-tabanlı sürükle-bırak E2E'si F0-T9 ile karşılandı; 10.000 satır performans ölçümü hâlâ gerçek backend'e bağlı, ayrıca not edildi)
 **Bağımlılık:** F1-T6 (sorgu katmanı), F0-T7 (tasarım sistemi)
 
 > 📌 ÖNEMLİ MİLESTONE: Bu görev, projenin başlangıcından beri backend'de inşa edilen her şeyin (event sourcing, custom fields, ilişkiler, formüller) **ilk kez tarayıcıda görülebilir hale geldiği** görevdir. Plan onaylanırken özellikle "kullanıcı bunu nasıl görecek/deneyimleyecek" açısından dikkatle okunmalı.
@@ -29,7 +29,7 @@
 
 - [x] `pnpm dev` ile açılan tarayıcıda List/Board/Table görünümleri arasında geçiş yapılabilir (PR4, `claude-in-chrome` ile gerçek tarayıcıda doğrulandı: sekme geçişi, URL `?view=` senkronizasyonu, tema geçişi). **Kapsam notu:** gerçek bir workspace'in gerçek verisiyle uçtan uca doğrulama yapılmadı — `apps/server` bu doğrulama sırasında çalışmıyordu (dev-only sabit `workspaceId`, gerçek backend/auth henüz apps/web'e bağlı değil); bu doğrulama gerçek bir workspace kurulduğunda ayrıca yapılmalı.
 - [ ] 10.000 satırlık test verisinde List görünümü sanallaştırma sayesinde akıcı kaydırma sağlar (performans testi/ölçümü). Sanallaştırma birim testiyle kanıtlı (PR1 — 500 nesnede DOM satır sayısı sınırlı kalıyor); 10.000 satır + gerçek tarayıcı performans ölçümü gerçek bir workspace/backend gerektiriyor, henüz yapılmadı.
-- [x] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir — birim seviyesinde kanıtlı (PR3, `onDragEnd` handler'ı senkronize `DragEndEvent` ile doğrudan tetiklenerek + `KeyboardSensor`'ün `DndContext`'e kablolandığı doğrulanarak). **Not:** Playwright altyapısı repoda henüz yok (bkz. `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`, PR3 sırasında açıldı) — gerçek tarayıcıda pointer-tabanlı E2E doğrulaması F0-T9 tamamlanınca eklenecek.
+- [x] Board görünümünde bir kartı sürükleyip başka sütuna bırakmak, alanın değerini gerçekten değiştirir — hem birim seviyesinde (PR3, `onDragEnd` handler'ı senkronize `DragEndEvent` ile doğrudan tetiklenerek + `KeyboardSensor`'ün `DndContext`'e kablolandığı doğrulanarak) HEM DE artık gerçek bir tarayıcıda (Chromium), gerçek pointer olaylarıyla kanıtlı: `apps/e2e/tests/board-drag-drop.spec.ts` (F0-T9, [PR #273](https://github.com/sirfurkansahin/luminaos/pull/273)) gerçek `mouse.down/move/up` ile kartı sürükler, `status` alanının API üzerinde gerçekten değiştiğini `expect.poll` ile doğrular.
 - [x] Table görünümünde bir hücreyi düzenlemek API'ye yazar ve optimistic UI güncellemesi çalışır (PR2, testli — onMutate/onError optimistic+rollback).
 - [x] Her üç görünüm de klavye erişilebilir — Table'da ok tuşlarıyla hücre gezinme (PR2, testli), Board'da `KeyboardSensor` kablolaması (PR3, testli — gerçek klavye-sürükleme etkileşimi jsdom'da güvenilir simüle edilemediğinden sensor-kontrat testiyle sınırlı), List'in sanallaştırılmış satırları özel klavye gezinme gerektirmiyor (native scroll).
 - [x] Boş/yükleniyor/hata durumları her görünümde doğru render edilir (testli, üç görünümde de). PR4'te gerçek tarayıcıda doğrulanırken gerçek bir bug bulunup düzeltildi: `isLoading` (`=isPending && isFetching`) kontrolü, başarısız bir sorgunun retry backoff aralıklarında kısa süreliğine `false` oluyordu (henüz `isError` de olmadığından), bu da "boş" durumunun yanlışlıkla render edilmesine yol açıyordu — artık `isLoading || (data === undefined && !isError)` kontrol ediliyor.
@@ -46,4 +46,4 @@ Plan onayı: görev 3 PR'a bölündü (PR1 veri+List, PR2 Table, PR3 Board) — 
 ## Bilinen Sınırlamalar / Takip
 
 - Gerçek workspace verisiyle uçtan uca tarayıcı doğrulaması ve 10.000 satır performans ölçümü, gerçek bir `apps/server` + auth akışı gerektiriyor — bu görev kapsamında yapılmadı.
-- Board görünümünün gerçek pointer-tabanlı sürükle-bırak E2E doğrulaması `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`'ye bırakıldı.
+- ~~Board görünümünün gerçek pointer-tabanlı sürükle-bırak E2E doğrulaması `docs/specs/F0-E1/F0-T9-playwright-e2e-altyapisi.md`'ye bırakıldı.~~ F0-T9 ([PR #273](https://github.com/sirfurkansahin/luminaos/pull/273)) ile karşılandı — bkz. yukarıdaki kabul kriteri.
