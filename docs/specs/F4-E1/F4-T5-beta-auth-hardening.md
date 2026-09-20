@@ -1,8 +1,9 @@
 # F4-T5 — Kapalı beta kimlik doğrulama sertleştirmesi
 
-**Durum:** In Progress  
+**Durum:** Done  
 **Öncelik:** P0 — kullanıcı davetinden önce  
 **Bağımlılıklar:** F4-T4, mevcut PostgreSQL ve Redis altyapısı
+**Pull request:** [#278](https://github.com/sirfurkansahin/luminaos/pull/278)
 
 ## Amaç
 
@@ -37,16 +38,23 @@ operatörün sunucu içinde güvenli biçimde beta hesabı oluşturabilmesini sa
 
 ## Kabul kriterleri
 
-- [ ] E-posta sınırını aşan istek, parola doğrulamasından önce HTTP 429 alır.
-- [ ] IP sınırı e-posta değiştirerek aşılamaz.
-- [ ] Sayaç artışı ve ilk süre sonu ataması tek atomik Redis işlemi içindedir.
-- [ ] Başarılı giriş yalnızca ilgili e-posta sayacını temizler.
-- [ ] Redis anahtarlarında ham e-posta veya IP bulunmaz.
-- [ ] Üretimde kayıt API'si hesap oluşturmadan 403 döner.
-- [ ] Test/geliştirmede mevcut kayıt fixture'ları çalışmaya devam eder.
-- [ ] Provizyon komutu parolayı stdin'den alır, minimum/maksimum kurallarını uygular
+- [x] E-posta sınırını aşan istek, parola doğrulamasından önce HTTP 429 alır.
+- [x] IP sınırı e-posta değiştirerek aşılamaz.
+- [x] Sayaç artışı ve ilk süre sonu ataması tek atomik Redis işlemi içindedir.
+- [x] Başarılı giriş yalnızca ilgili e-posta sayacını temizler.
+- [x] Redis anahtarlarında ham e-posta veya IP bulunmaz.
+- [x] Üretimde kayıt API'si hesap oluşturmadan 403 döner.
+- [x] Test/geliştirmede mevcut kayıt fixture'ları çalışmaya devam eder.
+- [x] Provizyon komutu parolayı stdin'den alır, minimum/maksimum kurallarını uygular
       ve parola/özetini çıktılamaz.
-- [ ] Birim, entegrasyon, typecheck, lint, build ve güvenlik kontrolleri geçer.
+- [x] Birim, entegrasyon, typecheck, lint, build ve güvenlik kontrolleri geçer.
+
+## Canlı doğrulama
+
+- `GET /api/health`: HTTP 200.
+- `POST /api/auth/register`: üretimde HTTP 403; veritabanı çağrısından önce reddedildi.
+- Benzersiz, var olmayan bir e-posta ile giriş: ilk 10 deneme HTTP 401, 11. deneme HTTP 429.
+- API konteyneri yeniden oluşturma sonrasında sağlıklı; provizyon komutu üretim imajında mevcut.
 
 ## Kapsam dışı
 
