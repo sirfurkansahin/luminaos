@@ -1,14 +1,28 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UsePipes } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 
 import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 
 import { AuthLoginRateLimitService } from './auth-login-rate-limit.service.js';
 import { AuthService } from './auth.service.js';
+import { CurrentUser } from './current-user.decorator.js';
+import { changePasswordSchema } from './dto/change-password.schema.js';
 import { loginSchema } from './dto/login.schema.js';
 import { registerSchema } from './dto/register.schema.js';
+import { SessionAuthGuard } from './session-auth.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import type { AuthResultUser } from './auth.service.js';
+import type { ChangePasswordInput } from './dto/change-password.schema.js';
 import type { LoginInput } from './dto/login.schema.js';
 import type { RegisterInput } from './dto/register.schema.js';
 import type { Request, Response } from 'express';
@@ -63,6 +77,30 @@ export class AuthController {
     await this.authLoginRateLimitService.clearSuccessfulEmail(body.email);
     setSessionCookie(res, sessionId);
     return { user };
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(SessionAuthGuard)
+  async changePassword(
+    @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePasswordInput,
+    @CurrentUser() currentUser: { id: string; email: string } | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    if (!currentUser) {
+      throw new UnauthorizedError();
+    }
+
+    const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    await this.authLoginRateLimitService.assertLoginAllowed(clientIp, currentUser.email);
+    const { sessionId } = await this.authService.changePassword(
+      currentUser.id,
+      body.currentPassword,
+      body.newPassword,
+    );
+    await this.authLoginRateLimitService.clearSuccessfulEmail(currentUser.email);
+    setSessionCookie(res, sessionId);
   }
 
   @Post('logout')

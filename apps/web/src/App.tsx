@@ -4,6 +4,7 @@ import type { SavedView } from '@luminaos/core-objects';
 import type { QuerySpec } from '@luminaos/shared';
 import { Button, useTheme } from '@luminaos/ui';
 
+import { ChangePasswordPanel } from './auth/ChangePasswordPanel';
 import { SessionGate } from './auth/SessionGate';
 import { useViewParam } from './hooks/useViewParam';
 import { BoardView } from './views/BoardView';
@@ -193,6 +194,7 @@ export function WorkspaceApp({
       <details className="advanced-tools">
         <summary>Gelişmiş araçlar ve ayarlar</summary>
         <div className="advanced-tools__content">
+          <ChangePasswordPanel />
           <MemoryPassportPanel workspaceId={workspaceId} />
           <IntegrationsPanel workspaceId={workspaceId} />
           <McpAccessPanel workspaceId={workspaceId} />

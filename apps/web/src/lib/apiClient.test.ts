@@ -5,6 +5,7 @@ import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import type { QuerySpec } from '@luminaos/shared';
 
 import {
+  changePassword,
   createWorkspace,
   createMemoryRecord,
   createObject,
@@ -195,6 +196,21 @@ describe('beta session and workspace client', () => {
       '/auth/logout',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
+  });
+
+  it('changes the password without putting either password in the URL', async () => {
+    mockFetchOnce(204, undefined);
+
+    await changePassword('current-password', 'new-secure-password');
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/auth/change-password');
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    expect(JSON.parse(init.body as string)).toEqual({
+      currentPassword: 'current-password',
+      newPassword: 'new-secure-password',
+    });
   });
 
   it('creates a first workspace and loads its server-derived role', async () => {

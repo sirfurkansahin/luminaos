@@ -138,6 +138,13 @@ export function logout(): Promise<void> {
   return request('/auth/logout', { method: 'POST' });
 }
 
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return request('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export function createWorkspace(name: string): Promise<{ workspace: WorkspaceSummary }> {
   return request('/workspaces', {
     method: 'POST',
