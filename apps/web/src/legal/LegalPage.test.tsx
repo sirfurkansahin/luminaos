@@ -15,6 +15,8 @@ describe('LegalPage', () => {
       screen.getByRole('heading', { name: 'İşleme amaçları ve hukuki sebepler' }),
     ).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Haklarınız' })).toBeVisible();
+    expect(screen.getByText(/Oracle Cloud Infrastructure/)).toBeVisible();
+    expect(screen.getByText(/30 günlük yedek saklama/)).toBeVisible();
     expect(screen.getByRole('link', { name: 'Giriş ekranına dön' })).toHaveAttribute('href', '/');
   });
 
