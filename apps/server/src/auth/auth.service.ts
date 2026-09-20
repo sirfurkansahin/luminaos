@@ -103,6 +103,37 @@ export class AuthService {
     await this.sessionService.revokeSession(sessionId);
   }
 
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthResult> {
+    const [row] = await this.db
+      .select({ id: users.id, email: users.email, passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!row || !(await verifyPassword(row.passwordHash, currentPassword))) {
+      throw new UnauthorizedError('Current password is incorrect.');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    const [updated] = await this.db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning({ id: users.id, email: users.email });
+
+    if (!updated) {
+      throw new UnauthorizedError();
+    }
+
+    await this.sessionService.revokeAllSessionsForUser(userId);
+    const session = await this.sessionService.createSession(userId);
+    return { user: updated, sessionId: session.id };
+  }
+
   async refresh(sessionId: string): Promise<AuthResult> {
     const activeSession = await this.sessionService.getActiveSession(sessionId);
 

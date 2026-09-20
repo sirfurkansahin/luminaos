@@ -135,6 +135,27 @@ textarea {
   color: var(--color-danger);
 }
 
+.form-success {
+  margin: 0;
+  color: var(--color-success, var(--color-primary));
+}
+
+.account-security {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-background);
+}
+
+.account-security h2,
+.account-security p {
+  margin-top: 0;
+}
+
+.account-security__form {
+  max-width: 32rem;
+}
+
 .advanced-tools {
   margin-block: var(--space-4);
   border: 1px solid var(--color-border);

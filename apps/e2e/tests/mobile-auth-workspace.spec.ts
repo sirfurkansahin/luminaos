@@ -11,6 +11,7 @@ test('mobile beta login loads the workspace without overflow and remains keyboar
   const suffix = `${Date.now().toString()}-${Math.random().toString(36).slice(2)}`;
   const email = `mobile-e2e-${suffix}@luminaos.test`;
   const password = 'mobile-e2e-password-123';
+  const newPassword = 'mobile-e2e-new-password-456';
   const workspaceName = `Mobile E2E ${suffix}`;
 
   const registerResponse = await request.post(`${API_BASE_URL}/auth/register`, {
@@ -60,6 +61,20 @@ test('mobile beta login loads the workspace without overflow and remains keyboar
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
 
+  await page.getByText('Gelişmiş araçlar ve ayarlar', { exact: true }).click();
+  await page.getByLabel('Mevcut parola').fill(password);
+  await page.getByLabel('Yeni parola', { exact: true }).fill(newPassword);
+  await page.getByLabel('Yeni parola tekrarı').fill(newPassword);
+  await page.getByRole('button', { name: 'Parolayı değiştir' }).click();
+  await expect(
+    page.getByText('Parolanız güncellendi. Diğer açık oturumlar kapatıldı.', { exact: true }),
+  ).toBeVisible();
+
   await page.getByRole('button', { name: 'Çıkış yap' }).click();
   await expect(page.getByRole('heading', { name: 'Hesabınıza giriş yapın' })).toBeVisible();
+
+  await page.getByLabel('E-posta').fill(email);
+  await page.getByLabel('Parola').fill(newPassword);
+  await page.getByRole('button', { name: 'Giriş yap' }).click();
+  await expect(page.getByText(workspaceName, { exact: true })).toBeVisible();
 });

@@ -83,6 +83,13 @@ export class SessionService {
       .where(and(eq(sessions.id, sessionId), isNull(sessions.revokedAt)));
   }
 
+  async revokeAllSessionsForUser(userId: string): Promise<void> {
+    await this.db
+      .update(sessions)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+  }
+
   /**
    * Small user lookup used by `SessionAuthGuard`/`GET /me` to resolve the
    * full user record (id/email/createdAt) once a session has already been
