@@ -5,6 +5,33 @@ html {
   font-family: var(--font-family-base);
 }
 
+.legal-shell {
+  min-height: 100vh;
+  padding: clamp(1rem, 4vw, 3rem);
+  background: var(--color-bg, #f5f6f8);
+}
+
+.legal-card {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 1px solid var(--color-border, #d9dde5);
+  border-radius: 1rem;
+  background: var(--color-surface, #fff);
+  line-height: 1.65;
+}
+
+.legal-card h2 {
+  margin-top: 2rem;
+}
+
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;

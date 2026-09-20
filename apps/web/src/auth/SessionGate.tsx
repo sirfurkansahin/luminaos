@@ -102,6 +102,10 @@ function LoginScreen({ onSuccess }: { onSuccess: () => Promise<void> }) {
             {loginMutation.isPending ? 'Giriş yapılıyor…' : 'Giriş yap'}
           </button>
         </form>
+        <nav className="legal-links" aria-label="Hukuki belgeler">
+          <a href="/?legal=privacy">Aydınlatma metni</a>
+          <a href="/?legal=terms">Kullanım koşulları</a>
+        </nav>
       </section>
     </main>
   );

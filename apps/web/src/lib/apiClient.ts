@@ -145,6 +145,13 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   });
 }
 
+export function getWorkspaceExportUrl(workspaceId: string): string {
+  return resolveApiUrl(
+    `/workspaces/${encodeURIComponent(workspaceId)}/export?format=json`,
+    import.meta.env['VITE_API_BASE_URL'],
+  );
+}
+
 export function createWorkspace(name: string): Promise<{ workspace: WorkspaceSummary }> {
   return request('/workspaces', {
     method: 'POST',
