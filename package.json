@@ -11,6 +11,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:pages-proxy": "node --test functions/api/proxy.test.mjs",
+    "test:production-monitor": "node --test .github/scripts/*.test.mjs",
     "test:changed": "turbo run test --filter=...[HEAD]",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

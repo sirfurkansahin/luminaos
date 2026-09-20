@@ -1,0 +1,118 @@
+name: Production monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: production-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    name: web and API availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Probe production
+        id: probe
+        continue-on-error: true
+        env:
+          PRODUCTION_ORIGIN: ${{ vars.PRODUCTION_ORIGIN || 'https://luminaos.130-61-173-65.sslip.io' }}
+        run: node .github/scripts/check-production.mjs
+
+      - name: Synchronize incident issue
+        if: always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          PROBE_OK: ${{ steps.probe.outcome == 'success' }}
+          INCIDENT_TITLE: '[Production] LuminaOS availability incident'
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const incidentStateModule = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/incident-state.mjs`,
+            ).href;
+            const { planIncidentTransition } = await import(incidentStateModule);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = process.env.INCIDENT_TITLE;
+            const probeOk = process.env.PROBE_OK === 'true';
+            const checkedAt = new Date().toISOString();
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const incident = issues.find(
+              (issue) => issue.title === title && issue.pull_request === undefined,
+            );
+            const transition = planIncidentTransition({
+              probeOk,
+              incidentState: incident?.state,
+            });
+
+            if (transition === 'create' || transition === 'reopen') {
+              const body = [
+                'The external production probe failed.',
+                '',
+                `Detected at: ${checkedAt}`,
+                `Workflow run: ${runUrl}`,
+                '',
+                'Check the public web endpoint, API health, TLS, VM, and recent deployment logs.',
+                'No response body, credential, or user data is copied into this issue.',
+              ].join('\n');
+
+              if (transition === 'create') {
+                await github.rest.issues.create({ owner, repo, title, body });
+              } else {
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: incident.number,
+                  state: 'open',
+                });
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: incident.number,
+                  body: `The production probe failed again at ${checkedAt}. Run: ${runUrl}`,
+                });
+              }
+              return;
+            }
+
+            if (transition === 'close') {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: incident.number,
+                body: `The production probe recovered at ${checkedAt}. Run: ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: incident.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
+
+      - name: Mark failed probe
+        if: steps.probe.outcome != 'success'
+        run: exit 1
