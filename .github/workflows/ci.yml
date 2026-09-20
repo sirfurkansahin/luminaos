@@ -370,7 +370,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Warn on large diffs
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
         with:
           script: |
             const MAX_LINES = 800; // bkz. CLAUDE.md "PR Boyutu": mimari-kritik 400, mekanik/tekrarlı 600-800
