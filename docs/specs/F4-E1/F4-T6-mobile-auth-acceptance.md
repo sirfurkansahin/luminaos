@@ -1,8 +1,9 @@
 # F4-T6 — Mobil oturum ve çalışma alanı kabul testi
 
-**Durum:** In Progress  
+**Durum:** Implemented — physical device acceptance pending  
 **Öncelik:** P0 — kapalı beta davetinden önce  
 **Bağımlılıklar:** F4-T3, F4-T4, F4-T5
+**Pull request:** [#279](https://github.com/sirfurkansahin/luminaos/pull/279)
 
 ## Amaç
 
@@ -27,12 +28,14 @@ yerel uygulama mağazası bağımlılığı eklemeden her CI çalışmasında do
 - [x] Görünüm sekmeleri ve çıkış düğmesi en az 44 piksel yüksekliktedir.
 - [x] Gelişmiş araçlar varsayılan kapalıdır.
 - [x] Çıkış kullanıcıyı tekrar giriş ekranına döndürür.
-- [ ] E2E typecheck, lint ve Playwright paketi CI'da geçer.
+- [x] E2E typecheck, lint ve Playwright paketi CI'da geçer.
 
 ## Yerel doğrulama
 
 - E2E typecheck ve lint geçti.
 - Pixel 5 profilli Chromium testi 3,6 saniyede geçti.
+- PR kontrollerinin tamamı geçti: E2E, kalite, entegrasyon, güvenlik,
+  masaüstü derlemesi, AI değerlendirmesi ve boyut koruması.
 
 ## Fiziksel cihaz kontrolü
 
