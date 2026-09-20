@@ -7,9 +7,11 @@ export default defineConfig({
     // `apiClient.ts`'in TÜM istekleri göreli URL'lerdir (`/workspaces/...`) --
     // proxy olmadan bunlar tarayıcıda bu dev sunucusunun kendisine
     // (localhost:5173) gider, apps/server'a (3000) hiç ulaşmaz. `apiClient.ts`
-    // yalnızca `/workspaces/...` çağırıyor (login/register UI henüz yok), bu
-    // yüzden yalnızca bu önek proxy'leniyor.
+    // Kimlik doğrulama ve oturum uçları da aynı-origin geliştirme akışında
+    // sunucuya yönlendirilir.
     proxy: {
+      '/auth': 'http://localhost:3000',
+      '/me': 'http://localhost:3000',
       '/workspaces': 'http://localhost:3000',
     },
   },
