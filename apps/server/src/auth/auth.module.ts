@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 
+import { AuthLoginRateLimitService } from './auth-login-rate-limit.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { MeController } from './me.controller.js';
 import { SessionAuthGuard } from './session-auth.guard.js';
 import { SessionService } from './session.service.js';
 import { DbModule } from '../db/db.module.js';
+import { RedisModule } from '../redis/redis.module.js';
 import { WorkspaceMembershipService } from '../workspaces/workspace-membership.service.js';
 
 // `WorkspaceMembershipService` is provided here directly (not via importing
@@ -16,9 +18,15 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
 // is stateless. See `me.controller.ts` (F2-T3b `GET /me` workspaces
 // expansion).
 @Module({
-  imports: [DbModule],
+  imports: [DbModule, RedisModule],
   controllers: [AuthController, MeController],
-  providers: [AuthService, SessionService, SessionAuthGuard, WorkspaceMembershipService],
+  providers: [
+    AuthService,
+    AuthLoginRateLimitService,
+    SessionService,
+    SessionAuthGuard,
+    WorkspaceMembershipService,
+  ],
   exports: [SessionAuthGuard, SessionService],
 })
 export class AuthModule {}

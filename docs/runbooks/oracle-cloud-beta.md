@@ -180,3 +180,25 @@ No paid AI key is forwarded by this Compose profile. Without a key, existing
 application code may return mock responses; do not advertise these as working
 AI. Free VM capacity, uptime and quotas are not guaranteed. No cloud resource
 has been provisioned by adding these files.
+
+## Provision an invite-only beta user
+
+Production rejects public `POST /auth/register` requests. Create each approved
+beta account from an SSH session on the VM, inside the already-running API
+container. The password is read silently and piped over standard input; it is
+never placed in shell history, the process argument list, application logs, or
+source control:
+
+```sh
+cd /opt/luminaos
+read -r -s -p 'Initial beta password: ' BETA_PASSWORD
+printf '\n'
+printf '%s' "$BETA_PASSWORD" | sudo docker compose --env-file .env.production -f docker-compose.production.yml exec -T api node dist/auth/provision-beta-user.js --email 'approved-user@example.com'
+unset BETA_PASSWORD
+```
+
+The command normalizes the email, enforces the same 8–200 character password
+contract as registration, hashes with Argon2id, and fails if the account
+already exists. Send the initial password to the invited user through a
+separate private channel. Do not paste it into tickets, chat logs, or this
+runbook. Workspace creation happens in the web UI after the user's first login.

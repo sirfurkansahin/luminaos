@@ -1,7 +1,8 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UsePipes } from '@nestjs/common';
 
-import { UnauthorizedError } from '@luminaos/shared';
+import { ForbiddenError, UnauthorizedError } from '@luminaos/shared';
 
+import { AuthLoginRateLimitService } from './auth-login-rate-limit.service.js';
 import { AuthService } from './auth.service.js';
 import { loginSchema } from './dto/login.schema.js';
 import { registerSchema } from './dto/register.schema.js';
@@ -27,7 +28,10 @@ function setSessionCookie(res: Response, sessionId: string): void {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authLoginRateLimitService: AuthLoginRateLimitService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -36,6 +40,10 @@ export class AuthController {
     @Body() body: RegisterInput,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthResultUser }> {
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new ForbiddenError('Registration is closed.');
+    }
+
     const { user, sessionId } = await this.authService.register(body.email, body.password);
     setSessionCookie(res, sessionId);
     return { user };
@@ -46,9 +54,13 @@ export class AuthController {
   @UsePipes(new ZodValidationPipe(loginSchema))
   async login(
     @Body() body: LoginInput,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthResultUser }> {
+    const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    await this.authLoginRateLimitService.assertLoginAllowed(clientIp, body.email);
     const { user, sessionId } = await this.authService.login(body.email, body.password);
+    await this.authLoginRateLimitService.clearSuccessfulEmail(body.email);
     setSessionCookie(res, sessionId);
     return { user };
   }
