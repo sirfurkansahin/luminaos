@@ -86,6 +86,11 @@ Production backup objects use a 30-day deletion lifecycle. This limit must be
 configured and verified on the exact OCI bucket before user invitations; local
 temporary dump files are removed by the backup script after upload.
 
+Verified 21 September 2026: `luminaos-beta-backups` in `eu-frankfurt-1` has an
+enabled `DELETE` rule after 30 days scoped to the `daily/` prefix. The root IAM
+policy grants the regional Object Storage service only the inspect/delete
+permissions needed to execute this lifecycle rule in `luminaos-beta`.
+
 Create a daily encrypted `pg_dump` outside the repository and copy it to a
 separate storage account before inviting users. Test restore in a separate VM.
 

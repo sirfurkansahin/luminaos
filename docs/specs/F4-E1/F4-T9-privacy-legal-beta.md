@@ -65,5 +65,5 @@ metinleri ile oturum içinde veri dışa aktarma ve silme talebi akışları sun
 - [ ] OCI hesap sözleşmesi ve seçilen bölge için KVKK m.9 aktarım mekanizması
       hukuk uzmanıyla doğrulandı; gerekiyorsa standart sözleşme imzalandı ve
       beş iş günü bildirim süreci işletildi.
-- [ ] Üretim yedek kovasında `daily/` nesneleri için 30 günlük silme yaşam
-      döngüsü canlı ortamda doğrulandı.
+- [x] Üretim yedek kovasında `daily/` nesneleri için 30 günlük silme yaşam
+      döngüsü 21 Eylül 2026'da canlı ortamda doğrulandı.
