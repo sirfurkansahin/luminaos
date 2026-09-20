@@ -1,5 +1,6 @@
 import '@blocknote/mantine/style.css';
 import '@luminaos/ui/tokens.css';
+import './app.css';
 
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
@@ -10,6 +11,7 @@ import { ThemeProvider, ToastProvider, TooltipProvider } from '@luminaos/ui';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { queryClient } from './lib/queryClient';
+import { registerServiceWorker } from './lib/register-service-worker';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -38,3 +40,10 @@ createRoot(container).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+const serviceWorkerRegistrar =
+  typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+    ? navigator.serviceWorker
+    : undefined;
+
+void registerServiceWorker(serviceWorkerRegistrar, import.meta.env.PROD);

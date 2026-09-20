@@ -140,47 +140,58 @@ export function App() {
   const [federationAuditLinkId, setFederationAuditLinkId] = useState('');
 
   return (
-    <main>
-      <h1>LuminaOS</h1>
+    <main className="app-shell">
+      <header className="app-header">
+        <h1>LuminaOS</h1>
+        <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
+          Tema: {theme === 'light' ? 'Açık' : 'Koyu'}
+        </Button>
+      </header>
       <CommandPalette workspaceId={DEV_WORKSPACE_ID} />
-      <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
-      <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
-      <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
-      <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
-      <AmbientProposalsBadge workspaceId={DEV_WORKSPACE_ID} />
-      <div id="automation-history-panel">
-        <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
-      </div>
-      <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
-      <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
-      <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
-      <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
-      <FederationLinksPanel workspaceId={DEV_WORKSPACE_ID} isAdmin={DEV_IS_ADMIN} />
-      <input
-        data-testid="federation-audit-log-link-id-input"
-        value={federationAuditLinkId}
-        onChange={(event) => {
-          setFederationAuditLinkId(event.target.value);
-        }}
-        placeholder="Denetim günlüğü için FederationLink id'si"
-      />
-      {federationAuditLinkId.trim().length > 0 && (
-        <FederationAuditLogPanel
-          workspaceId={DEV_WORKSPACE_ID}
-          linkId={federationAuditLinkId.trim()}
-        />
-      )}
-      <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
-      <NotificationPreferencesPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
+      <details className="advanced-tools">
+        <summary>Gelişmiş araçlar ve ayarlar</summary>
+        <div className="advanced-tools__content">
+          <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
+          <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
+          <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
+          <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
+          <AmbientProposalsBadge workspaceId={DEV_WORKSPACE_ID} />
+          <div id="automation-history-panel">
+            <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
+          </div>
+          <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
+          <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
+          <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
+          <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
+          <FederationLinksPanel workspaceId={DEV_WORKSPACE_ID} isAdmin={DEV_IS_ADMIN} />
+          <input
+            data-testid="federation-audit-log-link-id-input"
+            value={federationAuditLinkId}
+            onChange={(event) => {
+              setFederationAuditLinkId(event.target.value);
+            }}
+            placeholder="Denetim günlüğü için FederationLink id'si"
+          />
+          {federationAuditLinkId.trim().length > 0 && (
+            <FederationAuditLogPanel
+              workspaceId={DEV_WORKSPACE_ID}
+              linkId={federationAuditLinkId.trim()}
+            />
+          )}
+          <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
+          <NotificationPreferencesPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
+        </div>
+      </details>
 
-      <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
-        Toggle theme ({theme})
-      </Button>
       <AvailabilitySelector workspaceId={DEV_WORKSPACE_ID} />
 
-      <ViewSwitcher />
+      <div className="view-switcher-scroller">
+        <ViewSwitcher />
+      </div>
       <ObjectDetailHost workspaceId={DEV_WORKSPACE_ID} />
-      <CreateObjectButton workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
+      <div className="primary-actions">
+        <CreateObjectButton workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
+      </div>
       <SavedViewsList
         workspaceId={DEV_WORKSPACE_ID}
         objectType={OBJECT_TYPE}
