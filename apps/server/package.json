@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:migrate:down": "tsx src/db/migrate-down.ts"
+    "db:migrate:down": "tsx src/db/migrate-down.ts",
+    "provision:beta-user": "node dist/auth/provision-beta-user.js"
   },
   "dependencies": {
     "@luminaos/agent-runtime": "workspace:*",
