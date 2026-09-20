@@ -1,0 +1,12 @@
+[Unit]
+Description=LuminaOS encrypted PostgreSQL backup
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/luminaos-backup
+
+[Install]
+WantedBy=multi-user.target

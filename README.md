@@ -1,5 +1,13 @@
 # LuminaOS
 
+## Beta release
+
+The invite-only web beta scope and operational release gates are documented in
+[`docs/specs/F4-E1/F4-T1-public-beta-foundation.md`](docs/specs/F4-E1/F4-T1-public-beta-foundation.md)
+and [`docs/runbooks/release-readiness.md`](docs/runbooks/release-readiness.md).
+The portable Oracle/Cloudflare deployment procedure is in
+[`docs/runbooks/oracle-cloud-beta.md`](docs/runbooks/oracle-cloud-beta.md).
+
 Bağlam-öncelikli, ajan-destekli Work OS. Monorepo: pnpm workspaces + Turborepo.
 
 ## Gereksinimler

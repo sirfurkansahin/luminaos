@@ -1,0 +1,29 @@
+# Zero-cost fallback for networks where pages.dev is unavailable. The static
+# web build and the API share one HTTPS origin; /api is stripped before the
+# request reaches NestJS.
+{$WEB_HOST:lumina.example.com} {
+	encode zstd gzip
+
+	@apiRoot path /api
+	handle @apiRoot {
+		rewrite * /
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:3000}
+	}
+
+	handle_path /api/* {
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:3000}
+	}
+
+	handle {
+		root * {$WEB_ROOT:/var/www/luminaos}
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+}

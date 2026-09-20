@@ -1,0 +1,35 @@
+[
+  {
+    "direction": "INGRESS",
+    "protocol": "6",
+    "source": "0.0.0.0/0",
+    "sourceType": "CIDR_BLOCK",
+    "isStateless": false,
+    "tcpOptions": {
+      "destinationPortRange": {
+        "min": 80,
+        "max": 80
+      }
+    }
+  },
+  {
+    "direction": "INGRESS",
+    "protocol": "6",
+    "source": "0.0.0.0/0",
+    "sourceType": "CIDR_BLOCK",
+    "isStateless": false,
+    "tcpOptions": {
+      "destinationPortRange": {
+        "min": 443,
+        "max": 443
+      }
+    }
+  },
+  {
+    "direction": "EGRESS",
+    "protocol": "all",
+    "destination": "0.0.0.0/0",
+    "destinationType": "CIDR_BLOCK",
+    "isStateless": false
+  }
+]

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run LuminaOS encrypted PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=luminaos-backup.service
+
+[Install]
+WantedBy=timers.target

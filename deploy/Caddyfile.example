@@ -1,0 +1,8 @@
+# Host-installed Caddy. Replace this hostname before use. The Caddy service
+# must load API_PROXY_SECRET from a root-readable EnvironmentFile.
+{$API_HOST:api.example.com} {
+	@untrusted not header X-Lumina-Proxy-Secret {$API_PROXY_SECRET}
+	respond @untrusted 403
+
+	reverse_proxy {$API_UPSTREAM:127.0.0.1:3000}
+}

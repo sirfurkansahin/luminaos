@@ -9,6 +9,8 @@ import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import { AppError } from '@luminaos/shared';
 import type { QuerySpec } from '@luminaos/shared';
 
+import { resolveApiUrl } from './api-url.js';
+
 export class ApiError extends AppError {}
 
 /**
@@ -80,7 +82,7 @@ function isServerErrorBody(value: unknown): value is ServerErrorBody {
 }
 
 async function request<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiUrl(url, import.meta.env['VITE_API_BASE_URL']), {
     ...init,
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

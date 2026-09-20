@@ -10,10 +10,12 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:pages-proxy": "node --test functions/api/proxy.test.mjs",
     "test:changed": "turbo run test --filter=...[HEAD]",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "dev": "turbo run dev",
+    "dev:desktop": "pnpm --filter @luminaos/desktop exec tauri dev",
     "db:generate": "turbo run db:generate --filter=@luminaos/server",
     "db:migrate": "turbo run db:migrate --filter=@luminaos/server",
     "db:migrate:down": "turbo run db:migrate:down --filter=@luminaos/server",

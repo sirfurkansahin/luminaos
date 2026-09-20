@@ -3,6 +3,8 @@ import * as encoding from 'lib0/encoding';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
 
+import { resolveApiUrl } from './api-url.js';
+
 import type * as Y from 'yjs';
 
 /**
@@ -26,7 +28,15 @@ const RECONNECT_DELAY_MS = 1500;
  * route (pinned by the PR4a gateway integration test).
  */
 export function buildDocWsUrl(docId: string): string {
-  return `${location.origin.replace(/^http/, 'ws')}/ws/docs?docId=${encodeURIComponent(docId)}`;
+  const url = new URL(
+    resolveApiUrl(
+      `/ws/docs?docId=${encodeURIComponent(docId)}`,
+      import.meta.env['VITE_API_BASE_URL'],
+    ),
+    location.origin,
+  );
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
 }
 
 /** Normalizes a WebSocket 'message' event payload to a `Uint8Array`. */

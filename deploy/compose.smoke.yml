@@ -1,0 +1,35 @@
+# Merge with docker-compose.production.yml. No host ports or existing data.
+services:
+  api:
+    image: ${SMOKE_IMAGE:?Set SMOKE_IMAGE}
+    ports: !reset []
+    # Cross-architecture emulation on developer machines can make the first
+    # Node.js startup much slower than it will be on a native ARM host.
+    healthcheck:
+      interval: 15s
+      timeout: 30s
+      retries: 6
+      start_period: 180s
+
+  postgres:
+    volumes:
+      - backup-data:/backup
+
+  restore-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - restore-postgres-data:/var/lib/postgresql/data
+      - backup-data:/backup
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  backup-data:
+  restore-postgres-data:
