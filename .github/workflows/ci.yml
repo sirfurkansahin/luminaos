@@ -52,6 +52,9 @@ jobs:
       - name: Test (with coverage)
         run: pnpm test
 
+      - name: Pages proxy security tests
+        run: pnpm test:pages-proxy
+
       - name: Build
         run: pnpm build
 

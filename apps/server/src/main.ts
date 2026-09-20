@@ -3,8 +3,10 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module.js';
+import { resolveListenPort } from './config/listen-port.js';
 
 async function bootstrap(): Promise<void> {
+  const port = resolveListenPort(process.env['PORT']);
   // `bufferLogs: true` holds Nest's own bootstrap-time log lines until
   // `app.useLogger()` is called below, so they go through the real
   // structured/redacted pino pipeline too instead of Nest's default console
@@ -16,7 +18,7 @@ async function bootstrap(): Promise<void> {
   // gateway can flush/close cleanly (PR4b adds the synchronous snapshot flush).
   app.enableShutdownHooks();
 
-  await app.listen(3000);
+  await app.listen(port, '0.0.0.0');
 }
 
 void bootstrap();

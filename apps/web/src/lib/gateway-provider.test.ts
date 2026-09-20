@@ -136,11 +136,23 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('buildDocWsUrl', () => {
+  it('uses the configured production API for document collaboration', () => {
+    vi.stubGlobal('location', { origin: 'https://web.example.test' });
+    vi.stubEnv('VITE_API_BASE_URL', 'https://api.example.test/');
+    expect(buildDocWsUrl('a b')).toBe('wss://api.example.test/ws/docs?docId=a%20b');
+  });
+
+  it('uses the same-origin proxy prefix for production document collaboration', () => {
+    vi.stubGlobal('location', { origin: 'https://lumina.pages.dev' });
+    vi.stubEnv('VITE_API_BASE_URL', '/api');
+    expect(buildDocWsUrl('a b')).toBe('wss://lumina.pages.dev/api/ws/docs?docId=a%20b');
+  });
   it('turns an http origin into a ws:// /ws/docs url carrying the docId', () => {
     vi.stubGlobal('location', { origin: HTTP_ORIGIN });
 
