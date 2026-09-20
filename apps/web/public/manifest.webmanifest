@@ -1,0 +1,19 @@
+{
+  "name": "LuminaOS",
+  "short_name": "LuminaOS",
+  "description": "Görevleri, belgeleri ve çalışma alanınızı tek yerde yönetin.",
+  "lang": "tr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/lumina-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

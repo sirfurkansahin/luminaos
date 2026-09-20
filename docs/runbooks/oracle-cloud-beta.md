@@ -156,7 +156,11 @@ same zero-cost Oracle VM and serve the built web assets and API from one HTTPS
 hostname using `deploy/Caddyfile.standalone.example`:
 
 1. Build the web client with `VITE_API_BASE_URL=/api` and copy `apps/web/dist`
-   to `/var/www/luminaos` on the VM.
+   to a new directory on the VM, atomically swap it into `/var/www/luminaos`,
+   then set directories to mode `755` and files to `644`. This last step is
+   required when copying from Windows because transferred asset directories
+   can otherwise be owner-only and Caddy will return the SPA fallback for CSS
+   and JavaScript paths.
 2. Set `WEB_HOST` to the public hostname, `WEB_ROOT=/var/www/luminaos`, and
    `API_UPSTREAM=127.0.0.1:3000` in the root-readable Caddy environment file.
 3. Set `SERVER_PUBLIC_URL=https://<hostname>/api` and
