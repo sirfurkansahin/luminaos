@@ -1,8 +1,9 @@
 # F4-T7 — Uygulama içinden parola değiştirme
 
-**Durum:** In Progress  
+**Durum:** Done  
 **Öncelik:** P0 — kapalı beta hesabı tesliminden hemen sonra  
-**Bağımlılıklar:** F4-T4, F4-T5
+**Bağımlılıklar:** F4-T4, F4-T5  
+**Pull request:** [#280](https://github.com/sirfurkansahin/luminaos/pull/280)
 
 ## Amaç
 
@@ -29,7 +30,7 @@ bağımlı olmadan başlangıç parolasını güvenli biçimde değiştirebilmes
 - [x] Kullanıcının bütün eski oturumları iptal edilir; yeni oturum çalışır.
 - [x] Mobil uyumlu form mevcut, yeni ve tekrar parola alanlarını içerir.
 - [x] İstemci eşleşmeyen yeni parolaları sunucuya göndermez.
-- [ ] Birim, entegrasyon, web, typecheck, lint, build ve güvenlik kontrolleri geçer.
+- [x] Birim, entegrasyon, web, typecheck, lint, build ve güvenlik kontrolleri geçer.
 
 ## Yerel doğrulama
 
@@ -38,3 +39,12 @@ bağımlı olmadan başlangıç parolasını güvenli biçimde değiştirebilmes
 - Gerçek PostgreSQL ve Redis ile parola değiştirme entegrasyonu: 2/2 geçti.
 - Pixel 5 Chromium akışı: parola değiştir, çıkış yap, yeni parola ile giriş yap geçti.
 - Sunucu, web ve E2E typecheck/lint; sunucu ve web üretim derlemeleri geçti.
+
+## Canlı doğrulama
+
+- API sağlık kontrolü HTTP 200 döndürdü.
+- Web uygulaması HTTP 200 döndürdü ve yeni parola güvenliği arayüzü canlı
+  JavaScript paketinde doğrulandı.
+- Oturumsuz `POST /api/auth/change-password` isteği HTTP 401 döndürdü.
+- Kullanıcının gerçek parolası yayın doğrulaması sırasında değiştirilmedi.
+- PR #280 üzerindeki yedi zorunlu CI kontrolünün tamamı geçti.
