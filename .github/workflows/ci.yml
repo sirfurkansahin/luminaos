@@ -55,6 +55,9 @@ jobs:
       - name: Pages proxy security tests
         run: pnpm test:pages-proxy
 
+      - name: Production monitor tests
+        run: pnpm test:production-monitor
+
       - name: Build
         run: pnpm build
 
