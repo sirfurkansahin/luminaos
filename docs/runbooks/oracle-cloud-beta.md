@@ -82,6 +82,10 @@ evidence but does not replace a native smoke test on the selected Oracle VM.
 
 ## Backup and restore
 
+Production backup objects use a 30-day deletion lifecycle. This limit must be
+configured and verified on the exact OCI bucket before user invitations; local
+temporary dump files are removed by the backup script after upload.
+
 Create a daily encrypted `pg_dump` outside the repository and copy it to a
 separate storage account before inviting users. Test restore in a separate VM.
 

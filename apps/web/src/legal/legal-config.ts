@@ -6,11 +6,11 @@ function configuredValue(value: string | undefined, fallback: string): string {
 export const legalConfig = {
   controllerName: configuredValue(
     import.meta.env['VITE_LEGAL_CONTROLLER_NAME'],
-    'LuminaOS kapalı beta işletmecisi',
+    'Muhammed Furkan ŞAHİN',
   ),
   contactEmail: configuredValue(
     import.meta.env['VITE_LEGAL_CONTACT_EMAIL'],
-    'Yayın öncesi yapılandırılacaktır',
+    'sir.furkansahin@gmail.com',
   ),
   effectiveDate: '21 Eylül 2026',
 } as const;

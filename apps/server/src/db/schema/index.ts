@@ -46,3 +46,4 @@ export * from './federation-links.js';
 export * from './federation-link-credentials.js';
 export * from './federation-scope-objects.js';
 export * from './federation-rate-limit-buckets.js';
+export * from './data-rights-requests.js';

@@ -32,6 +32,33 @@ html {
   margin-top: 1.25rem;
 }
 
+.data-rights-form,
+.data-rights-request {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 40rem;
+  margin-block: var(--space-4);
+}
+
+.data-rights-request {
+  border-inline-start: 4px solid var(--color-primary);
+  padding: var(--space-3);
+  background: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.confirmation-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.confirmation-row input {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;

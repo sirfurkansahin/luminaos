@@ -41,14 +41,16 @@ function PrivacyNotice() {
       <h2>Toplama yöntemi ve aktarım</h2>
       <p>
         Veriler web işlemleri ve güvenlik günlükleri yoluyla elektronik olarak toplanır. Altyapı
-        Oracle Cloud üzerinde çalışır ve şifreli yedek kullanır. Harici AI veya bağlantı
-        sağlayıcısına veri gönderen bir özellikte kapsam ve alıcı işlemden önce ayrıca açıklanır.
+        Oracle Cloud üzerinde çalışır; veriler barındırma, güvenlik ve şifreli yedekleme amacıyla
+        altyapı veri işleyicisi Oracle Cloud Infrastructure&apos;a aktarılır. Harici AI veya
+        bağlantı sağlayıcısına veri gönderen bir özellikte kapsam, amaç ve alıcı işlemden önce
+        ayrıca açıklanır.
       </p>
       <h2>Saklama</h2>
       <p>
         Aktif hesap verileri hizmet sürdüğü müddetçe tutulur. Kabul edilen silme talebinde uygun
-        veriler silinir veya anonimleştirilir. Şifreli yedek kopyalar erişimi kısıtlı tutulur ve
-        yayımlanan yedek saklama takvimi sonunda silinir.
+        veriler silinir veya anonimleştirilir. Şifreli yedek kopyalar erişimi kısıtlı tutulur ve 30
+        günlük yedek saklama takvimi sonunda silinir.
       </p>
       <h2>Haklarınız</h2>
       <p>

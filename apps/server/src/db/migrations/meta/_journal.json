@@ -337,6 +337,13 @@
       "when": 1789672027845,
       "tag": "0048_federation_rate_limit_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790006400000,
+      "tag": "0049_data_rights_requests",
+      "breakpoints": true
     }
   ]
 }

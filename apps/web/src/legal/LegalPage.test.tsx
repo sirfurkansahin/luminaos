@@ -9,6 +9,8 @@ describe('LegalPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Kişisel Veriler Aydınlatma Metni' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Veri sorumlusu' })).toBeVisible();
+    expect(screen.getByText('Muhammed Furkan ŞAHİN')).toBeVisible();
+    expect(screen.getByText(/sir\.furkansahin@gmail\.com/)).toBeVisible();
     expect(
       screen.getByRole('heading', { name: 'İşleme amaçları ve hukuki sebepler' }),
     ).toBeVisible();

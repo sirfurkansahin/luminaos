@@ -152,6 +152,24 @@ export function getWorkspaceExportUrl(workspaceId: string): string {
   );
 }
 
+export type DataRightsRequestStatus = 'pending' | 'completed' | 'rejected';
+
+export interface DataRightsRequest {
+  id: string;
+  type: 'deletion';
+  status: DataRightsRequestStatus;
+  requestedAt: string;
+  resolvedAt: string | null;
+}
+
+export function getLatestDataRightsRequest(): Promise<{ request: DataRightsRequest | null }> {
+  return request('/me/data-rights-requests', { method: 'GET' });
+}
+
+export function createDeletionRequest(): Promise<{ request: DataRightsRequest }> {
+  return request('/me/data-rights-requests/deletion', { method: 'POST' });
+}
+
 export function createWorkspace(name: string): Promise<{ workspace: WorkspaceSummary }> {
   return request('/workspaces', {
     method: 'POST',

@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { AuthLoginRateLimitService } from './auth-login-rate-limit.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { DataRightsRequestsController } from './data-rights-requests.controller.js';
+import { DataRightsRequestsService } from './data-rights-requests.service.js';
 import { MeController } from './me.controller.js';
 import { SessionAuthGuard } from './session-auth.guard.js';
 import { SessionService } from './session.service.js';
@@ -19,10 +21,11 @@ import { WorkspaceMembershipService } from '../workspaces/workspace-membership.s
 // expansion).
 @Module({
   imports: [DbModule, RedisModule],
-  controllers: [AuthController, MeController],
+  controllers: [AuthController, MeController, DataRightsRequestsController],
   providers: [
     AuthService,
     AuthLoginRateLimitService,
+    DataRightsRequestsService,
     SessionService,
     SessionAuthGuard,
     WorkspaceMembershipService,
