@@ -5,6 +5,7 @@ import type { MemoryRecord, MemoryRecordJsonLd } from '@luminaos/memory';
 import type { QuerySpec } from '@luminaos/shared';
 
 import {
+  createWorkspace,
   createMemoryRecord,
   createObject,
   createSavedView,
@@ -13,7 +14,11 @@ import {
   getMemoryRecords,
   getMemoryRecordsJsonLdExport,
   getSavedViews,
+  getCurrentSession,
+  getWorkspace,
   listDmMessages,
+  login,
+  logout,
   patchFieldValues,
   postObjectsQuery,
   sendDmMessage,
@@ -152,6 +157,63 @@ function getFetchMock(): ReturnType<typeof vi.fn> {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe('beta session and workspace client', () => {
+  it('loads the current user and memberships with the session cookie', async () => {
+    mockFetchOnce(200, { user: { id: 'user-1', email: 'beta@example.com' }, workspaces: [] });
+
+    await getCurrentSession();
+
+    expect(getFetchMock()).toHaveBeenCalledWith(
+      '/me',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    );
+  });
+
+  it('logs in without putting credentials in the URL', async () => {
+    mockFetchOnce(200, { user: { id: 'user-1', email: 'beta@example.com' } });
+
+    await login('beta@example.com', 'secret-password');
+
+    const [url, init] = getFetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/auth/login');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      email: 'beta@example.com',
+      password: 'secret-password',
+    });
+    expect(init.credentials).toBe('include');
+  });
+
+  it('logs out using the server-side session endpoint', async () => {
+    mockFetchOnce(204, undefined);
+
+    await logout();
+
+    expect(getFetchMock()).toHaveBeenCalledWith(
+      '/auth/logout',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+  });
+
+  it('creates a first workspace and loads its server-derived role', async () => {
+    mockFetchOnce(201, { workspace: { id: 'workspace-1', name: 'Beta' } });
+    await createWorkspace('Beta');
+
+    expect(getFetchMock()).toHaveBeenLastCalledWith(
+      '/workspaces',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'Beta' }) }),
+    );
+
+    mockFetchOnce(200, { workspace: { id: 'workspace-1', name: 'Beta' }, role: 'owner' });
+    await getWorkspace('workspace-1');
+
+    expect(getFetchMock()).toHaveBeenLastCalledWith(
+      '/workspaces/workspace-1',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    );
+  });
 });
 
 describe('postObjectsQuery', () => {

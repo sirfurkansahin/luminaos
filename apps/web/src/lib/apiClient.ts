@@ -107,6 +107,51 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export interface SessionUser {
+  id: string;
+  email: string;
+  createdAt?: string;
+}
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+}
+
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'guest';
+
+export function getCurrentSession(): Promise<{
+  user: SessionUser;
+  workspaces: WorkspaceSummary[];
+}> {
+  return request('/me', { method: 'GET' });
+}
+
+export function login(email: string, password: string): Promise<{ user: SessionUser }> {
+  return request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request('/auth/logout', { method: 'POST' });
+}
+
+export function createWorkspace(name: string): Promise<{ workspace: WorkspaceSummary }> {
+  return request('/workspaces', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function getWorkspace(workspaceId: string): Promise<{
+  workspace: WorkspaceSummary;
+  role: WorkspaceRole;
+}> {
+  return request(`/workspaces/${encodeURIComponent(workspaceId)}`, { method: 'GET' });
+}
+
 export function postObjectsQuery(workspaceId: string, querySpec: QuerySpec): Promise<QueryResult> {
   return request<QueryResult>(`/workspaces/${encodeURIComponent(workspaceId)}/objects/query`, {
     method: 'POST',

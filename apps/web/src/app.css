@@ -40,6 +40,101 @@ textarea {
   font-size: clamp(1.5rem, 6vw, 2.25rem);
 }
 
+.workspace-context,
+.session-email {
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-sm);
+}
+
+.session-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.workspace-picker {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted-foreground);
+  font-size: var(--font-size-sm);
+}
+
+.workspace-picker select,
+.auth-form input {
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.auth-shell,
+.status-screen {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: max(var(--space-5), env(safe-area-inset-top))
+    max(var(--space-4), env(safe-area-inset-right)) max(var(--space-5), env(safe-area-inset-bottom))
+    max(var(--space-4), env(safe-area-inset-left));
+}
+
+.auth-card {
+  box-sizing: border-box;
+  width: min(100%, 28rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: clamp(var(--space-5), 6vw, var(--space-8));
+  background: var(--color-background);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-card h1 {
+  margin-block: var(--space-2);
+  font-size: clamp(1.5rem, 7vw, 2rem);
+}
+
+.auth-eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.auth-description {
+  color: var(--color-muted-foreground);
+}
+
+.auth-form {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.primary-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.primary-button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
 .advanced-tools {
   margin-block: var(--space-4);
   border: 1px solid var(--color-border);
@@ -82,7 +177,18 @@ textarea {
   }
 
   .app-header {
+    flex-direction: column;
     align-items: flex-start;
+  }
+
+  .session-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .workspace-picker,
+  .workspace-picker select {
+    width: 100%;
   }
 
   .app-shell button,

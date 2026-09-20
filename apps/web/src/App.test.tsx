@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ThemeProvider } from '@luminaos/ui';
 
-import { App } from './App';
+import { WorkspaceApp } from './App';
 
 /**
  * F3-T3 PR7a (ADR-0037 §b/§d) addendum — `AgentDirectoryPanel` must be
@@ -124,7 +124,17 @@ function renderApp() {
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <App />
+        <WorkspaceApp
+          workspaceId="dev-workspace"
+          userId="dev-user"
+          userEmail="beta@example.com"
+          workspaceName="Beta"
+          workspaces={[{ id: 'dev-workspace', name: 'Beta' }]}
+          isAdmin
+          onWorkspaceChange={vi.fn()}
+          onLogout={vi.fn()}
+          isLoggingOut={false}
+        />
       </ThemeProvider>
     </QueryClientProvider>,
   );

@@ -4,6 +4,7 @@ import type { SavedView } from '@luminaos/core-objects';
 import type { QuerySpec } from '@luminaos/shared';
 import { Button, useTheme } from '@luminaos/ui';
 
+import { SessionGate } from './auth/SessionGate';
 import { useViewParam } from './hooks/useViewParam';
 import { BoardView } from './views/BoardView';
 import { CalendarView } from './views/CalendarView';
@@ -32,46 +33,62 @@ import { TableView } from './views/TableView';
 import { TimelineView } from './views/TimelineView';
 import { ViewSwitcher } from './views/ViewSwitcher';
 
-// Auth/workspace-switcher (F0-T5 hazır ama apps/web tarafında henüz
-// tüketilmiyor) gelene kadar dev-only sabit bir workspace — F1-T7 PR1
-// planındaki karar. `objectType` da aynı şekilde v0 için sabit. `DEV_USER_ID`
-// aynı gerekçeyle (F3-T13 PR3, ADR-0047 Karar g) — kullanıcı oturumu henüz
-// apps/web tarafında tüketilmiyor, `NotificationPreferencesPanel`/
-// `AutonomyTierPanel`'in `userId`'ye ihtiyacı olan kişisel-bildirim
-// özellikleri için dev-only sabit bir kullanıcı kimliği.
-//
-// F0-T9: `?e2eWorkspaceId=<id>` query param'ı, Playwright E2E testlerinin
-// (apps/e2e) sunucu ZATEN ÇALIŞIRKEN API'ye istek atarak oluşturduğu taze bir
-// workspace'i runtime'da (her sayfa yüklemesinde) enjekte etmesini sağlar —
-// build-time bir Vite env değişkeni bunu yapamaz (Vite `import.meta.env`'i
-// dev sunucusu açılırken bir kez okur, ama E2E workspace'i o andan SONRA
-// oluşturuluyor). Param yoksa (normal geliştirme) `'dev-workspace'`'e düşer.
-const DEV_WORKSPACE_ID =
-  new URLSearchParams(window.location.search).get('e2eWorkspaceId') ?? 'dev-workspace';
-const DEV_USER_ID = 'dev-user';
 const OBJECT_TYPE = 'task';
-
-// F3-T14 PR3 (ADR-0048) -- same F0-T5-pending limitation as DEV_WORKSPACE_ID
-// above: real workspace-role RBAC isn't wired into apps/web yet, so
-// `FederationLinksPanel`'s `isAdmin` gate is a dev-only constant here. Real
-// enforcement is the server's 403 either way (ADR-0048 §c) -- this is a UI
-// nicety, not a security boundary.
-const DEV_IS_ADMIN = true;
 
 const flatQuerySpec: QuerySpec = { objectType: OBJECT_TYPE, filters: [] };
 const boardQuerySpec: QuerySpec = { objectType: OBJECT_TYPE, filters: [], group: 'status' };
 
-// F1-T9 PR2: real ownership/admin computation needs the signed-in user's id
-// and workspace role, neither of which is wired into apps/web yet (same
-// F0-T5-pending limitation as DEV_WORKSPACE_ID above). Until then this
-// conservatively hides every manage affordance — real enforcement is the
-// server's 403 either way (F1-T9 plan), so this is a UI nicety gap, not a
-// security one.
+// Personal-view ownership is not part of the list DTO yet. Keep management
+// hidden until that ownership signal is available; shared/admin enforcement
+// remains server-side.
 function canManageSavedView(): boolean {
   return false;
 }
 
+interface WorkspaceAppProps {
+  workspaceId: string;
+  userId: string;
+  userEmail: string;
+  workspaceName: string;
+  workspaces: { id: string; name: string }[];
+  isAdmin: boolean;
+  onWorkspaceChange: (workspaceId: string) => void;
+  onLogout: () => void;
+  isLoggingOut: boolean;
+}
+
 export function App() {
+  return (
+    <SessionGate>
+      {(session) => (
+        <WorkspaceApp
+          key={session.workspaceId}
+          workspaceId={session.workspaceId}
+          userId={session.user.id}
+          userEmail={session.user.email}
+          workspaceName={session.workspaceName}
+          workspaces={session.workspaces}
+          isAdmin={session.role === 'owner' || session.role === 'admin'}
+          onWorkspaceChange={session.onWorkspaceChange}
+          onLogout={session.onLogout}
+          isLoggingOut={session.isLoggingOut}
+        />
+      )}
+    </SessionGate>
+  );
+}
+
+export function WorkspaceApp({
+  workspaceId,
+  userId,
+  userEmail,
+  workspaceName,
+  workspaces,
+  isAdmin,
+  onWorkspaceChange,
+  onLogout,
+  isLoggingOut,
+}: WorkspaceAppProps) {
   const { theme, toggleTheme } = useTheme();
   const { view, setView } = useViewParam();
 
@@ -103,15 +120,14 @@ export function App() {
   // current `objectType`, AND the current `workspaceId` — otherwise
   // `undefined`, so every call site below can use a plain `??`/optional-chain
   // fallback instead of a non-null assertion. The `workspaceId` check is
-  // defense-in-depth: harmless today since `DEV_WORKSPACE_ID` is a single
-  // hardcoded constant, but it stops a stale cross-workspace `querySpec`/
-  // `dateField` from silently applying once F0-T5's workspace-switcher lands
-  // (security review finding, F1-T9 PR2).
+  // This stops a stale cross-workspace `querySpec`/
+  // `dateField` from silently applying after a workspace switch (security
+  // review finding, F1-T9 PR2).
   const matchingSavedView = (viewType: SavedView['viewType']): SavedView | undefined =>
     activeSavedView !== undefined &&
     activeSavedView.viewType === viewType &&
     activeSavedView.objectType === OBJECT_TYPE &&
-    activeSavedView.workspaceId === DEV_WORKSPACE_ID
+    activeSavedView.workspaceId === workspaceId
       ? activeSavedView
       : undefined;
 
@@ -142,28 +158,54 @@ export function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <h1>LuminaOS</h1>
-        <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
-          Tema: {theme === 'light' ? 'Açık' : 'Koyu'}
-        </Button>
+        <div>
+          <h1>LuminaOS</h1>
+          <span className="workspace-context">{workspaceName}</span>
+        </div>
+        <div className="session-controls">
+          {workspaces.length > 1 && (
+            <label className="workspace-picker">
+              <span>Çalışma alanı</span>
+              <select
+                value={workspaceId}
+                onChange={(event) => {
+                  onWorkspaceChange(event.target.value);
+                }}
+              >
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <span className="session-email">{userEmail}</span>
+          <Button data-testid="theme-toggle" variant="ghost" onClick={toggleTheme}>
+            Tema: {theme === 'light' ? 'Açık' : 'Koyu'}
+          </Button>
+          <Button variant="ghost" onClick={onLogout} disabled={isLoggingOut}>
+            {isLoggingOut ? 'Çıkılıyor…' : 'Çıkış yap'}
+          </Button>
+        </div>
       </header>
-      <CommandPalette workspaceId={DEV_WORKSPACE_ID} />
+      <CommandPalette workspaceId={workspaceId} />
       <details className="advanced-tools">
         <summary>Gelişmiş araçlar ve ayarlar</summary>
         <div className="advanced-tools__content">
-          <MemoryPassportPanel workspaceId={DEV_WORKSPACE_ID} />
-          <IntegrationsPanel workspaceId={DEV_WORKSPACE_ID} />
-          <McpAccessPanel workspaceId={DEV_WORKSPACE_ID} />
-          <WebhookSubscriptionsPanel workspaceId={DEV_WORKSPACE_ID} />
-          <AmbientProposalsBadge workspaceId={DEV_WORKSPACE_ID} />
+          <MemoryPassportPanel workspaceId={workspaceId} />
+          <IntegrationsPanel workspaceId={workspaceId} />
+          <McpAccessPanel workspaceId={workspaceId} />
+          <WebhookSubscriptionsPanel workspaceId={workspaceId} />
+          <AmbientProposalsBadge workspaceId={workspaceId} />
           <div id="automation-history-panel">
-            <AutomationHistoryPanel workspaceId={DEV_WORKSPACE_ID} />
+            <AutomationHistoryPanel workspaceId={workspaceId} />
           </div>
-          <TriggerSuggestionsPanel workspaceId={DEV_WORKSPACE_ID} />
-          <AgentDirectoryPanel workspaceId={DEV_WORKSPACE_ID} />
-          <DirectMessagePanel workspaceId={DEV_WORKSPACE_ID} />
-          <FlightRecorderPanel workspaceId={DEV_WORKSPACE_ID} />
-          <FederationLinksPanel workspaceId={DEV_WORKSPACE_ID} isAdmin={DEV_IS_ADMIN} />
+          <TriggerSuggestionsPanel workspaceId={workspaceId} />
+          <AgentDirectoryPanel workspaceId={workspaceId} />
+          <DirectMessagePanel workspaceId={workspaceId} />
+          <FlightRecorderPanel workspaceId={workspaceId} />
+          <FederationLinksPanel workspaceId={workspaceId} isAdmin={isAdmin} />
           <input
             data-testid="federation-audit-log-link-id-input"
             value={federationAuditLinkId}
@@ -174,33 +216,33 @@ export function App() {
           />
           {federationAuditLinkId.trim().length > 0 && (
             <FederationAuditLogPanel
-              workspaceId={DEV_WORKSPACE_ID}
+              workspaceId={workspaceId}
               linkId={federationAuditLinkId.trim()}
             />
           )}
-          <AutonomyTierPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
-          <NotificationPreferencesPanel workspaceId={DEV_WORKSPACE_ID} userId={DEV_USER_ID} />
+          <AutonomyTierPanel workspaceId={workspaceId} userId={userId} />
+          <NotificationPreferencesPanel workspaceId={workspaceId} userId={userId} />
         </div>
       </details>
 
-      <AvailabilitySelector workspaceId={DEV_WORKSPACE_ID} />
+      <AvailabilitySelector workspaceId={workspaceId} />
 
       <div className="view-switcher-scroller">
         <ViewSwitcher />
       </div>
-      <ObjectDetailHost workspaceId={DEV_WORKSPACE_ID} />
+      <ObjectDetailHost workspaceId={workspaceId} />
       <div className="primary-actions">
-        <CreateObjectButton workspaceId={DEV_WORKSPACE_ID} objectType={OBJECT_TYPE} />
+        <CreateObjectButton workspaceId={workspaceId} objectType={OBJECT_TYPE} />
       </div>
       <SavedViewsList
-        workspaceId={DEV_WORKSPACE_ID}
+        workspaceId={workspaceId}
         objectType={OBJECT_TYPE}
         onSelect={handleSelectSavedView}
         canManage={canManageSavedView}
       />
       {(view === 'list' || view === 'board' || view === 'table') && (
         <SaveViewButton
-          workspaceId={DEV_WORKSPACE_ID}
+          workspaceId={workspaceId}
           objectType={OBJECT_TYPE}
           viewType={view}
           querySpec={
@@ -214,7 +256,7 @@ export function App() {
       )}
       {view === 'calendar' && (
         <SaveViewButton
-          workspaceId={DEV_WORKSPACE_ID}
+          workspaceId={workspaceId}
           objectType={OBJECT_TYPE}
           viewType="calendar"
           {...(liveDateField !== undefined ? { dateField: liveDateField } : {})}
@@ -222,7 +264,7 @@ export function App() {
       )}
       {view === 'timeline' && (
         <SaveViewButton
-          workspaceId={DEV_WORKSPACE_ID}
+          workspaceId={workspaceId}
           objectType={OBJECT_TYPE}
           viewType="timeline"
           {...(liveStartField !== undefined ? { startField: liveStartField } : {})}
@@ -230,14 +272,12 @@ export function App() {
         />
       )}
 
-      {view === 'list' && <ListView workspaceId={DEV_WORKSPACE_ID} querySpec={listQuerySpec} />}
-      {view === 'table' && <TableView workspaceId={DEV_WORKSPACE_ID} querySpec={tableQuerySpec} />}
-      {view === 'board' && (
-        <BoardView workspaceId={DEV_WORKSPACE_ID} querySpec={activeBoardQuerySpec} />
-      )}
+      {view === 'list' && <ListView workspaceId={workspaceId} querySpec={listQuerySpec} />}
+      {view === 'table' && <TableView workspaceId={workspaceId} querySpec={tableQuerySpec} />}
+      {view === 'board' && <BoardView workspaceId={workspaceId} querySpec={activeBoardQuerySpec} />}
       {view === 'calendar' && (
         <CalendarView
-          workspaceId={DEV_WORKSPACE_ID}
+          workspaceId={workspaceId}
           objectType={OBJECT_TYPE}
           {...(initialDateField !== undefined ? { initialDateField } : {})}
           onDateFieldChange={setLiveDateField}
@@ -245,7 +285,7 @@ export function App() {
       )}
       {view === 'timeline' && (
         <TimelineView
-          workspaceId={DEV_WORKSPACE_ID}
+          workspaceId={workspaceId}
           objectType={OBJECT_TYPE}
           {...(initialStartField !== undefined ? { initialStartField } : {})}
           {...(initialEndField !== undefined ? { initialEndField } : {})}
