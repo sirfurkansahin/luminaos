@@ -1,6 +1,6 @@
 # F4-T4 — Web oturumu ve çalışma alanı seçimi
 
-**Durum:** In Progress  
+**Durum:** Done — [PR #277](https://github.com/sirfurkansahin/luminaos/pull/277)  
 **Öncelik:** P0 — kapalı beta ön koşulu  
 **Bağımlılıklar:** F0 kimlik doğrulama API'si, F4-T3 mobil/PWA kabuğu
 
@@ -43,18 +43,18 @@ seçimini ve çıkışı kullanıcı arayüzüne bağlamak.
 
 ## Kabul kriterleri
 
-- [ ] Oturumsuz ziyaretçi yalnızca erişilebilir giriş ekranını görür.
-- [ ] Geçerli girişten sonra kullanıcıya ait çalışma alanı yüklenir.
-- [ ] Geçersiz kimlik bilgisi anlaşılır ve hassas bilgi sızdırmayan hata verir.
-- [ ] Birden fazla üyelikte seçim yapılabilir ve yalnızca geçerli üyelik
+- [x] Oturumsuz ziyaretçi yalnızca erişilebilir giriş ekranını görür.
+- [x] Geçerli girişten sonra kullanıcıya ait çalışma alanı yüklenir.
+- [x] Geçersiz kimlik bilgisi anlaşılır ve hassas bilgi sızdırmayan hata verir.
+- [x] Birden fazla üyelikte seçim yapılabilir ve yalnızca geçerli üyelik
       yerel olarak hatırlanır.
-- [ ] Üyeliksiz kullanıcı ilk çalışma alanını oluşturup uygulamaya geçebilir.
-- [ ] Kullanıcı kimliği ve admin durumu sabit değerlerden değil oturum/API'den
+- [x] Üyeliksiz kullanıcı ilk çalışma alanını oluşturup uygulamaya geçebilir.
+- [x] Kullanıcı kimliği ve admin durumu sabit değerlerden değil oturum/API'den
       gelir.
-- [ ] Çıkış sunucu oturumunu sonlandırır ve uygulama verisini temizler.
-- [ ] 320 px genişlikte giriş ve çalışma alanı kontrolleri taşma yapmaz;
+- [x] Çıkış sunucu oturumunu sonlandırır ve uygulama verisini temizler.
+- [x] 320 px genişlikte giriş ve çalışma alanı kontrolleri taşma yapmaz;
       klavye etiketleri ve en az 44 px dokunma hedefleri bulunur.
-- [ ] Birim/entegrasyon testleri, typecheck, lint ve web build yeşildir.
+- [x] Birim/entegrasyon testleri, typecheck, lint ve web build yeşildir.
 
 ## Güvenlik kontrolleri
 
