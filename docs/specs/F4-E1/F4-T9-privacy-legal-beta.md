@@ -1,6 +1,6 @@
 # F4-T9 — Kapalı beta gizlilik ve veri hakları
 
-**Durum:** In Progress
+**Durum:** Implemented and deployed — legal release gate pending
 
 **Öncelik:** P0 — kullanıcı davetinden önce
 
@@ -50,6 +50,20 @@ metinleri ile oturum içinde veri dışa aktarma ve silme talebi akışları sun
 - [x] Silme talebi yalnızca oturum sahibince oluşturulur ve yinelenmez.
 - [x] Talep süreci 30 günlük cevap süresini ve yedek saklama sınırını açıklar.
 - [ ] Birim, entegrasyon, E2E, erişilebilirlik ve güvenlik kontrolleri geçer.
+
+## Canlı doğrulama
+
+- PR #283 zorunlu CI kontrolleri geçtikten sonra `main` dalına birleştirildi.
+- `9dc1b23` sürümü 21 Eylül 2026'da canlı ortama dağıtıldı.
+- Kamuya açık web kabuğu, hukuki içerik paketi, PWA manifesti ve service
+  worker HTTPS üzerinden `200` döndü.
+- Oturumsuz `GET /api/me/data-rights-requests` isteği beklenen `401` yanıtını
+  verdi ve canlı PostgreSQL'de `data_rights_requests` tablosu doğrulandı.
+- Dağıtım öncesi alınan şifreli yedek ayrı PostgreSQL hacmine başarıyla
+  geri yüklendi; 48 migrasyon kaydı doğrulandı.
+- Otomatik testler ve canlı duman testi geçti. Kabul kriterindeki işaretlenmemiş
+  madde, gerçek kullanıcıyla tarayıcı E2E/erişilebilirlik kabul turu tamamlanana
+  kadar açık tutulur.
 
 ## Öncelik değerlendirmesi
 

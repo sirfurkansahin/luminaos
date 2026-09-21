@@ -51,7 +51,7 @@ selected secret manager and grant each runtime only the secrets it needs.
 - [ ] Critical E2E flows pass: signup/invite, login, task lifecycle, document,
       search, calendar, export, and permission denial.
 - [ ] Mobile viewport and keyboard-only acceptance tests pass.
-- [ ] Backup and point-in-time recovery are tested against a non-production
+- [x] Backup and point-in-time recovery are tested against a non-production
       restore environment.
 - [ ] Error tracking, uptime alerts, and an incident owner are active.
 - [ ] Privacy, AI disclosure, retention, export, and deletion user flows are
@@ -66,6 +66,20 @@ selected secret manager and grant each runtime only the secrets it needs.
 - [ ] Rollback rehearsal is completed for application and database migration.
 - [ ] Support, status communication, and release notes are ready.
 - [ ] Product, platform, security, and support owners record go/no-go approval.
+
+## Latest production evidence
+
+- 21 September 2026: release `9dc1b23` deployed; public web and API health
+  passed after the final VM restart.
+- Encrypted object `daily/luminaos-20260921T143303Z.dump.gpg` restored into the
+  isolated `lumina-restore` project with 48 migration rows; cleanup left no
+  restore container or volume behind.
+- GitHub Actions production monitor run
+  [35614220977](https://github.com/sirfurkansahin/luminaos/actions/runs/35614220977)
+  passed after deployment.
+- The remaining external invitation blocker is the KVKK Article 9 transfer
+  mechanism and any required Authority notification; a privacy notice alone
+  does not close that gate.
 
 ## First 30 days
 
