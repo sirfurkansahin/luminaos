@@ -56,6 +56,8 @@ selected secret manager and grant each runtime only the secrets it needs.
 - [ ] Error tracking, uptime alerts, and an incident owner are active.
 - [ ] Privacy, AI disclosure, retention, export, and deletion user flows are
       published and tested.
+- [ ] If production data leaves Türkiye, the KVKK Article 9 transfer mechanism
+      and any required Authority notification are completed and recorded.
 
 ### Before public launch
 

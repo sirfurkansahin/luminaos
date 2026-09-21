@@ -7,6 +7,8 @@ import { Button, useTheme } from '@luminaos/ui';
 import { ChangePasswordPanel } from './auth/ChangePasswordPanel';
 import { SessionGate } from './auth/SessionGate';
 import { useViewParam } from './hooks/useViewParam';
+import { DataRightsPanel } from './legal/DataRightsPanel';
+import { LegalPage } from './legal/LegalPage';
 import { BoardView } from './views/BoardView';
 import { CalendarView } from './views/CalendarView';
 import { ObjectDetailHost } from './views/detail/ObjectDetailHost';
@@ -59,6 +61,11 @@ interface WorkspaceAppProps {
 }
 
 export function App() {
+  const legalDocument = new URLSearchParams(window.location.search).get('legal');
+  if (legalDocument === 'privacy' || legalDocument === 'terms') {
+    return <LegalPage document={legalDocument} />;
+  }
+
   return (
     <SessionGate>
       {(session) => (
@@ -195,6 +202,7 @@ export function WorkspaceApp({
         <summary>Gelişmiş araçlar ve ayarlar</summary>
         <div className="advanced-tools__content">
           <ChangePasswordPanel />
+          <DataRightsPanel workspaceId={workspaceId} />
           <MemoryPassportPanel workspaceId={workspaceId} />
           <IntegrationsPanel workspaceId={workspaceId} />
           <McpAccessPanel workspaceId={workspaceId} />
