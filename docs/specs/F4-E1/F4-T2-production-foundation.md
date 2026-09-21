@@ -2,7 +2,7 @@
 
 **Epic:** F4-E1 (Public beta and release readiness)
 
-**Status:** Staging deployed — release gates pending
+**Status:** Production deployed — closed-beta release gates pending
 
 ## Goal
 
@@ -110,6 +110,17 @@ daily backup timers, and 10 MB × 5-file Docker log rotation are active. A
 production dependency audit reports no known vulnerabilities after pinning
 patched `fast-uri`, `multer`, TipTap, `hono`, and `qs` releases. External alert
 delivery and the final release-readiness gates remain open.
+
+On 21 September 2026 release `9dc1b23` was deployed to the same production
+VM. Before migration, a new encrypted backup
+(`daily/luminaos-20260921T143303Z.dump.gpg`) was uploaded and verified in OCI
+Object Storage. After deployment, that exact object was decrypted and restored
+with `--exit-on-error` into the isolated `lumina-restore` Compose project; all
+48 migration rows were verified and the temporary containers and volume were
+removed. The public web shell, `/api/health`, PWA manifest, service worker,
+unauthenticated data-rights denial, PostgreSQL/Redis health, and the scheduled
+production monitor were then verified successfully. The VM remains on the
+Always Free `VM.Standard.A1.Flex` allocation with 4 OCPU and 24 GB RAM.
 
 - Unit tests for port and API-base resolution.
 - `pnpm typecheck`, relevant unit tests, and `docker compose -f
