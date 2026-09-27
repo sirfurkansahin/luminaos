@@ -148,6 +148,18 @@ Oracle'dan alınacak deliller:
 - [ ] Veri/uzaktan erişim ülkeleri ve hizmete uygulanabilir güvenlik eki.
 - [ ] Silme/iade, ihlal bildirimi ve denetim süreçleri.
 
+### İletişim kaydı
+
+| Tarih         | Kanal                               | Sonuç                                                                                                        | Sonraki adım                                                                 |
+| ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| 27 Eylül 2026 | Oracle Türkiye satış iletişim formu | Talep başarıyla gönderildi; Oracle temsilcisinin iletişime geçeceği doğrulandı. Referans numarası verilmedi. | Yazılı Oracle yanıtını bekle ve yukarıdaki delil listesini yanıtla eşleştir. |
+
+Başvuruda teknik destek veya ücretli hesap yükseltmesi istenmedi; herhangi bir
+ücretli plan ya da ücret gerekliyse bunun işlemden önce açıkça bildirilmesi
+talep edildi. Pazarlama izni verilmedi. Kişisel iletişim bilgileri bu depoya
+kaydedilmemiştir. Oracle yanıtı alınana kadar açık maddeler tamamlanmış sayılmaz
+ve dış beta yayın kapısı kapalı kalır.
+
 ## 7. Hukuk uzmanına teslim kontrol listesi
 
 - [ ] Bu paketteki taraf rolleri ve SS-2 seçimi onaylandı.
