@@ -80,6 +80,9 @@ metinleri ile oturum içinde veri dışa aktarma ve silme talebi akışları sun
       bilgi talebi ve imza/bildirim delil zinciri
       [`docs/legal/kvkk-article-9-oracle-transfer-packet.md`](../../legal/kvkk-article-9-oracle-transfer-packet.md)
       içinde hazırlandı.
+- [x] Oracle Türkiye iletişim formu üzerinden 27 Eylül 2026'da ücretsiz ve
+      yükseltme taahhüdü vermeyen bilgi talebi gönderildi; başarı ekranı
+      doğrulandı, yanıt bekleniyor ve form referans numarası üretmedi.
 - [ ] Oracle hesabının tam sözleşmeci tüzel kişiliği, uygulanabilir DPA ve güncel
       alt işleyenleri Oracle tarafından doğrulandı.
 - [ ] KVKK uzmanı taraf rollerini, SS-2 seçimini, işleme şartlarını, VERBİS
