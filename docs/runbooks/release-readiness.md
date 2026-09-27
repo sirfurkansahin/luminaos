@@ -79,7 +79,9 @@ selected secret manager and grant each runtime only the secrets it needs.
   passed after deployment.
 - The remaining external invitation blocker is the KVKK Article 9 transfer
   mechanism and any required Authority notification; a privacy notice alone
-  does not close that gate.
+  does not close that gate. The evidence inventory, SS-2 annex draft, Oracle
+  information request, and notification checklist are maintained in
+  [`docs/legal/kvkk-article-9-oracle-transfer-packet.md`](../legal/kvkk-article-9-oracle-transfer-packet.md).
 
 ## First 30 days
 
