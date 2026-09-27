@@ -76,8 +76,15 @@ metinleri ile oturum içinde veri dışa aktarma ve silme talebi akışları sun
 
 ## Açık yayın kapısı
 
-- [ ] OCI hesap sözleşmesi ve seçilen bölge için KVKK m.9 aktarım mekanizması
-      hukuk uzmanıyla doğrulandı; gerekiyorsa standart sözleşme imzalandı ve
-      beş iş günü bildirim süreci işletildi.
+- [x] Kod/canlı ortam temelli aktarım envanteri, SS-2 Ek I–III taslağı, Oracle
+      bilgi talebi ve imza/bildirim delil zinciri
+      [`docs/legal/kvkk-article-9-oracle-transfer-packet.md`](../../legal/kvkk-article-9-oracle-transfer-packet.md)
+      içinde hazırlandı.
+- [ ] Oracle hesabının tam sözleşmeci tüzel kişiliği, uygulanabilir DPA ve güncel
+      alt işleyenleri Oracle tarafından doğrulandı.
+- [ ] KVKK uzmanı taraf rollerini, SS-2 seçimini, işleme şartlarını, VERBİS
+      durumunu ve sözleşme eklerini onayladı.
+- [ ] Değiştirilmemiş SS-2 yetkili taraflarca imzalandı; beş iş günü içinde
+      Kurum bildirimi yapıldı ve alındı kanıtı güvenli hukuk arşivine kondu.
 - [x] Üretim yedek kovasında `daily/` nesneleri için 30 günlük silme yaşam
       döngüsü 21 Eylül 2026'da canlı ortamda doğrulandı.
